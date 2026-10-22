@@ -456,6 +456,22 @@ class HybridPredictionEngine(
             }, relevant.size, relevant.count { it.second.inferred }, activeUnits, inferredUnits, unsupported)
     }
 
+    internal fun projectMealTimingBasal(
+        glucose: List<GlucosePoint>,
+        therapyEvents: List<TherapyEvent>,
+        history: MealBasalHistory,
+        horizonMinutes: Int,
+        knownAtMs: Long
+    ): MealBasalProjection {
+        val bolus = projectMealTimingInsulin(glucose, therapyEvents, horizonMinutes)
+        require(history.predictionAtMs == bolus.predictionAtMs)
+        val ageKnots = (listOf(0.0, maxOf(0.0, insulinOnsetShiftMinutes)) + insulinProfile.points.map {
+            maxOf(0.0, it.minute / insulinAgeScale + insulinOnsetShiftMinutes)
+        }).distinct().sorted()
+        return MealBasalProjection.project(history, mealInsulinKernelIdentity(), knownAtMs,
+            horizonMinutes, bolus.isfMmolPerUnit, ageKnots, ::insulinCumulative)
+    }
+
     internal fun projectMealTimingFutureInsulin(
         glucose: List<GlucosePoint>,
         therapyEvents: List<TherapyEvent>,

@@ -1,5 +1,8 @@
 package io.aaps.copilot.domain.meal
 
+import io.aaps.copilot.domain.predict.MealBasalHistory
+import io.aaps.copilot.domain.predict.MealBasalInterval
+
 import io.aaps.copilot.domain.model.*
 import io.aaps.copilot.domain.nutrition.*
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
@@ -240,6 +243,25 @@ class PersonalMealCandidateBuilderTest {
         val active = simulation.insulinProjection(360).activeModeledUnits
         return mapOf("iob_relay_timestamp_ms" to now.toDouble(), "iob_net_units" to active,
             "iob_bolus_units" to active, "iob_basal_units" to 0.0, "insulin_activity" to 0.02)
+    }
+
+    @Test fun qualifiedPersonalScenariosRetainOptionalBasalAccountingWithoutClinicalAuthority() = runBlocking {
+        val (simulation, identity, meal) = timingFixture()
+        val model = model()
+        val kernel = simulation.insulinKernelIdentity()
+        val history = MealBasalHistory(now, now, "history-1", listOf(
+            MealBasalInterval("part-1", "r1", now - 86_400_000L, now, 1.0, 1.0, kernel)))
+        val result = MealTimingResearchEvaluator().evaluatePersonal(simulation, identity, model, meal, null,
+            timingBelief(meal, model.timingShape), episode(meal), timingIob(simulation), 240,
+            referenceInsulinKernel = kernel, basalHistory = history) { now + 200 }
+        assertEquals(MealTimingResearchStatus.EVALUATED, result.status)
+        assertEquals(MealInsulinAccountingStatus.COMPARABLE_COMPONENTS, result.insulinAccounting!!.status)
+        assertEquals(0.0, result.insulinAccounting.basalDifferenceUnits!!, 0.0)
+        assertNotNull(result.personalCandidate)
+        assertEquals(48, result.noFoodPaths.size)
+        assertFalse(result.notificationAllowed)
+        assertFalse(result.insulinAccounting.fullIobCoverage)
+        assertTrue(result.blockers.contains("BASAL_HISTORY_NOT_ASSIMILATED"))
     }
 
     @Test fun qualifiedHistoricalShapeDrivesCompleteScenariosWithoutEnablingMealMessages() = runBlocking {

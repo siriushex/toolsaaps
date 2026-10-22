@@ -70,4 +70,38 @@ class MealInsulinAccountingTest {
                 MealInsulinAccounting.compare(curve, kernel, invalid, kernel).status)
         }
     }
+
+    @Test fun basalComparisonPreservesSignedAndPositiveComponentsWithoutClaimingCompleteDelivery() {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true)
+        val kernel = engine.mealInsulinKernelIdentity()
+        val curve = engine.projectMealTimingInsulin(glucose, listOf(bolus), 360)
+        val history = MealBasalHistory(now, now, "history-1", listOf(
+            MealBasalInterval("older", "r1", now - 86_400_000L, now - 1_800_000L, 0.0, 1.0, kernel),
+            MealBasalInterval("recent", "r1", now - 1_800_000L, now, 2.0, 1.0, kernel)))
+        val basal = engine.projectMealTimingBasal(glucose, listOf(bolus), history, 360, now)
+        val input = snapshot(curve.activeModeledUnits, basal.signedDeviationActiveUnits)
+        val result = MealInsulinAccounting.compare(curve, kernel, input, kernel, basal)
+        assertEquals(MealInsulinAccountingStatus.COMPARABLE_COMPONENTS, result.status)
+        assertEquals(0.0, result.bolusDifferenceUnits!!, 1e-12)
+        assertEquals(0.0, result.basalDifferenceUnits!!, 1e-12)
+        assertEquals(0.0, result.netDifferenceUnits!!, 1e-12)
+        assertTrue(basal.positiveDeviation.activeUnits > maxOf(0.0, basal.signedDeviationActiveUnits))
+        assertSame(basal, result.basalProjection)
+        assertFalse(result.fullIobCoverage)
+        assertTrue(result.basalProjection!!.historyWindowCovered)
+    }
+
+    @Test fun mismatchedBasalHorizonOrKernelCannotBeAttachedToAnotherBolusProjection() {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true)
+        val kernel = engine.mealInsulinKernelIdentity()
+        val curve = engine.projectMealTimingInsulin(glucose, listOf(bolus), 360)
+        val history = MealBasalHistory(now, now, "history-1", listOf(
+            MealBasalInterval("part-1", "r1", now - 86_400_000L, now, 1.0, 1.0, kernel)))
+        val basal = engine.projectMealTimingBasal(glucose, listOf(bolus), history, 60, now)
+        val result = MealInsulinAccounting.compare(curve, kernel, snapshot(), kernel, basal)
+        assertEquals(MealInsulinAccountingStatus.BASAL_PROJECTION_MISMATCH, result.status)
+        assertNull(result.basalDifferenceUnits)
+        assertNull(result.netDifferenceUnits)
+        assertFalse(result.fullIobCoverage)
+    }
 }

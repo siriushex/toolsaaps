@@ -2487,8 +2487,18 @@ AAPS Predictive Copilot is a two-part system:
 - `MealInsulinAccounting` compares only resolver-qualified, exactly aligned AAPS
   bolus components with an explicitly matching reference kernel. It reports the
   signed numeric difference, not a fitted scale, tolerance-based safety verdict
-  or glucose correction. Signed/positive basal remain separate unsupported
-  coverage. Zero difference or zero basal does not prove full IOB coverage.
+  or glucose correction. Optional `MealBasalHistory` carries immutable contiguous
+  observed-delivery/contemporaneous-schedule intervals and source revisions. The
+  frozen engine integrates its existing piecewise-linear kernel at transformed
+  knots, preserving actual, scheduled, positive-deviation and negative-deviation
+  insulin separately. Coverage includes the actual onset-shifted tail, not merely
+  rounded DIA. Gaps, overlap, duplicates, incompatible historical kernels, late
+  evidence and exceeded work budgets reject, never truncate.
+  A matching projection adds signed basal/net numeric differences. Zero difference,
+  zero signed basal or locally complete intervals do not prove upstream delivery
+  completeness. Positive exposure and unsigned remaining tails cannot disappear
+  through net cancellation. This accounting is not injected as future insulin or
+  subtracted from glucose: historical residual/trend assimilation remains separate.
 - `evaluatePersonal` reuses the existing PersonalMealCandidateBuilder receipt
   and its causal source/profile/DIA/sensor/calibration/meal/time/portion/GI gates.
   Only a successful receipt exposes its absorption shape. Exact episode/source
@@ -2498,8 +2508,9 @@ AAPS Predictive Copilot is a two-part system:
 - Personal input qualification is research qualification, not prospective glucose
   accuracy or clinical admission. Its shape can now drive the complete research
   matrix, including both intake and missed-food worlds, while notification/therapy
-  permission remains false. Basal/full inventory, simultaneous uncertainty and
-  future-controller/clinical forecast validation remain outstanding.
+  permission remains false. Basal clinical ingestion/completeness, historical
+  residual accounting, simultaneous uncertainty and future-controller/clinical
+  forecast validation remain outstanding.
 - `MealMessageEpisode` records an explicit canonical meal/source revision and
   insulin row link. A successfully posted message permits an assumed start only,
   never observed intake, a training label, actual COB decrement or treatment.

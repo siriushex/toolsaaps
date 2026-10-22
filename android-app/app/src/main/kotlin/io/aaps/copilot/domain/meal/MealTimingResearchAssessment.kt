@@ -11,6 +11,7 @@ import io.aaps.copilot.domain.nutrition.MealPortionObservation
 import io.aaps.copilot.domain.predict.InsulinRuntimeSnapshot
 import io.aaps.copilot.domain.predict.InsulinRuntimeSnapshotResolver
 import io.aaps.copilot.domain.predict.MealInsulinKernelIdentity
+import io.aaps.copilot.domain.predict.MealBasalHistory
 import java.util.Collections
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -20,7 +21,7 @@ internal data class MealGiScenarioInput(val evidence: PersonalGiEvidence, val mo
 
 internal enum class MealTimingResearchStatus {
     EVALUATED, EPISODE_MISMATCH, IOB_UNAVAILABLE, GI_UNAVAILABLE,
-    PERSONAL_MODEL_UNAVAILABLE, PERSONAL_SCENARIO_UNSUPPORTED
+    PERSONAL_MODEL_UNAVAILABLE, PERSONAL_SCENARIO_UNSUPPORTED, BASAL_HISTORY_UNAVAILABLE
 }
 
 /** Conditional-mean crossing interval on a five-minute grid, not a confidence interval or safe wait. */
@@ -58,7 +59,8 @@ internal class MealTimingResearchAssessment(
     val therapyAllowed: Boolean get() = false
     val recommendedStartAtMs: Long? get() = null
     val blockers: List<String> = Collections.unmodifiableList(listOf("SIMULTANEOUS_UNCERTAINTY_UNVALIDATED",
-        "FUTURE_CONTROL_UNSUPPORTED", "IOB_CURVE_RECONCILIATION_REQUIRED", "PERSONAL_FORECAST_VALIDATION_REQUIRED"))
+        "FUTURE_CONTROL_UNSUPPORTED", "IOB_CURVE_RECONCILIATION_REQUIRED", "PERSONAL_FORECAST_VALIDATION_REQUIRED",
+        "UPSTREAM_DELIVERY_COVERAGE_UNVERIFIED", "BASAL_HISTORY_NOT_ASSIMILATED"))
 }
 
 /** On-demand frozen research calculation; no subscription, message sender or treatment dependency. */
@@ -66,15 +68,17 @@ internal class MealTimingResearchEvaluator {
     suspend fun evaluate(context: MealSimulationContext, belief: MealBelief, episode: MealMessageEpisode,
         insulinTelemetry: Map<String, Double?>, horizonMinutes: Int, gi: MealGiScenarioInput? = null,
         futureInsulinScenarios: List<MealInsulinScenario>? = null,
-        referenceInsulinKernel: MealInsulinKernelIdentity? = null): MealTimingResearchAssessment =
+        referenceInsulinKernel: MealInsulinKernelIdentity? = null,
+        basalHistory: MealBasalHistory? = null): MealTimingResearchAssessment =
         evaluateScenarios(context, belief, episode, insulinTelemetry, horizonMinutes, gi,
-            futureInsulinScenarios, referenceInsulinKernel)
+            futureInsulinScenarios, referenceInsulinKernel, basalHistory)
 
     suspend fun evaluatePersonal(context: MealSimulationContext, identity: MealForecastIdentity,
         model: PersonalAbsorptionResearchModel, meal: MealPortionObservation, knownGi: PersonalGiEvidence?,
         belief: MealBelief, episode: MealMessageEpisode, insulinTelemetry: Map<String, Double?>, horizonMinutes: Int,
         futureInsulinScenarios: List<MealInsulinScenario>? = null,
-        referenceInsulinKernel: MealInsulinKernelIdentity? = null, clockMs: () -> Long): MealTimingResearchAssessment {
+        referenceInsulinKernel: MealInsulinKernelIdentity? = null,
+        basalHistory: MealBasalHistory? = null, clockMs: () -> Long): MealTimingResearchAssessment {
         currentCoroutineContext().ensureActive()
         fun reject(status: MealTimingResearchStatus, qualification: PersonalMealCandidateStatus? = null) =
             MealTimingResearchAssessment(status, episode, personalQualificationStatus = qualification)
@@ -92,7 +96,7 @@ internal class MealTimingResearchEvaluator {
             }) return reject(MealTimingResearchStatus.PERSONAL_SCENARIO_UNSUPPORTED, qualified.status)
         val gi = model.giModel?.let { MealGiScenarioInput(requireNotNull(knownGi), it) }
         val result = evaluateScenarios(context, belief, episode, insulinTelemetry, horizonMinutes, gi,
-            futureInsulinScenarios, referenceInsulinKernel, shape, candidate)
+            futureInsulinScenarios, referenceInsulinKernel, basalHistory, shape, candidate)
         currentCoroutineContext().ensureActive()
         val completed = clockMs()
         if (completed < candidate.completedAtMs || completed >= identity.predictionAtMs + 300_000L)
@@ -103,6 +107,7 @@ internal class MealTimingResearchEvaluator {
     private suspend fun evaluateScenarios(context: MealSimulationContext, belief: MealBelief, episode: MealMessageEpisode,
         insulinTelemetry: Map<String, Double?>, horizonMinutes: Int, gi: MealGiScenarioInput?,
         futureInsulinScenarios: List<MealInsulinScenario>?, referenceInsulinKernel: MealInsulinKernelIdentity?,
+        basalHistory: MealBasalHistory?,
         qualifiedShape: PersonalAbsorptionShape? = null, personalCandidate: MealProspectiveCandidate? = null): MealTimingResearchAssessment {
         currentCoroutineContext().ensureActive()
         fun reject(status: MealTimingResearchStatus) = MealTimingResearchAssessment(status, episode)
@@ -127,8 +132,12 @@ internal class MealTimingResearchEvaluator {
         // The scalar qualifies context/salience only. Existing supported delivery kernels drive paths.
         val iob = InsulinRuntimeSnapshotResolver.resolveTelemetry(anchor, insulinTelemetry).snapshot
             ?: return reject(MealTimingResearchStatus.IOB_UNAVAILABLE)
+        val basal = basalHistory?.let { history ->
+            try { context.basalProjection(history, horizonMinutes) }
+            catch (_: IllegalArgumentException) { return reject(MealTimingResearchStatus.BASAL_HISTORY_UNAVAILABLE) }
+        }
         val accounting = MealInsulinAccounting.compare(context.insulinProjection(horizonMinutes),
-            context.insulinKernelIdentity(), iob, referenceInsulinKernel)
+            context.insulinKernelIdentity(), iob, referenceInsulinKernel, basal)
         val shape = qualifiedShape ?: if (gi == null) null else {
             val evidence = gi.evidence
             if (evidence.canonicalId != record.canonicalId || evidence.therapyRevision != episode.canonicalTherapyRevision ||

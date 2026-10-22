@@ -1,5 +1,20 @@
 # PLAN
 
+## Meal Basal Accounting (2026-10-22)
+
+- [x] Confirm PR18/c108942b passed all six exact-head push/PR checks.
+- [x] Add immutable observed-delivery/scheduled-basal interval accounting with
+      exact existing-kernel integration and separate signed/positive/negative tails.
+- [x] Reject incomplete, incompatible, late or over-budget history explicitly.
+- [x] Connect optional numeric basal/net comparison to on-demand research only;
+      preserve all trajectories and missed-food paths without double correction.
+- [x] Complete99 focused regressions and frozen full Android quality:6694passed,
+      six existing private-input skips, zero errors; SDK TLS and APK guard passed.
+- [ ] Publish reviewed PR18 source and inspect exact-head Verify/JUnit.
+- No clinical basal ingestion or upstream completeness claim, live recommended
+  meal time, target/dose change, phone/server/main update or APK publication.
+  See superpowers/plans/2026-10-22-meal-basal-accounting.md for remaining gates.
+
 ## Meal Timing Input Qualification (2026-10-22)
 
 - [x] Continue PR18/333c7684 after both exact-head Verify runs succeeded.
@@ -11,7 +26,7 @@
 - [x] Pass138 focused accounting/personal/scenario/timer/planner tests.
 - [x] Finish frozen full local Android quality:6676passed/six existing skips,
       zero failures/errors; real SDK TLS, lint and APK retention/size guard passed.
-- [ ] Publish follow-up reviewed source and inspect exact-head CI in PR18.
+- [x] Publish c108942b and inspect all six successful exact-head PR18 checks.
 - Still no live recommended meal message, new runtime subscriber, full basal IOB
       coverage, therapy/device/server/main change or APK publication.
 

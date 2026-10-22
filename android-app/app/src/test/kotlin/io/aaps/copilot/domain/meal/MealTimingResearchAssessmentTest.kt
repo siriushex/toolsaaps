@@ -211,4 +211,39 @@ class MealTimingResearchAssessmentTest {
         assertFalse(second.insulinAccounting.fullIobCoverage)
         assertFalse(second.notificationAllowed)
     }
+
+    @Test fun basalInventoryAddsAccountingNotASecondGlucoseCorrectionOrMealRecommendation() = runBlocking {
+        val context = context()
+        val kernel = context.insulinKernelIdentity()
+        val history = MealBasalHistory(now, now, "history-1", listOf(
+            MealBasalInterval("part-1", "r1", now - 86_400_000L, now, 1.5, 1.0, kernel)))
+        val evaluator = MealTimingResearchEvaluator()
+        val before = evaluator.evaluate(context, belief(), episode.recordPosted(now), telemetry(), 180,
+            referenceInsulinKernel = kernel)
+        val after = evaluator.evaluate(context, belief(), episode.recordPosted(now), telemetry(), 180,
+            referenceInsulinKernel = kernel, basalHistory = history)
+        assertEquals(MealInsulinAccountingStatus.COMPARABLE_COMPONENTS, after.insulinAccounting!!.status)
+        assertNotNull(after.insulinAccounting.basalDifferenceUnits)
+        assertEquals(before.batch!!.trajectories.map { it.forecast.glucoseMmol },
+            after.batch!!.trajectories.map { it.forecast.glucoseMmol })
+        assertEquals(before.noFoodPaths.size, after.noFoodPaths.size)
+        assertFalse(after.insulinAccounting.fullIobCoverage)
+        assertFalse(after.notificationAllowed)
+        assertNull(after.recommendedStartAtMs)
+    }
+
+    @Test fun incompleteOrLateBasalInventoryRejectsWithoutSilentlyReturningABolusOnlyBatch() = runBlocking {
+        val context = context()
+        val kernel = context.insulinKernelIdentity()
+        val intervals = listOf(MealBasalInterval("part-1", "r1", now - 60_000L, now, 1.0, 1.0, kernel))
+        val short = MealBasalHistory(now, now, "short-1", intervals)
+        val late = MealBasalHistory(now, now + 1, "late-1", intervals.map { it.copy(startMs = now - 86_400_000L) })
+        for (history in listOf(short, late)) {
+            val result = MealTimingResearchEvaluator().evaluate(context, belief(), episode, telemetry(), 180,
+                referenceInsulinKernel = kernel, basalHistory = history)
+            assertEquals(MealTimingResearchStatus.BASAL_HISTORY_UNAVAILABLE, result.status)
+            assertNull(result.batch)
+            assertNull(result.insulinAccounting)
+        }
+    }
 }

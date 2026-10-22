@@ -1,3 +1,34 @@
+# Meal Basal Accounting - 2026-10-22
+
+- Resume PR18/c108942b after all six exact-head push/PR checks succeeded.
+  Add research accounting only; no live recommendation or public APK activation.
+- Explicit observed-delivery and contemporaneous-schedule intervals are frozen
+  with source/kernel revisions. Integrate the existing piecewise-linear insulin
+  kernel at its transformed knots rather than collapsing basal to endpoint boluses.
+  Require uninterrupted history through the actual scaled/onset-shifted tail;
+  rounded DIA alone can omit part of that tail. Reject missing/overlapping/future,
+  late, incompatible or over-budget inventory without silent truncation.
+- Keep delivered, scheduled, positive and negative deviations, steps and tails
+  separately. Optional aligned basal/net differences are numeric diagnostics only.
+  Zero signed difference does not prove upstream completeness or eliminate positive
+  exposure. Supplied invalid basal history cannot degrade to a bolus-only batch.
+- Do not add this historical basal projection to hypothetical future insulin or
+  subtract its scalar from glucose: causal historical residual accounting remains
+  a prerequisite. Missed-food scenarios, existing production forecast, durable onset
+  clock, notification and therapy guards stay unchanged.
+- Failing-first compilation reproduced absent projection and integration APIs.
+  Initial projection suite passed9 cases; first focused integration/regression suite
+  passed94 cases without failures/errors/skips. An additional regression reproduced
+  false tail completion at zero net deviation; require physical delivered/scheduled
+  tails as well. Final focused suite passed99 cases without failures/errors/skips,
+  including qualified personal scenarios and unchanged missed-food paths. A missing
+  import in the added personal test was fixed before that final run.
+  Frozen full test/lint/compile/assemble passed in6m37s:6694passed, six existing
+  private-input skips, no failures/errors. Actual pristine RC1 SDK TLS ran2.749s,
+  not skipped. Lint zero errors/382existing warnings/eight hints. APK guard passed:
+  49,222,537bytes, all7144 compiled app classes retained; source/test hashes stayed
+  unchanged. Exact-head CI remains a separate publication gate.
+
 # Meal Timing Input Qualification - 2026-10-22
 
 - Continue from PR18/333c7684 after both exact-head Verify runs succeeded. Source

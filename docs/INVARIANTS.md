@@ -1950,6 +1950,19 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- Basal accounting requires observed delivered and contemporaneously scheduled
+  rates in U/hour, with contiguous half-open intervals through the anchor and
+  the actual shifted/scaled kernel tail. Current schedules, commands or scalar
+  IOB cannot fill missing history. Historical kernel mismatch rejects.
+- Basal convolution uses existing kernel knots, not endpoint bolus substitution.
+  Preserve actual/scheduled and positive/negative deviations with nonnegative
+  component tails. Net cancellation cannot prove zero positive exposure, finished
+  physical tails, complete upstream inventory or safe waiting.
+- Optional basal input either yields complete research accounting or an explicit
+  unavailable result. Never return a partial bolus-only batch after rejecting it.
+  This diagnostic cannot be injected into future-insulin paths: observed basal
+  effects already require causal historical residual accounting. No live meal
+  instruction, timer or therapy authority follows from numeric IOB agreement.
 - Bolus-only modeled insulin cannot be reconciled against signed net or total
   positive IOB as though it included basal. Exactly matching timestamps and
   declared kernels plus typed component validation are required even for a numeric
