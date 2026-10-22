@@ -1,3 +1,26 @@
+# Insulin Inventory And 0.1.10 - 2026-10-22
+
+- Continue from PR20/main7e693fe8. Five initial failing-first regressions exposed
+  omitted insulin rows, conflicting dose aliases, duplicate identities, invalid
+  provenance and optimistic use of the first low grid sample as a safe boundary.
+- Research inventory checks include doses the legacy kernel cannot represent;
+  unsupported or inferred inputs stop assessment before returning partial paths.
+  Recorded zero and SMB remain distinct from missing delivery. Historical replay
+  needs relevant older rows even if their modeled action has already ended now.
+- Conservative waiting checks use the preceding grid boundary. Existing live
+  forecast, durable onset clock, alarms and therapy behavior remain unchanged.
+- Final focused run passed130tests. The first full run was stopped after a new
+  historical fixture incorrectly used data outside the six-hour canonical window;
+  the corrected fixture reproduced a separate expired inferred-record omission.
+  Both historical regressions now pass. Full frozen Android quality passed in9m3s:
+  6724passed, six existing skips, zero failures/errors. Real pristine RC1 SDK TLS
+  ran3.038s, lint zero errors/382existing warnings/eight hints. Source hashes stayed
+  unchanged; the APK retention guard preserved7147compiled app classes. Fourteen
+  release-helper tests passed. Main7e693fe8 CI39839374032 passed all three jobs.
+- Exact-head CI and public0.1.10/code11 delivery are pending.
+  Complete upstream delivery and clinical recommendation validation are not
+  established by inventory agreement or by passing software tests.
+
 # Meal Clock Safety And Owner API Recovery - 2026-10-22
 
 - Continue from main0f362539 after verified0.1.9 publication. Existing source

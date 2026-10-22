@@ -17,8 +17,8 @@ android {
         applicationId = "io.aaps.predictivecopilot"
         minSdk = 31
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.10"
 
         testInstrumentationRunner = "io.aaps.copilot.CopilotTestRunner"
         vectorDrawables.useSupportLibrary = true

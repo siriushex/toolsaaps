@@ -47,9 +47,9 @@ internal class MealInsulinAccounting private constructor(
                 snapshot.timestamp != projection.predictionAtMs -> MealInsulinAccountingStatus.SNAPSHOT_NOT_ALIGNED
                 resolved == null || resolved != snapshot ->
                     MealInsulinAccountingStatus.COMPONENTS_UNAVAILABLE
-                projection.modeledEventCount == 0 -> MealInsulinAccountingStatus.INVENTORY_UNAVAILABLE
-                projection.inferredEventCount > 0 -> MealInsulinAccountingStatus.INFERRED_INVENTORY
                 projection.unsupportedEventCount > 0 -> MealInsulinAccountingStatus.INVENTORY_UNSUPPORTED
+                projection.inferredEventCount > 0 -> MealInsulinAccountingStatus.INFERRED_INVENTORY
+                projection.modeledEventCount == 0 -> MealInsulinAccountingStatus.INVENTORY_UNAVAILABLE
                 basal != null && (basal.kernel != kernel || basal.predictionAtMs != projection.predictionAtMs ||
                     basal.isfMmolPerUnit != projection.isfMmolPerUnit ||
                     basal.delivered.stepUnits.size != projection.stepEffectsMmol.size) ->
