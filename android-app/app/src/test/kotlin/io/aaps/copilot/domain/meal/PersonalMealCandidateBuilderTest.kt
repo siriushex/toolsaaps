@@ -261,7 +261,9 @@ class PersonalMealCandidateBuilderTest {
         assertEquals(48, result.noFoodPaths.size)
         assertFalse(result.notificationAllowed)
         assertFalse(result.insulinAccounting.fullIobCoverage)
-        assertTrue(result.blockers.contains("BASAL_HISTORY_NOT_ASSIMILATED"))
+        assertTrue(result.basalHistoryAssimilated)
+        assertFalse(result.blockers.contains("BASAL_HISTORY_NOT_ASSIMILATED"))
+        assertTrue(result.blockers.contains("PERSONAL_FORECAST_VALIDATION_REQUIRED"))
     }
 
     @Test fun qualifiedHistoricalShapeDrivesCompleteScenariosWithoutEnablingMealMessages() = runBlocking {

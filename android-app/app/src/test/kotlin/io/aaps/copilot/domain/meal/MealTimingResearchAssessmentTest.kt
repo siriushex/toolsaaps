@@ -212,7 +212,7 @@ class MealTimingResearchAssessmentTest {
         assertFalse(second.notificationAllowed)
     }
 
-    @Test fun basalInventoryAddsAccountingNotASecondGlucoseCorrectionOrMealRecommendation() = runBlocking {
+    @Test fun basalInventoryRefitsPathsAndRetainsMissedFoodWithoutMealRecommendation() = runBlocking {
         val context = context()
         val kernel = context.insulinKernelIdentity()
         val history = MealBasalHistory(now, now, "history-1", listOf(
@@ -224,8 +224,11 @@ class MealTimingResearchAssessmentTest {
             referenceInsulinKernel = kernel, basalHistory = history)
         assertEquals(MealInsulinAccountingStatus.COMPARABLE_COMPONENTS, after.insulinAccounting!!.status)
         assertNotNull(after.insulinAccounting.basalDifferenceUnits)
-        assertEquals(before.batch!!.trajectories.map { it.forecast.glucoseMmol },
+        assertNotEquals(before.batch!!.trajectories.map { it.forecast.glucoseMmol },
             after.batch!!.trajectories.map { it.forecast.glucoseMmol })
+        assertTrue(after.basalHistoryAssimilated)
+        assertFalse(after.blockers.contains("BASAL_HISTORY_NOT_ASSIMILATED"))
+        assertTrue(after.blockers.contains("UPSTREAM_DELIVERY_COVERAGE_UNVERIFIED"))
         assertEquals(before.noFoodPaths.size, after.noFoodPaths.size)
         assertFalse(after.insulinAccounting.fullIobCoverage)
         assertFalse(after.notificationAllowed)

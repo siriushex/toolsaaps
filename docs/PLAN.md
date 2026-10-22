@@ -1,5 +1,20 @@
 # PLAN
 
+## Meal Basal Forecast Replay And 0.1.9 (2026-10-22)
+
+- [x] Verify all six PR18/8ff108fc checks and public0.1.8/code9 metadata.
+- [x] Assimilate complete declared basal history in frozen historical known inputs
+      and future scenario paths, preserving separate physical and signed tails.
+- [x] Add chronology, coverage, residual-refit, nonmutation and missing-food tests;
+      148 focused tests and14release-helper tests pass.
+- [x] Full Android quality:6708passed, six existing skips, zero errors/failures;
+      real SDK TLS and lint pass in8m25s; source/test hashes unchanged.
+- [ ] Final APK retention/signature and exact-head CI.
+- [ ] Reviewed main integration and verified static0.1.9publication.
+- Live meal recommendation remains unavailable: the local interval contract does
+  not attest complete upstream delivery, historical sensitivity or prospective
+  forecast safety. The persistent onset clock remains operational and unchanged.
+
 ## Meal Basal Accounting (2026-10-22)
 
 - [x] Confirm PR18/c108942b passed all six exact-head push/PR checks.
@@ -10,7 +25,8 @@
       preserve all trajectories and missed-food paths without double correction.
 - [x] Complete99 focused regressions and frozen full Android quality:6694passed,
       six existing private-input skips, zero errors; SDK TLS and APK guard passed.
-- [ ] Publish reviewed PR18 source and inspect exact-head Verify/JUnit.
+- [x] Publish reviewed PR18/8ff108fc and inspect both successful Verify runs;
+      independent synthetic JUnit confirms6694passed and six existing skips.
 - No clinical basal ingestion or upstream completeness claim, live recommended
   meal time, target/dose change, phone/server/main update or APK publication.
   See superpowers/plans/2026-10-22-meal-basal-accounting.md for remaining gates.

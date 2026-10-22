@@ -1,6 +1,7 @@
 package io.aaps.copilot.domain.meal
 
 import io.aaps.copilot.domain.predict.MealForwardForecast
+import io.aaps.copilot.domain.predict.MealBasalAssimilation
 import io.aaps.copilot.domain.predict.MealFutureInsulinDelivery
 import io.aaps.copilot.domain.predict.MealFutureInsulinPlan
 import io.aaps.copilot.domain.profile.MealAbsorptionProfile
@@ -51,19 +52,21 @@ internal class MealScenarioSimulator {
         horizonMinutes: Int,
         maximumScenarios: Int = 24,
         futureInsulinScenarios: List<MealInsulinScenario>? = null,
-        absorptionShape: PersonalAbsorptionShape? = null
+        absorptionShape: PersonalAbsorptionShape? = null,
+        basalAssimilation: MealBasalAssimilation? = null
     ): MealUncertainSimulation {
         currentCoroutineContext().ensureActive()
         require(maximumScenarios in 6..24)
         val expansion = MealScenarioExpansion.expand(belief, maximumScenarios)
-        val batch = simulate(context, expansion.belief, horizonMinutes, futureInsulinScenarios, absorptionShape)
+        val batch = simulate(context, expansion.belief, horizonMinutes, futureInsulinScenarios, absorptionShape, basalAssimilation)
         currentCoroutineContext().ensureActive()
         return MealUncertainSimulation(expansion, batch)
     }
 
     suspend fun simulate(context: MealSimulationContext, belief: MealBelief, horizonMinutes: Int,
         futureInsulinScenarios: List<MealInsulinScenario>? = null,
-        absorptionShape: PersonalAbsorptionShape? = null): MealSimulationBatch {
+        absorptionShape: PersonalAbsorptionShape? = null,
+        basalAssimilation: MealBasalAssimilation? = null): MealSimulationBatch {
         val coroutine = currentCoroutineContext()
         coroutine.ensureActive()
         val cases = belief.scenarios.sortedBy { it.id }
@@ -129,7 +132,7 @@ internal class MealScenarioSimulator {
                     MealAbsorptionProjection.fromCumulative(anchor, onset, key.grams, foodHorizon, absorptionShape::cumulative)
                 else MealAbsorptionProjection.project(anchor, onset ?: anchor, key.grams,
                     key.profile, key.duration, foodHorizon)
-                context.forwardForecast(canonicalId, replacement, horizonMinutes, world?.plan)
+                context.forwardForecast(canonicalId, replacement, horizonMinutes, world?.plan, basalAssimilation)
             }
             coroutine.ensureActive()
             trajectories.add(MealConditionalTrajectory(case.id, start, delay, onset, forecast, world?.id))

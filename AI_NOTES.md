@@ -1,3 +1,33 @@
+# Meal Basal Forecast Replay - 2026-10-22
+
+- Continue from PR18/8ff108fc after all six checks succeeded. Publication of a
+  tested APK is authorized; clinical recommendation admission stays independent.
+- Add one immutable basal replay receipt per scenario batch. Integrate signed
+  delivered-minus-scheduled rates over actual CGM intervals and the future tail
+  using the same transformed piecewise-linear kernel. Replay the disposable
+  Kalman/AR history with these known inputs before forecasting. Future proposed
+  food/insulin cannot alter historical trend, and the live engine is untouched.
+- Require history back to the earliest replay point minus the full insulin tail,
+  causal zero-on-delivery kernels, bounded work, adequate contiguous CGM and
+  compatible kernel/ISF/timestamps/horizon. Reject inferred or extended/emulated
+  bolus ambiguity. Missing data cannot become scheduled delivery. Physical basal
+  tails remain visible even when signed deviations cancel.
+- A failing regression showed NO_NEW_MEAL was omitted from the no-food urgency
+  summary. Both absent-food hypotheses now participate in the earliest risk and
+  waiting margin; neither becomes an eating observation after a posted message.
+- Initial focused run:65passed, one outdated personal-receipt assertion. Updated
+  the assertion to reflect completed assimilation while retaining clinical gates.
+  Final focused run:148passed, no failures/errors/skips. Release helper14tests pass.
+- Version0.1.9/code10 prepares internet distribution. Existing onset clock,
+  notification channel, hypoglycemia alarms and target/dose behavior are unchanged.
+  Upstream delivery attestation, varying historical sensitivity, future controller
+  response and prospective simultaneous uncertainty remain unvalidated. No live
+  meal instruction, source-of-truth COB mutation or AAPS update is enabled.
+- Frozen full test/lint/compile/assemble passed in8m25s:6708passed, six existing
+  private-input skips, no errors/failures. Pristine RC1 SDK TLS ran3.055s and was
+  not skipped. Lint has zero errors and382existing warnings. Source/test hashes
+  stayed unchanged. Exact-head CI and public APK verification are pending.
+
 # Meal Basal Accounting - 2026-10-22
 
 - Resume PR18/c108942b after all six exact-head push/PR checks succeeded.

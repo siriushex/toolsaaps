@@ -12,7 +12,8 @@ internal class MealForwardForecast(
     val remainingFoodGrams: Double,
     val remainingInsulinUnits: Double,
     val numericLimitsReached: Boolean,
-    val hypotheticalFutureInsulinUnits: Double = 0.0
+    val hypotheticalFutureInsulinUnits: Double = 0.0,
+    val basalProjection: MealBasalProjection? = null
 ) {
     val forecasts: List<Forecast> = Collections.unmodifiableList(forecasts.toList())
     /** Five-minute grid including the engine's current filtered glucose at index zero. */
@@ -20,7 +21,8 @@ internal class MealForwardForecast(
     val trendSteps: List<Double> = Collections.unmodifiableList(trendSteps.toList())
     val horizonMinutes: Int = (this.glucoseMmol.size - 1) * 5
     /** Completion of known component curves is not proof of physiological or controller coverage. */
-    val modeledTailsComplete: Boolean = remainingFoodGrams == 0.0 && remainingInsulinUnits == 0.0
+    val modeledTailsComplete: Boolean = remainingFoodGrams == 0.0 && remainingInsulinUnits == 0.0 &&
+        basalProjection?.completeByHorizon != false
     val futureControlSimulated: Boolean = false
     val trajectoryUncertaintyValidated: Boolean = false
 
@@ -30,5 +32,7 @@ internal class MealForwardForecast(
         require(remainingFoodGrams.isFinite() && remainingFoodGrams >= 0.0)
         require(remainingInsulinUnits.isFinite() && remainingInsulinUnits >= 0.0)
         require(hypotheticalFutureInsulinUnits.isFinite() && hypotheticalFutureInsulinUnits >= 0.0)
+        require(basalProjection == null || (basalProjection.predictionAtMs == predictionAtMs &&
+            basalProjection.delivered.stepUnits.size == this.glucoseMmol.size))
     }
 }

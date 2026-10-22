@@ -58,9 +58,13 @@ internal class MealTimingResearchAssessment(
     val notificationAllowed: Boolean get() = false
     val therapyAllowed: Boolean get() = false
     val recommendedStartAtMs: Long? get() = null
+    val basalHistoryAssimilated: Boolean get() = batch?.trajectories?.let { paths ->
+        paths.isNotEmpty() && paths.all { it.forecast.basalProjection != null }
+    } == true
     val blockers: List<String> = Collections.unmodifiableList(listOf("SIMULTANEOUS_UNCERTAINTY_UNVALIDATED",
         "FUTURE_CONTROL_UNSUPPORTED", "IOB_CURVE_RECONCILIATION_REQUIRED", "PERSONAL_FORECAST_VALIDATION_REQUIRED",
-        "UPSTREAM_DELIVERY_COVERAGE_UNVERIFIED", "BASAL_HISTORY_NOT_ASSIMILATED"))
+        "UPSTREAM_DELIVERY_COVERAGE_UNVERIFIED") +
+        if (basalHistoryAssimilated) emptyList() else listOf("BASAL_HISTORY_NOT_ASSIMILATED"))
 }
 
 /** On-demand frozen research calculation; no subscription, message sender or treatment dependency. */
@@ -133,11 +137,11 @@ internal class MealTimingResearchEvaluator {
         val iob = InsulinRuntimeSnapshotResolver.resolveTelemetry(anchor, insulinTelemetry).snapshot
             ?: return reject(MealTimingResearchStatus.IOB_UNAVAILABLE)
         val basal = basalHistory?.let { history ->
-            try { context.basalProjection(history, horizonMinutes) }
+            try { context.prepareBasal(history, horizonMinutes) }
             catch (_: IllegalArgumentException) { return reject(MealTimingResearchStatus.BASAL_HISTORY_UNAVAILABLE) }
         }
         val accounting = MealInsulinAccounting.compare(context.insulinProjection(horizonMinutes),
-            context.insulinKernelIdentity(), iob, referenceInsulinKernel, basal)
+            context.insulinKernelIdentity(), iob, referenceInsulinKernel, basal?.projection)
         val shape = qualifiedShape ?: if (gi == null) null else {
             val evidence = gi.evidence
             if (evidence.canonicalId != record.canonicalId || evidence.therapyRevision != episode.canonicalTherapyRevision ||
@@ -148,7 +152,7 @@ internal class MealTimingResearchEvaluator {
             gi.model.shapeFor(evidence.value) ?: return reject(MealTimingResearchStatus.GI_UNAVAILABLE)
         }
         val simulation = MealScenarioSimulator().simulateUncertain(context, belief, horizonMinutes,
-            futureInsulinScenarios = futureInsulinScenarios, absorptionShape = shape)
+            futureInsulinScenarios = futureInsulinScenarios, absorptionShape = shape, basalAssimilation = basal)
         val batch = simulation.batch
         currentCoroutineContext().ensureActive()
         val absentIds = simulation.expansion.belief.scenarios.filter { it.kind in setOf(MealHypothesisKind.NOT_HAPPENING,

@@ -122,7 +122,7 @@ class MealTimingPlanner {
             return abstain(MealTimingReason.UNCERTAINTY_UNSUPPORTED)
         }
         val noFoodLow = paths.asSequence()
-            .filter { scenarios.getValue(it.scenarioId).kind == MealHypothesisKind.NOT_HAPPENING }
+            .filter { scenarios.getValue(it.scenarioId).kind in NO_FOOD_KINDS }
             .flatMap { it.points.asSequence().take(horizon / 5 + 1) }
             .filter { it.lowMmol < 4.0 }.minOfOrNull { it.offsetMinutes }
         val noFoodRisk = MealNoFoodRisk(noFoodLow)
@@ -134,7 +134,7 @@ class MealTimingPlanner {
             return assessed(MealTimingStatus.ABSTAIN, MealTimingReason.NO_FOOD_URGENCY)
         }
         val eatingPaths = paths.filter {
-            scenarios.getValue(it.scenarioId).kind != MealHypothesisKind.NOT_HAPPENING
+            scenarios.getValue(it.scenarioId).kind !in NO_FOOD_KINDS
         }
         // Conditional eating safety includes low-weight and already-started worlds.
         // A distant no-food low is reported separately, not averaged or suppressed.
@@ -158,7 +158,7 @@ class MealTimingPlanner {
         // Numerical subdivision must not turn a plausible stage into many ignored
         // low-weight cases. Retain every boundary of a plausible stage.
         for (scenario in scenarios.values.filter {
-            belief.stageProbabilities.getValue(it.kind) >= 0.05 && it.kind != MealHypothesisKind.NOT_HAPPENING
+            belief.stageProbabilities.getValue(it.kind) >= 0.05 && it.kind !in NO_FOOD_KINDS
         }) {
             for (insulinWorld in insulinWorlds) {
                 for (delay in REACTION_DELAYS) {
@@ -187,6 +187,7 @@ class MealTimingPlanner {
     private data class PathKey(val scenarioId: String, val start: Int, val delay: Int, val insulinId: String?)
 
     companion object {
+        private val NO_FOOD_KINDS = setOf(MealHypothesisKind.NOT_HAPPENING, MealHypothesisKind.NO_NEW_MEAL)
         val START_OFFSETS: List<Int> = java.util.Collections.unmodifiableList(listOf(0, 5, 10, 15, 20, 30))
         val REACTION_DELAYS: List<Int> = java.util.Collections.unmodifiableList(listOf(0, 5, 10, 20))
     }

@@ -2497,8 +2497,17 @@ AAPS Predictive Copilot is a two-part system:
   A matching projection adds signed basal/net numeric differences. Zero difference,
   zero signed basal or locally complete intervals do not prove upstream delivery
   completeness. Positive exposure and unsigned remaining tails cannot disappear
-  through net cancellation. This accounting is not injected as future insulin or
-  subtracted from glucose: historical residual/trend assimilation remains separate.
+  through net cancellation. `MealBasalAssimilation` builds one immutable receipt
+  for a complete batch, integrating signed deviations over each actual historical
+  CGM interval. The frozen forward engine refits Kalman/AR with those known inputs
+  and adds the corresponding future tail. Physical scheduled basal is kept as
+  accounting, not an additional glucose subtraction. This research convention
+  treats scheduled basal as the reference equilibrium; it does not establish
+  clinical adequacy of that schedule or historical sensitivity.
+  Replay requires inventory through earliest CGM minus support, compatible
+  timestamp/kernel/ISF/horizon, causal kernels and bounded work. Missing/poor CGM,
+  inferred or ambiguous extended delivery cannot silently fall back. Each path
+  carries its physical basal tail; zero net deviation cannot close that tail.
 - `evaluatePersonal` reuses the existing PersonalMealCandidateBuilder receipt
   and its causal source/profile/DIA/sensor/calibration/meal/time/portion/GI gates.
   Only a successful receipt exposes its absorption shape. Exact episode/source
@@ -2509,7 +2518,7 @@ AAPS Predictive Copilot is a two-part system:
   accuracy or clinical admission. Its shape can now drive the complete research
   matrix, including both intake and missed-food worlds, while notification/therapy
   permission remains false. Basal clinical ingestion/completeness, historical
-  residual accounting, simultaneous uncertainty and future-controller/clinical
+  sensitivity, simultaneous uncertainty and future-controller/clinical
   forecast validation remain outstanding.
 - `MealMessageEpisode` records an explicit canonical meal/source revision and
   insulin row link. A successfully posted message permits an assumed start only,

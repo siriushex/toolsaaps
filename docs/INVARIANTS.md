@@ -1960,9 +1960,19 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
   physical tails, complete upstream inventory or safe waiting.
 - Optional basal input either yields complete research accounting or an explicit
   unavailable result. Never return a partial bolus-only batch after rejecting it.
-  This diagnostic cannot be injected into future-insulin paths: observed basal
-  effects already require causal historical residual accounting. No live meal
-  instruction, timer or therapy authority follows from numeric IOB agreement.
+  A frozen research replay may assimilate signed deviations only after covering
+  the earliest CGM interval plus the full kernel support. Refit historical known
+  inputs and residuals before adding the future tail; never append the tail to
+  a trend trained without these inputs. Proposed future insulin is separate.
+  No live meal instruction, timer or therapy authority follows from numeric IOB
+  agreement. Historical ISF is still approximated by the frozen cycle ISF and
+  remains a clinical-admission limitation.
+- Both NOT_HAPPENING and NO_NEW_MEAL participate in no-food urgency and waiting
+  margin. A posted message cannot suppress either world or convert it to intake.
+- Basal replay rejects raw CGM gaps over10min, fewer than4canonical points,
+  non-OK readings, pre-delivery kernel effects, unsupported extended/emulated or
+  inferred insulin and unaligned receipt identities. Physical delivered and
+  scheduled tails still block modeled-tail completion at zero signed deviation.
 - Bolus-only modeled insulin cannot be reconciled against signed net or total
   positive IOB as though it included basal. Exactly matching timestamps and
   declared kernels plus typed component validation are required even for a numeric
