@@ -5,6 +5,51 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealTimingPlannerTest {
+    @Test fun calculationLatencyConsumesNoFoodResponseMargin() {
+        val e = envelope()
+        val paths = e.trajectories.map { t ->
+            if (t.scenarioId == MealHypothesisKind.NO_NEW_MEAL.name) t.copy(points = t.points.map { p ->
+                if (p.offsetMinutes == 25) p.copy(lowMmol = 3.5) else p
+            }) else t
+        }
+        val result = MealTimingPlanner().evaluate(belief, e.copy(trajectories = paths), now + 300_000L)
+        assertEquals(MealTimingReason.NO_FOOD_URGENCY, result.reason)
+        assertNull(result.candidateOffsetMinutes)
+        assertFalse(result.notificationAllowed)
+    }
+
+    @Test fun expiredImmediateCandidateDoesNotBecomeANewWait() {
+        val result = MealTimingPlanner().evaluate(belief, envelope(), now + 1)
+        assertEquals(MealTimingStatus.ABSTAIN, result.status)
+        assertEquals(MealTimingReason.EXPIRED_CANDIDATE, result.reason)
+        assertNull(result.candidateOffsetMinutes)
+        assertNull(result.candidateAtMs)
+        assertFalse(result.notificationAllowed)
+    }
+
+    @Test fun repeatedAssessmentKeepsTheOriginalAbsoluteCandidateTime() {
+        val e = envelope()
+        val paths = e.trajectories.map { t -> t.copy(points = t.points.map { p ->
+            val mean = if (p.offsetMinutes == 0 || t.startOffsetMinutes >= 10) 6.0 else 8.0
+            p.copy(meanMmol = mean, lowMmol = mean - 0.3, highMmol = mean + 0.3)
+        }) }
+        for (latency in listOf(0L, 120_000L, 300_000L)) {
+            val result = MealTimingPlanner().evaluate(belief, e.copy(trajectories = paths), now + latency)
+            assertEquals(10, result.candidateOffsetMinutes)
+            assertEquals(now + 600_000L, result.candidateAtMs)
+            assertFalse(result.notificationAllowed)
+        }
+    }
+
+    @Test fun absoluteMealCandidateCannotOverflowWallClock() {
+        val e = envelope()
+        val anchor = Long.MAX_VALUE - 1
+        val result = MealTimingPlanner().evaluate(belief, e.copy(generatedAtMs = anchor,
+            uncertainty = e.uncertainty!!.copy(generatedAtMs = anchor)), anchor)
+        assertEquals(MealTimingReason.INVALID_CONTEXT, result.reason)
+        assertNull(result.candidateOffsetMinutes)
+    }
+
     @Test fun lowInOneInsulinWorldCannotBeAveragedAway() {
         val e = envelope()
         val paths = e.trajectories.flatMap { t -> listOf(

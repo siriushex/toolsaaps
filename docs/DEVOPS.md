@@ -692,6 +692,26 @@ that scoped rerun as a second complete-suite execution.
 
 ## Owner API Source Entry
 
+The optional standalone `app.ai.owner_readiness` pre-start check is frame-free:
+it checks both existing text/image sockets against their systemd MainPID and
+kernel peer credentials, ownership/mode/link count, then rechecks path/PID across
+connect. Run as the existing API user. Both service dependencies/orderings must
+be explicit; metadata presence or Type=simple alone does not prove readiness.
+Missing peer credentials or a timeout must reject startup, never bypass the
+worker. It sends no request bytes, opens no profile/database and changes no
+model. Focused tests: test_ai_owner_readiness.py and test_ai_owner_api.py.
+Operational admission remains separate: install only a reviewed immutable helper,
+preserve any touched descriptor/unit, drain the API before trust renewal, verify
+actual readiness and public denial, and retain prior data/uncertain job claims.
+For the official CRL, Google documents Cache-Control as its refresh interval:
+https://developer.android.com/privacy-and-security/security-key-attestation .
+An old Date alone is not a stale response when a consistent Age remains within
+that lifetime. Bound accepted cache age to24hours, reject missing/inconsistent
+freshness, future dates and duplicate fields, and record the actual checked time
+only after a verified HTTPS response. Never extend the existing seven-day local
+admission limit or renew it from an old local file. Public401 demonstrates access
+control/reachability, not a successful authenticated model turn.
+
 Before provisioning, use protected owner configuration version2. Its attestation
 object requires revocation_snapshot with exactly path and sha256, pointing to a
 separate single-link0400/0600 regular file readable by the API. Pin the complete
