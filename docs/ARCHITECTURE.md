@@ -2480,6 +2480,16 @@ AAPS Predictive Copilot is a two-part system:
 - `insulin_real_onset_min` is a different, current runtime estimate: `estimateLocalCobIob` passes it to `modelSameCycleActiveInsulinStatic` and the prediction engine. Its existing insulin/forecast effect is preserved. The timer does not freeze it until the next night or replace it with the long-term fitted-profile onset.
 
 ## No-Button Meal Scenario Research (2026-10-22)
+- Inventory admission inspects every insulin-carrying row relevant to current or
+  historical replay, including positive doses the legacy kernel cannot represent.
+  Missing/invalid amounts, conflicting aliases, repeated source IDs, cancellation,
+  priming and local-command provenance remain unsupported, not zero delivery.
+  Recorded SMB remains a modeled insulin contribution, not a meal-intent anchor.
+  Invalid or inferred inventory stops assessment before returning a scenario batch.
+  These checks establish local consistency only, never upstream completeness.
+- The first below-threshold grid point remains a diagnostic. Waiting-margin checks
+  use the preceding grid boundary, since crossing may occur within that interval.
+  This conservative boundary is not continuous-path clinical validation.
 - Research candidate offsets refer to the original forecast anchor, not the time
   of repeated evaluation. `candidateAtMs` exposes that immutable absolute time.
   Calculation age consumes the no-food response margin. If the common optimum

@@ -1950,6 +1950,13 @@ idle-only behavior, atomic accepted tuples and all target guards are unchanged.
 14. Daily optimizer telemetry must always publish neutral runtime keys on failure (`apply_flag=0`, scales=`1.0`) to prevent stale previous APPLY payload from leaking into runtime.
 
 ## Model Onset Clock
+- Unsupported insulin records cannot disappear because the kernel parser omitted
+  them. Inspect rows that can affect current or replayed glucose; conflicting dose
+  aliases, duplicate source identities and invalid provenance block the batch.
+  Valid recorded zero doses and SMB must not be confused with missing delivery.
+  Local inventory agreement cannot set fullIobCoverage or authorize live advice.
+- A first low sample at minute N does not prove safety until N. Use the preceding
+  grid boundary for response/waiting margins and retain the original diagnostic.
 - An anchored meal candidate cannot restart on reevaluation. Calculation latency
   reduces the remaining no-food response margin. Expired optima require fresh
   evidence, never an automatic later wait; absolute deadline overflow rejects.

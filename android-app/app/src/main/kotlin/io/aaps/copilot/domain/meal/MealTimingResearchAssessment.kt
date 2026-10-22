@@ -21,7 +21,8 @@ internal data class MealGiScenarioInput(val evidence: PersonalGiEvidence, val mo
 
 internal enum class MealTimingResearchStatus {
     EVALUATED, EPISODE_MISMATCH, IOB_UNAVAILABLE, GI_UNAVAILABLE,
-    PERSONAL_MODEL_UNAVAILABLE, PERSONAL_SCENARIO_UNSUPPORTED, BASAL_HISTORY_UNAVAILABLE
+    PERSONAL_MODEL_UNAVAILABLE, PERSONAL_SCENARIO_UNSUPPORTED, BASAL_HISTORY_UNAVAILABLE,
+    INSULIN_INVENTORY_UNAVAILABLE
 }
 
 /** Conditional-mean crossing interval on a five-minute grid, not a confidence interval or safe wait. */
@@ -136,11 +137,17 @@ internal class MealTimingResearchEvaluator {
         // The scalar qualifies context/salience only. Existing supported delivery kernels drive paths.
         val iob = InsulinRuntimeSnapshotResolver.resolveTelemetry(anchor, insulinTelemetry).snapshot
             ?: return reject(MealTimingResearchStatus.IOB_UNAVAILABLE)
+        val projection = context.insulinProjection(horizonMinutes)
+        if (projection.unsupportedEventCount > 0 || projection.inferredEventCount > 0) {
+            return MealTimingResearchAssessment(MealTimingResearchStatus.INSULIN_INVENTORY_UNAVAILABLE,
+                episode, iob = iob, insulinAccounting = MealInsulinAccounting.compare(projection,
+                    context.insulinKernelIdentity(), iob, referenceInsulinKernel))
+        }
         val basal = basalHistory?.let { history ->
             try { context.prepareBasal(history, horizonMinutes) }
             catch (_: IllegalArgumentException) { return reject(MealTimingResearchStatus.BASAL_HISTORY_UNAVAILABLE) }
         }
-        val accounting = MealInsulinAccounting.compare(context.insulinProjection(horizonMinutes),
+        val accounting = MealInsulinAccounting.compare(projection,
             context.insulinKernelIdentity(), iob, referenceInsulinKernel, basal?.projection)
         val shape = qualifiedShape ?: if (gi == null) null else {
             val evidence = gi.evidence

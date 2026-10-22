@@ -6,6 +6,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealInsulinAccountingTest {
+    @Test fun invalidUnmodeledInventoryIsNotReportedAsAnEmptyCompleteList() {
+        val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true)
+        val kernel = engine.mealInsulinKernelIdentity()
+        val curve = engine.projectMealTimingInsulin(glucose, listOf(bolus.copy(payload = emptyMap())), 60)
+        val result = MealInsulinAccounting.compare(curve, kernel, snapshot(bolus = 0.0), kernel)
+        assertEquals(MealInsulinAccountingStatus.INVENTORY_UNSUPPORTED, result.status)
+        assertNull(result.bolusDifferenceUnits)
+        assertFalse(result.fullIobCoverage)
+    }
+
     private val now = 1_700_000_000_000L
     private val glucose = (0..20).map { GlucosePoint(now - (20 - it) * 300_000L, 6.0, "sensor") }
     private val bolus = TherapyEvent(now - 600_000L, "bolus", mapOf("units" to "2.2"))

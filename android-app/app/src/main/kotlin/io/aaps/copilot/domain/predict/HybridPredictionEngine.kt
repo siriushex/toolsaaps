@@ -442,18 +442,20 @@ class HybridPredictionEngine(
             activeUnits += active
             if (insulin.inferred) inferredUnits += active
         }
-        val unsupported = therapyEvents.count { event ->
-            val modeledEvent = modeledInsulinEvent(event)
-            if (modeledEvent == null || nowTs - event.ts > EVENT_LOOKBACK_MS) false else {
-                val parts = io.aaps.copilot.domain.model.resolveTherapyComponents(event)
-                !parts.wholeEventValid || parts.insulinU?.let { abs(it - modeledEvent.units) <= 1e-9 } != true
-            }
+        val inventory = therapyEvents.filter { eventCanCarryInsulin(it) &&
+            (nowTs - it.ts <= EVENT_LOOKBACK_MS ||
+                insulinCumulative(maxOf(0L, canonical.first().ts - it.ts) / 60_000.0) < 1.0) }
+        val repeatedIds = inventory.mapNotNull { it.sourceRowId }.groupingBy { it }.eachCount()
+            .filterValues { it > 1 }.keys
+        val unsupported = inventory.count { event ->
+            event.sourceRowId?.let { it.isBlank() || it in repeatedIds } == true ||
+                mealInsulinRecordUnsupported(event)
         }
         require(steps.all { it.isFinite() } && remaining.isFinite() && activeUnits.isFinite() && inferredUnits.isFinite())
         return MealInsulinProjection(nowTs, factors.isfMmolPerUnit, factors.carbSensitivityMmolPerGram,
             steps, remaining, relevant.all { (ts, _) ->
                 insulinCumulative((nowTs - ts) / 60_000.0 + horizonMinutes) >= 1.0
-            }, relevant.size, relevant.count { it.second.inferred }, activeUnits, inferredUnits, unsupported)
+            }, relevant.size, inventory.count { isInferredInsulinEvent(it) }, activeUnits, inferredUnits, unsupported)
     }
 
     internal fun projectMealTimingBasal(
@@ -1545,6 +1547,37 @@ class HybridPredictionEngine(
     private fun eventCanCarryInsulin(event: TherapyEvent): Boolean {
         val type = normalize(event.type)
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
+    }
+
+    /** Research admission only: an omitted record is not evidence of zero delivery. */
+    private fun mealInsulinRecordUnsupported(event: TherapyEvent): Boolean {
+        val parts = io.aaps.copilot.domain.model.resolveTherapyComponents(event)
+        if (!parts.wholeEventValid || parts.insulinU == null) return true
+        val doses = event.payload.filterKeys {
+            it.lowercase(Locale.US).filter(Char::isLetterOrDigit) in
+                setOf("units", "bolusunits", "insulinunits", "insulin", "enteredinsulin")
+        }.values.map { it.trim().replace(',', '.').toDoubleOrNull() }
+        if (doses.isEmpty() || doses.any { it == null || !it.isFinite() || abs(it - parts.insulinU) > 1e-9 }) return true
+        val sourceId = event.sourceRowId.orEmpty()
+        if (sourceId.startsWith("iob-inf-") || sourceId.startsWith("br-local_broadcast-")) return true
+        // Recorded SMB contributes modeled insulin but cannot establish meal intent.
+        if (event.payload.any { (key, raw) ->
+                val value = raw.trim().uppercase(Locale.US)
+                when (key.lowercase(Locale.US).filter(Char::isLetterOrDigit)) {
+                    "cancelled", "canceled", "iscancelled", "iscanceled", "recovered", "synthetic" ->
+                        value !in setOf("FALSE", "0")
+                    "isvalid" -> value !in setOf("TRUE", "1")
+                    "inferred" -> value !in setOf("FALSE", "0") &&
+                        (value !in setOf("TRUE", "1") || !isInferredInsulinEvent(event))
+                    "method" -> value == "IOB_JUMP" && !isInferredInsulinEvent(event)
+                    "bolustype", "type" -> value == "PRIMING"
+                    "classification" -> value in setOf("LOCAL_ACTION", "INFERRED_IOB", "RECOVERED_MICROBOLUS", "UAM_SYNTHETIC")
+                    else -> false
+                }
+            }) return true
+        val modeled = modeledInsulinEvent(event)
+        return if (parts.insulinU == 0.0) modeled != null
+        else modeled == null || abs(modeled.units - parts.insulinU) > 1e-9
     }
 
     private fun modeledInsulinEvent(event: TherapyEvent): ModeledInsulinEvent? {

@@ -49,7 +49,10 @@ enum class MealTimingReason {
     INCOMPLETE_SCENARIOS, INCOMPLETE_HORIZON, UNSAFE_TRAJECTORY, CONFLICTING_SCENARIOS, BUDGET_EXCEEDED,
     NO_FOOD_URGENCY, UNCERTAINTY_UNSUPPORTED, EXPIRED_CANDIDATE
 }
-data class MealNoFoodRisk(val firstLowOffsetMinutes: Int?)
+data class MealNoFoodRisk(val firstLowOffsetMinutes: Int?) {
+    // The crossing can precede its first sampled low; do not grant the unsampled interval as waiting time.
+    val firstPossibleLowOffsetMinutes: Int? get() = firstLowOffsetMinutes?.let { maxOf(0, it - 5) }
+}
 data class MealTimingDecision(
     val status: MealTimingStatus,
     val reason: MealTimingReason,
@@ -128,13 +131,14 @@ class MealTimingPlanner {
             .flatMap { it.points.asSequence().take(horizon / 5 + 1) }
             .filter { it.lowMmol < 4.0 }.minOfOrNull { it.offsetMinutes }
         val noFoodRisk = MealNoFoodRisk(noFoodLow)
+        val noFoodMargin = noFoodRisk.firstPossibleLowOffsetMinutes
         fun assessed(status: MealTimingStatus, reason: MealTimingReason, start: Int? = null) =
             MealTimingDecision(status, reason, start, noFoodRisk,
                 start?.let { envelope.generatedAtMs + it * MINUTE_MS })
         // Imminent risk without food belongs to the hypo pathway, not a routine
         // invitation whose delivery and user response are not guaranteed.
         val elapsedSincePredictionMs = nowMs - envelope.generatedAtMs
-        if (noFoodLow != null && noFoodLow * MINUTE_MS <=
+        if (noFoodMargin != null && noFoodMargin * MINUTE_MS <=
             elapsedSincePredictionMs + REACTION_DELAYS.last() * MINUTE_MS) {
             return assessed(MealTimingStatus.ABSTAIN, MealTimingReason.NO_FOOD_URGENCY)
         }
@@ -144,7 +148,7 @@ class MealTimingPlanner {
         // Conditional eating safety includes low-weight and already-started worlds.
         // A distant no-food low is reported separately, not averaged or suppressed.
         val feasible = START_OFFSETS.filter { start ->
-            (noFoodLow == null || noFoodLow > start + REACTION_DELAYS.last()) &&
+            (noFoodMargin == null || noFoodMargin > start + REACTION_DELAYS.last()) &&
                 eatingPaths.filter { it.startOffsetMinutes == start }.all { t ->
                     t.points.take(horizon / 5 + 1).all { it.lowMmol >= 4.0 }
                 }

@@ -5,6 +5,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealTimingPlannerTest {
+    @Test fun gridIntervalCannotAddFiveMinutesOfSafeWaiting() {
+        val e = envelope()
+        val paths = e.trajectories.map { t ->
+            if (t.scenarioId == MealHypothesisKind.NO_NEW_MEAL.name) t.copy(points = t.points.map { p ->
+                if (p.offsetMinutes == 25) p.copy(lowMmol = 3.5) else p
+            }) else t
+        }
+        val result = MealTimingPlanner().evaluate(belief, e.copy(trajectories = paths), now)
+        assertEquals(MealTimingReason.NO_FOOD_URGENCY, result.reason)
+        assertEquals(25, result.noFoodRisk?.firstLowOffsetMinutes)
+        assertEquals(20, result.noFoodRisk?.firstPossibleLowOffsetMinutes)
+        assertNull(result.candidateAtMs)
+        assertFalse(result.notificationAllowed)
+    }
+
     @Test fun calculationLatencyConsumesNoFoodResponseMargin() {
         val e = envelope()
         val paths = e.trajectories.map { t ->

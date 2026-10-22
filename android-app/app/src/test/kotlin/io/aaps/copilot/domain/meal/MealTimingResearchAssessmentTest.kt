@@ -20,6 +20,7 @@ class MealTimingResearchAssessmentTest {
         "iob_relay_timestamp_ms" to timestamp.toDouble(), "iob_net_units" to value,
         "iob_bolus_units" to 2.2, "iob_basal_units" to value - 2.2, "insulin_activity" to 0.02)
     private suspend fun context(current: Double = 6.0, previousFood: Boolean = false,
+        extraEvents: List<TherapyEvent> = emptyList(),
         transform: (TherapyEvent) -> TherapyEvent = { it }): MealSimulationContext {
         val engine = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false).apply {
             setMealAbsorptionContext(MealAbsorptionContext(enabled = true,
@@ -29,7 +30,7 @@ class MealTimingResearchAssessmentTest {
         val events = (listOf(
             TherapyEvent(now, "carbs", mapOf("carbs" to "35"), componentTrust = TherapyEventComponentTrust(12, "r1")),
             TherapyEvent(now - 600_000, "meal_bolus", mapOf("insulin" to "2.2"), sourceRowId = "bolus-1")
-        ) + if (previousFood) listOf(TherapyEvent(now - 1_800_000, "carbs", mapOf("carbs" to "15"),
+        ) + extraEvents + if (previousFood) listOf(TherapyEvent(now - 1_800_000, "carbs", mapOf("carbs" to "15"),
             componentTrust = TherapyEventComponentTrust(11, "r1"))) else emptyList()).map(transform)
         return MealSimulationContext.capture(engine, glucose, events, engine.predict(glucose, events), "cycle-1", 7, now)
     }
@@ -41,6 +42,22 @@ class MealTimingResearchAssessmentTest {
                 MealCarbRange(if (absent) 0.0 else 35.0, if (absent) 0.0 else 35.0),
                 listOf(MealAbsorptionAlternative(MealAbsorptionProfile.MIXED, 120, 1.0)), 1.0 / 6, "12")
         }, 3)
+
+    @Test fun incompleteOtherInsulinCannotYieldAPartialMealScenarioBatch() = runBlocking {
+        for (payload in listOf(mapOf("units" to "NaN"), mapOf("units" to "40"),
+            mapOf("units" to "1", "inferred" to "true"))) {
+            val context = context(extraEvents = listOf(TherapyEvent(now - 60_000L, "bolus", payload,
+                sourceRowId = "other-insulin")))
+            val result = MealTimingResearchEvaluator().evaluate(context, belief(), episode, telemetry(), 180)
+            assertEquals(MealTimingResearchStatus.INSULIN_INVENTORY_UNAVAILABLE, result.status)
+            assertNotNull(result.insulinAccounting)
+            assertNull(result.batch)
+            assertTrue(result.noFoodPaths.isEmpty())
+            assertFalse(result.notificationAllowed)
+            assertFalse(result.therapyAllowed)
+            assertEquals(context.baselineForecasts, context.newEngine().predict(context.glucose, context.therapy))
+        }
+    }
 
     @Test fun giChangesFoodTimingButCannotChangeAbsentFoodOrBaseline() = runBlocking {
         val context = context(previousFood = true)

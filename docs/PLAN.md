@@ -1,5 +1,19 @@
 # PLAN
 
+## Insulin Inventory And 0.1.10 (2026-10-22)
+
+- [x] Reproduce omitted/ambiguous insulin inventory and grid-margin defects.
+- [x] Reject unsupported inventory before returning research scenario paths;
+      preserve live prediction, durable onset clock, targets, doses and alarms.
+- [x] Historical replay and130focused tests pass; full Android quality passed
+      6724tests/six existing skips, real SDK TLS, lint and build. Source unchanged.
+- [x] Main7e693fe8 CI39839374032 passed all jobs; APK class retention passed.
+- [ ] Verify exact-head CI and unchanged APK signer.
+- [ ] Integrate reviewed source and publish immutable0.1.10/code11 with independent
+      public download, metadata, signature and resume-Range checks.
+- Local consistency is not complete upstream delivery. Clinical recommendation
+  admission remains separate and is not enabled by this release.
+
 ## Meal Clock Safety And API Recovery (2026-10-22)
 
 - [x] Reproduce three planner defects in failing-first synthetic tests.
@@ -12,7 +26,8 @@
       SDK TLS passed. Original main CI39829526154 passed all three jobs.
 - [x] Controlled image dependency/readiness and official trust snapshot renewal;
       local/public401 and unchanged model/settings/supervisor PIDs verified.
-- [ ] Publish reviewed source and inspect exact-head CI.
+- [x] PR20 merged as7e693fe8 after all six exact-head PR/push checks passed;
+      tested and merged trees match. Automatic main CI is checked separately.
 - Live recommended meal timing remains blocked by complete delivery provenance,
   prospective simultaneous uncertainty and future-controller validation. A normal
   API start or401 does not establish an actual signed device/model exchange.
