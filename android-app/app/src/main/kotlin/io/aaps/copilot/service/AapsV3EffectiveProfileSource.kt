@@ -20,30 +20,43 @@ internal data class AapsV3EffectiveProfileRead(
     override fun toString() = "AapsV3EffectiveProfileRead(status=$status, redacted)"
 }
 
+internal data class AapsV3ObservedClinicalRead(val profile: AapsV3EffectiveProfileRead, val insulin: AapsV3InsulinRead) {
+    override fun toString() = "AapsV3ObservedClinicalRead(redacted)"
+}
+
 internal class AapsV3EffectiveProfileSource(
     private val store: LocalNightscoutV3Store,
     private val maxRows: Int = 10_000,
     private val maxPayloadBytes: Long = 4L * 1024 * 1024
 ) {
     private val mutex = Mutex()
-    private var cached: AapsV3EffectiveProfileTimeline? = null
+    private class Index(snapshot: LocalV3RetainedSnapshot) {
+        val revision = snapshot.collectionRevision
+        val profile = AapsV3EffectiveProfileTimeline(snapshot)
+        val insulin = AapsV3InsulinInventoryTimeline(snapshot)
+    }
+    private var cached: Index? = null
 
-    suspend fun read(atMs: Long): AapsV3EffectiveProfileRead = mutex.withLock {
+    suspend fun read(atMs: Long): AapsV3EffectiveProfileRead = readEvidence(1, atMs, atMs).profile
+
+    suspend fun readEvidence(fromMs: Long, atMs: Long, knownAtMs: Long): AapsV3ObservedClinicalRead = mutex.withLock {
         currentCoroutineContext().ensureActive()
-        if (atMs !in 1..LocalNightscoutV3Store.MAX_TIME) {
-            return@withLock AapsV3EffectiveProfileRead(AapsV3ObservedProfileStatus.INVALID, null)
+        fun unavailable(profile: AapsV3ObservedProfileStatus, insulin: AapsV3ObservedInsulinStatus) =
+            AapsV3ObservedClinicalRead(AapsV3EffectiveProfileRead(profile, null), AapsV3InsulinRead(insulin, null))
+        if (fromMs !in 1..atMs || atMs > knownAtMs || knownAtMs > LocalNightscoutV3Store.MAX_TIME) {
+            return@withLock unavailable(AapsV3ObservedProfileStatus.INVALID, AapsV3ObservedInsulinStatus.INVALID)
         }
         try {
             val head = store.lastModified().getValue(LocalV3Collection.TREATMENTS)
-            val timeline = cached?.takeIf { it.revision == head } ?: AapsV3EffectiveProfileTimeline(
+            val index = cached?.takeIf { it.revision == head } ?: Index(
                 store.retainedSnapshot(LocalV3Collection.TREATMENTS, maxRows, maxPayloadBytes)
             ).also { cached = it }
             currentCoroutineContext().ensureActive()
-            timeline.read(atMs)
+            AapsV3ObservedClinicalRead(index.profile.read(atMs), index.insulin.read(fromMs, atMs, knownAtMs))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             cached = null
-            AapsV3EffectiveProfileRead(AapsV3ObservedProfileStatus.ERROR, null)
+            unavailable(AapsV3ObservedProfileStatus.ERROR, AapsV3ObservedInsulinStatus.ERROR)
         }
     }
 }

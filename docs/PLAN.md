@@ -1,5 +1,20 @@
 # PLAN
 
+## Native Insulin Observations (2026-10-23)
+
+- [x] Merge verified PR22 as6d5a4fa8 and verify unchanged tree.
+- [x] Decode typed native bolus/basal/extended observations and own ICfg;
+      retain tombstones, pump identity, revision and availability.
+- [x] Share a bounded retained snapshot/index with profile observations and
+      refresh native owner status through the existing lifecycle.
+- [x] Pass pure, Room/reopen/owner and actual pristine SDK TLS regressions.
+- [x] Full Android quality:6751passed/six existing skips, real SDK TLS, zero lint
+      errors, successful build and unchanged source hashes.
+- [ ] Complete source review/publication and feature CI.
+- [ ] Integrate verified source into main.
+- Source-bound upstream coverage and prospective meal forecasting validation
+  remain prerequisites for recommended eating-time admission.
+
 ## Delivery Form Admission (2026-10-23)
 
 - [x] Reproduce six failures in insulin-form inventory and direct simulator admission.
@@ -9,7 +24,7 @@
 - [x] Frozen full Android quality:6735passed/six existing skips, actual SDK TLS,
       zero lint errors and successful APK build; source hashes unchanged.
 - [x] Current main CI39849796709 passed all three jobs.
-- [ ] Publish reviewed source PR and inspect exact-head CI.
+- [x] PR22 passed all six source checks and merged as6d5a4fa8 with the same tree.
 - Full upstream coverage, historical insulin/profile alignment and prospective
   forecast/controller validation remain required before live recommended meal time.
 

@@ -77,6 +77,28 @@ class AapsV3EffectiveProfileSourceTest {
         assertEquals(store().lastModified()[LocalV3Collection.TREATMENTS], result.retainedRevision)
     }
 
+    @Test fun insulinAndProfileShareOneRevisionAndCorrectionsInvalidateBothIndexes() = runBlocking {
+        store().create(input("profile"))
+        val dose = LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "dose", "local-v3-owner", at,
+            buildJsonObject { put("eventType", "Correction Bolus"); put("date", at); put("insulin", 2.2) }.toString())
+        val original = store().create(dose).document
+        val source = AapsV3EffectiveProfileSource(store())
+        val before = source.readEvidence(at - 60_000, at, at + 200_000)
+        assertEquals(before.profile.retainedRevision, before.insulin.retainedRevision)
+        assertEquals(AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, before.insulin.status)
+        val modified = store().update(dose.copy(payloadJson = buildJsonObject {
+            put("eventType", "Correction Bolus"); put("date", at); put("insulin", 1.1)
+        }.toString()), original.modifiedRevision).document
+        val after = source.readEvidence(at - 60_000, at, at + 200_000)
+        assertEquals(1.1, (after.insulin.records.single().dose as AapsV3InsulinDose.Bolus).units, 0.0)
+        assertTrue(after.insulin.retainedRevision!! > before.insulin.retainedRevision!!)
+        store().delete(LocalV3Collection.TREATMENTS, "dose", modified.modifiedRevision)
+        assertTrue(source.readEvidence(at - 60_000, at, at + 200_000).insulin.records.single().invalidated)
+        db.close(); db = open()
+        assertTrue(AapsV3EffectiveProfileSource(store()).readEvidence(at - 60_000, at, at + 200_000).insulin.records.single().invalidated)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
     @Test fun correctionsAndTimeMovesReplaceTheIdentityAndInvalidateTheCachedProjection() = runBlocking {
         val first = store().create(input("first")).document
         val second = store().create(input("second", at + 10_000)).document
