@@ -59,6 +59,31 @@ class MealTimingResearchAssessmentTest {
         }
     }
 
+    @Test fun rateOnlyDeliveryBlocksResearchAssessmentAndBothDirectSimulationPaths() = runBlocking {
+        for ((type, fields) in listOf("temp_basal" to mapOf("rate" to "1", "duration" to "30"),
+            "treatment" to mapOf("percent" to "-100", "duration" to "30"),
+            "pump_suspend" to emptyMap())) {
+            val context = context(extraEvents = listOf(TherapyEvent(now - 60_000L, type, fields,
+                sourceRowId = "interval-delivery")))
+            val result = MealTimingResearchEvaluator().evaluate(context, belief(), episode, telemetry(), 180)
+            assertEquals(MealTimingResearchStatus.INSULIN_INVENTORY_UNAVAILABLE, result.status)
+            assertNull(result.batch)
+            assertTrue(result.noFoodPaths.isEmpty())
+            assertNull(result.recommendedStartAtMs)
+            assertFalse(result.notificationAllowed)
+            assertFalse(result.therapyAllowed)
+            try {
+                MealScenarioSimulator().simulate(context, belief(), 180)
+                fail("Unaccounted interval delivery returned a scenario batch")
+            } catch (error: IllegalArgumentException) {
+                assertEquals("Meal research insulin inventory is unsupported", error.message)
+            }
+            val food = MealAbsorptionProjection.project(now, now, 35.0, MealAbsorptionProfile.MIXED, 120, 180)
+            assertThrows(IllegalArgumentException::class.java) { context.forwardForecast("12", food, 180) }
+            assertEquals(context.baselineForecasts, context.newEngine().predict(context.glucose, context.therapy))
+        }
+    }
+
     @Test fun hiddenOrNonInstantInsulinStopsAssessmentWithoutChangingLiveForecast() = runBlocking {
         for ((type, fields) in listOf("treatment" to mapOf("insulin" to "1"),
             "bolus" to mapOf("units" to "1", "duration" to "60"),

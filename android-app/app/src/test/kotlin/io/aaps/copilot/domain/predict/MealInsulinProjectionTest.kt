@@ -7,6 +7,47 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealInsulinProjectionTest {
+    @Test fun intervalDeliveryWithoutDoseUnitsCannotDisappearFromInventory() {
+        for (type in listOf("temp_basal", "treatment", "carbs", "unknown")) {
+            for (field in listOf("rate", "absolute", "percent", "relative")) {
+                for (value in listOf("0", "1.5", "-100", "NaN", "unknown")) {
+                    val event = TherapyEvent(now - 60_000L, type,
+                        mapOf(field to value, "duration" to "30"), sourceRowId = "interval-1")
+                    val result = engine().projectMealTimingInsulin(glucose, listOf(event), 60)
+                    assertEquals("$type/$field/$value", 1, result.unsupportedEventCount)
+                    assertTrue(result.unsupportedReasons.contains(MealInsulinInventoryIssue.NON_INSTANT_OR_AMBIGUOUS_DELIVERY))
+                    assertThrows(IllegalArgumentException::class.java) { result.requireUsableInventory() }
+                }
+            }
+        }
+    }
+
+    @Test fun deliveryOnlyTypesRequireEvidenceEvenWhenFieldsAreMissing() {
+        for (type in listOf("basal", "Temp Basal", "tempBasal", "temporary_basal", "basal_rate",
+            "Extended Bolus", "combo_bolus", "pump_suspend", "pump_resume")) {
+            val event = TherapyEvent(now - 60_000L, type, emptyMap(), sourceRowId = "interval-1")
+            assertEquals(type, 1, engine().projectMealTimingInsulin(glucose, listOf(event), 60).unsupportedEventCount)
+        }
+    }
+
+    @Test fun oldOrDuplicateRateOnlyRecordsRemainUnsupportedRatherThanExpiredOrAbsent() {
+        val old = TherapyEvent(now - 48 * 60 * 60_000L, "treatment",
+            mapOf("absolute" to "0", "duration" to "2880"), sourceRowId = "interval-1")
+        val result = engine().projectMealTimingInsulin(glucose, listOf(old, old), 60)
+        assertEquals(2, result.unsupportedEventCount)
+        assertTrue(result.unsupportedReasons.contains(MealInsulinInventoryIssue.DUPLICATE_OR_EMPTY_IDENTITY))
+    }
+
+    @Test fun nullIntervalFieldsAndOrdinaryFoodOrExerciseDurationDoNotInventInsulin() {
+        for (type in listOf("carbs", "exercise", "note")) {
+            val event = TherapyEvent(now, type, mapOf("duration" to "30", "units" to "g",
+                "rate" to "null", "absolute" to "null", "percent" to "null", "relative" to "null"))
+            val result = engine().projectMealTimingInsulin(glucose, listOf(event), 60)
+            assertEquals(0, result.unsupportedEventCount)
+            assertEquals(0, result.modeledEventCount)
+        }
+    }
+
     @Test fun insulinPayloadCannotDisappearBehindAnUnrecognizedEventType() {
         for (type in listOf("treatment", "meal", "note", "unknown")) {
             val event = bolus.copy(type = type, payload = mapOf("insulin" to "2"))

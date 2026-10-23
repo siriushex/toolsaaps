@@ -1,3 +1,20 @@
+# Meal Research Interval Inventory - 2026-10-23
+
+- Main bdf7b070 has all three successful Verify jobs in run 39918968049.
+- Four failing-first tests reproduced omitted rate-only basal, missing fields
+  on delivery-only types, old/duplicate intervals and a falsely evaluated meal
+  assessment. Original 52-test run: four expected failures, no other failures.
+- Admit such records to the inventory audit, not the model: unsupported interval
+  exposure blocks assessment and direct simulation/forward projection. Preserve
+  unrelated food/exercise duration and explicit null-field behavior. No physical
+  delivery, upstream completeness or safe meal-wait interval is inferred.
+- All 124 focused tests passed. Frozen full test/lint/compile/assemble passed
+  in 8m15s: 6805 passed, six existing skips, zero errors; real stock SDK TLS
+  took 2.446s. Lint: zero errors, 382 existing warnings/eight hints. All 1431
+  source hashes stayed unchanged and all 7176 application classes were retained
+  in the 40,670,992-byte local APK. Exact-source Verify remains a separate gate.
+- No AAPS, schema, phone, server, dose, target, alarm or live countdown change.
+
 # Insulin History Release 0.1.12 - 2026-10-23
 
 - PR27 passed all six exact-source checks and automatic review. Main merge

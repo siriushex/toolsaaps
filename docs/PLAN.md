@@ -1,5 +1,17 @@
 # PLAN
 
+## Meal Research Interval Inventory (2026-10-23)
+
+- [x] Confirm main bdf7b070 CI39918968049 passed all three jobs.
+- [x] Reproduce four rate-only/missing-form/old-record and assessment omissions.
+- [x] Audit interval fields and delivery-only event types without inventing doses.
+- [x] All 124 focused tests passed with no failures or skips.
+- [x] Frozen full Android quality: 6805 passed/six existing skips, real SDK TLS,
+      zero lint errors and preserved application classes; no source drift.
+- [ ] Publish reviewed source and verify exact-head CI before integration.
+- No source/pump completeness or meal recommendation admission follows from
+  this guard. Independent coverage and prospective validation remain required.
+
 ## Insulin History Release 0.1.12 (2026-10-23)
 
 - [x] PR27 passed all six checks and review; merge c2cc714c has the identical
