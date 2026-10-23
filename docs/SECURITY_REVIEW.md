@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Insulin Recorded Clock (2026-10-23)
+
+- Contradictory timestamps cannot hide insulin outside a requested window;
+  original optional UTC offsets remain provenance, not trusted clock receipts.
+- Combo pump labels cannot attest delivery start or installed driver identity.
+  Owner diagnostics expose counts only, exclude invalidations and clear on stop.
+- No new API, schema, secret, raw identity export, therapy writer or clinical
+  admission. Existing redacted observation rendering and fail-closed reads remain.
+
 ## Native Reported Basal Source (2026-10-23)
 
 - Same bounded retained transaction/revision and native owner; no new network route,

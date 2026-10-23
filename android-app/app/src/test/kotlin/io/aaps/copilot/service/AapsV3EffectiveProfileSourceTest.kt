@@ -248,6 +248,70 @@ class AapsV3EffectiveProfileSourceTest {
         assertTrue(moved.modifiedRevision > original.modifiedRevision)
     }
 
+    @Test fun acceptedEmulatedTimeConflictBlocksBasalAndSurvivesReopenUntilCorrected() = runBlocking {
+        val from = at - 3_600_000
+        store().create(input("profile", from))
+        val api = LocalNightscoutV3EntriesApi(db) { at + 100_000 }
+        fun body(childAt: Long) = buildJsonObject {
+            put("app", "AAPS")
+            put("date", from); put("utcOffset", 240); put("eventType", "Temp Basal")
+            put("absolute", 1.0); put("duration", 60)
+            put("extendedEmulated", buildJsonObject {
+                put("date", childAt); put("utcOffset", 240); put("eventType", "Combo Bolus")
+                put("enteredinsulin", 0.5); put("duration", 60); put("isEmulatingTempBasal", true)
+            })
+        }
+        val response = api.handle("POST", "/api/v3/treatments", emptyMap()) { body(at + 60_000).toString().toByteArray() }
+        assertEquals(201, response.status)
+        val source = AapsV3EffectiveProfileSource(store())
+        fun rejected(read: AapsV3ObservedClinicalRead) {
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, read.insulin.status)
+            assertTrue(read.insulin.records.isEmpty())
+            assertEquals(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, read.reportedBasal.status)
+            assertTrue(read.reportedBasal.segments.isEmpty())
+        }
+        rejected(source.readEvidence(from, at, at + 200_000))
+        db.close(); db = open()
+        val reopened = AapsV3EffectiveProfileSource(store())
+        rejected(reopened.readEvidence(from, at, at + 200_000))
+        val record = store().retainedSnapshot(LocalV3Collection.TREATMENTS, 100, 1_000_000)
+            .let { it as LocalV3RetainedSnapshot.Complete }.documents.single { it.identifier != "profile" }
+        store().update(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, record.identifier, record.source,
+            from, body(from).toString()), record.modifiedRevision)
+        val corrected = reopened.readEvidence(from, at, at + 200_000)
+        assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, corrected.insulin.status)
+        assertEquals(AapsV3ReportedBasalStatus.OBSERVED_WINDOW, corrected.reportedBasal.status)
+        assertEquals(0.5, corrected.reportedBasal.segments.single().reportedComponentUnits!!, 1e-12)
+        assertFalse(corrected.insulin.upstreamCompletenessVerified)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
+    @Test fun comboRecordedClockAndStartUncertaintySurviveStorageCacheAndReopen() = runBlocking {
+        val api = LocalNightscoutV3EntriesApi(db) { at + 100_000 }
+        val body = buildJsonObject {
+            put("app", "AAPS"); put("date", at); put("utcOffset", -300)
+            put("eventType", "Meal Bolus"); put("insulin", 2.2); put("type", "NORMAL")
+            put("pumpId", 42); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "fixture-pump")
+        }.toString()
+        val accepted = api.handle("POST", "/api/v3/treatments", emptyMap()) { body.toByteArray() }
+        assertEquals(201, accepted.status)
+        suspend fun verify(reader: AapsV3EffectiveProfileSource) {
+            val result = reader.readEvidence(at - 60_000, at, at + 200_000).insulin
+            assertEquals(AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, result.status)
+            val record = result.records.single()
+            assertEquals(at, record.eventAtMs)
+            assertEquals(-300, record.recordedUtcOffsetMinutes)
+            assertEquals(AapsV3InsulinAnchorKind.COMBO_BOLUS_START_UNVERIFIED, record.anchorKind)
+            assertFalse(result.upstreamCompletenessVerified)
+        }
+        val source = AapsV3EffectiveProfileSource(store())
+        verify(source); verify(source)
+        db.close(); db = open()
+        verify(AapsV3EffectiveProfileSource(store()))
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(10).isEmpty())
+    }
+
     @Test fun latestDeletionBlocksFallbackAndSurvivesDatabaseReopen() = runBlocking {
         store().create(input("earlier"))
         val last = store().create(input("last", at + 10_000)).document

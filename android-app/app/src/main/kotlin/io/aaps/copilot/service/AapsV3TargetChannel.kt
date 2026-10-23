@@ -27,7 +27,9 @@ data class AapsV3ConnectionState(
     val profileHistoryIntervalCount: Int = 0,
     val observedBasal: AapsV3ReportedBasalStatus = AapsV3ReportedBasalStatus.UNCHECKED,
     val basalSegmentCount: Int = 0,
-    val basalGapCount: Int = 0
+    val basalGapCount: Int = 0,
+    val comboBolusStartUnverifiedCount: Int = 0,
+    val insulinMissingUtcOffsetCount: Int = 0
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -174,7 +176,13 @@ internal class AapsV3TargetChannel(
             if (showEvidence) evidence?.profileHistory?.intervals?.size ?: 0 else 0,
             if (showEvidence) evidence?.reportedBasal?.status ?: AapsV3ReportedBasalStatus.UNCHECKED else AapsV3ReportedBasalStatus.UNCHECKED,
             if (showEvidence) evidence?.reportedBasal?.segments?.size ?: 0 else 0,
-            if (showEvidence) evidence?.reportedBasal?.gaps?.size ?: 0 else 0)
+            if (showEvidence) evidence?.reportedBasal?.gaps?.size ?: 0 else 0,
+            if (showEvidence) evidence?.insulin?.records?.count {
+                !it.invalidated && it.anchorKind == AapsV3InsulinAnchorKind.COMBO_BOLUS_START_UNVERIFIED
+            } ?: 0 else 0,
+            if (showEvidence) evidence?.insulin?.records?.count {
+                !it.invalidated && it.recordedUtcOffsetMinutes == null
+            } ?: 0 else 0)
     }
 
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {

@@ -170,6 +170,34 @@ class AapsV3TargetChannelTest {
         assertEquals(0, channel.state.value.insulinRecordCount)
     }
 
+    @Test fun comboTimingDiagnosticsCountOnlyActiveEvidenceAndClearWithOwner() = runBlocking {
+        connected()
+        val store = LocalNightscoutV3Store(db, now::get)
+        val combo = store.create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "combo-dose", "local-v3-owner", at,
+            buildJsonObject {
+                put("eventType", "Meal Bolus"); put("date", at); put("insulin", 2.2); put("utcOffset", 240)
+                put("pumpId", 42); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "fixture-pump")
+            }.toString())).document
+        store.create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "other-dose", "local-v3-owner", at,
+            buildJsonObject { put("eventType", "Correction Bolus"); put("date", at); put("insulin", 0.5) }.toString()))
+        now.addAndGet(100)
+        channel.checkConnection()
+        assertEquals(1, channel.state.value.comboBolusStartUnverifiedCount)
+        assertEquals(1, channel.state.value.insulinMissingUtcOffsetCount)
+        baseline = { "native_clinical_projection_unavailable" }
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        store.delete(LocalV3Collection.TREATMENTS, combo.identifier, combo.modifiedRevision)
+        now.addAndGet(100)
+        channel.checkConnection()
+        assertEquals(0, channel.state.value.comboBolusStartUnverifiedCount)
+        assertEquals(1, channel.state.value.insulinMissingUtcOffsetCount)
+        channel.stop()
+        assertEquals(0, channel.state.value.comboBolusStartUnverifiedCount)
+        assertEquals(0, channel.state.value.insulinMissingUtcOffsetCount)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(10).isEmpty())
+    }
+
     @Test fun profileHistoryDiagnosticsRefreshAndClearWithOwnerWithoutAdmittingTherapy() = runBlocking {
         connected()
         assertEquals(AapsV3ObservedProfileStatus.NOT_OBSERVED, channel.state.value.observedProfileHistory)
