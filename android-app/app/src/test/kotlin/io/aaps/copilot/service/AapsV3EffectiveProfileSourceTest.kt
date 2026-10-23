@@ -137,6 +137,41 @@ class AapsV3EffectiveProfileSourceTest {
         Unit
     }
 
+    @Test fun acceptedMixedWirePayloadCannotHideDeliveryAcrossCacheAndReopen() = runBlocking {
+        val from = at - 60_000
+        store().create(input("profile", from))
+        val api = LocalNightscoutV3EntriesApi(db) { at + 100_000 }
+        val body = buildJsonObject {
+            put("app", "AAPS"); put("eventType", "Temp Basal"); put("date", from)
+            put("duration", 1); put("absolute", 0.8); put("carbs", 24)
+        }.toString()
+        val accepted = api.handle("POST", "/api/v3/treatments", emptyMap()) { body.toByteArray() }
+        assertEquals(201, accepted.status)
+        val id = Json.parseToJsonElement(accepted.body).jsonObject.getValue("identifier").jsonPrimitive.content
+        suspend fun rejected(reader: AapsV3EffectiveProfileSource) {
+            val result = reader.readEvidence(from, at, at + 200_000)
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.insulin.status)
+            assertTrue(result.insulin.records.isEmpty())
+            assertEquals(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, result.reportedBasal.status)
+            assertTrue(result.reportedBasal.segments.isEmpty())
+        }
+        val source = AapsV3EffectiveProfileSource(store())
+        rejected(source)
+        db.close(); db = open()
+        val reopened = AapsV3EffectiveProfileSource(store())
+        rejected(reopened)
+        val original = checkNotNull(store().get(LocalV3Collection.TREATMENTS, id))
+        val corrected = JsonObject(Json.parseToJsonElement(original.payloadJson).jsonObject - "carbs")
+        store().update(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, id, "local-v3-owner", from,
+            corrected.toString()), original.modifiedRevision)
+        val result = reopened.readEvidence(from, at, at + 200_000)
+        assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, result.insulin.status)
+        assertEquals(AapsV3ReportedBasalStatus.OBSERVED_WINDOW, result.reportedBasal.status)
+        assertFalse(result.insulin.upstreamCompletenessVerified)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(10).isEmpty())
+    }
+
     @Test fun profileHistorySharesRevisionAndRetainsCorrectionsAndDeletionAcrossReopen() = runBlocking {
         store().create(input("old", at - 60_000))
         val original = store().create(input("new", at - 10_000, 6.5)).document

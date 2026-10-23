@@ -1,3 +1,23 @@
+# Native Insulin Form Audit - 2026-10-23
+
+- Five pure regressions reproduced hidden basal/extended fields in carbohydrate,
+  unrelated, instantaneous and emulated-child branches. A sixth regression used
+  accepted wire data and the native Room source. Original failing logs retained.
+- Audit explicit delivery evidence before native mapper precedence. Preserve
+  legitimate bolus/basal/extended forms and one native emulated child; competing
+  forms refuse a partial inventory. Unrelated durations/glucose/profile context
+  and null fields do not create insulin. Storage remains lossless and unchanged.
+- Retained-cache refresh, database reopen and valid correction recovery pass;
+  no clinical/action rows are written. All164focused tests pass without skips.
+  Frozen full test/lint/compile/assemble passed in6m48s:6800passed/six existing
+  skips, zero failures/errors, real pristine SDK TLS2.142s and zero lint errors
+  with382existing warnings/eight hints. All1431source hashes stayed unchanged
+  and APK retention passed. Mainfa6f22b7 CI39906923561 passed all three jobs.
+  Exact-head feature CI and main integration remain separate post-commit gates.
+- Existing0.1.11 release, AAPS, live onset clock, targets, doses and alarms remain
+  unchanged. This stage does not attest complete upstream/pump history or enable
+  a clinically recommended meal waiting time.
+
 # Insulin History Knowledge Boundary And 0.1.11 - 2026-10-23
 
 - Main6a0a7894 CI39881365894 passed all three jobs. Native basal/profile source

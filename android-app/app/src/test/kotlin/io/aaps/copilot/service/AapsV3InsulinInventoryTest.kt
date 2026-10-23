@@ -229,4 +229,93 @@ class AapsV3InsulinInventoryTest {
         assertFalse(result.records.single().toString().contains("dose-1"))
         assertFalse(result.records.single().dose.toString().contains("historical"))
     }
+
+    @Test fun unrecognizedDeliveryFieldsCannotBecomeAnEmptyOrPartialInventory() {
+        val indicators = listOf(
+            buildJsonObject { put("enteredinsulin", 1.0) },
+            buildJsonObject { put("absolute", 0.0) },
+            buildJsonObject { put("percent", -100) },
+            buildJsonObject { put("rate", 0.8) },
+            buildJsonObject { put("isEmulatingTempBasal", true) },
+            buildJsonObject { put("isBasalInsulin", true) },
+            buildJsonObject { put("extendedEmulated", buildJsonObject {
+                put("enteredinsulin", 1.0); put("duration", 30); put("isEmulatingTempBasal", true)
+            }) }
+        )
+        for (indicator in indicators) for (event in listOf("Note", "Future Delivery")) {
+            val fields = JsonObject(indicator + ("eventType" to JsonPrimitive(event)))
+            val hidden = row("hidden", fields = fields)
+            for (result in listOf(read(hidden), read(row(), hidden))) {
+                assertEquals("$event $indicator", AapsV3ObservedInsulinStatus.INVALID, result.status)
+                assertTrue(result.records.isEmpty())
+            }
+            // Unknown interval support cannot be discarded as expired.
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID,
+                read(row("old", time = at - 7_200_000, fields = fields)).status)
+        }
+    }
+
+    @Test fun carbohydrateBranchCannotHideBasalOrExtendedDelivery() {
+        for (delivery in listOf(
+            buildJsonObject { put("eventType", "Temp Basal"); put("absolute", 0.8); put("duration", 30) },
+            buildJsonObject { put("eventType", "Combo Bolus"); put("enteredinsulin", 1.0); put("duration", 30) },
+            buildJsonObject { put("eventType", "Carb Correction"); put("enteredinsulin", 1.0) }
+        )) {
+            val result = read(row(fields = JsonObject(delivery + ("carbs" to JsonPrimitive(24)))))
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.status)
+            assertTrue(result.records.isEmpty())
+        }
+    }
+
+    @Test fun instantaneousInsulinCannotHideAdditionalDeliveryForms() {
+        for (extra in listOf(
+            buildJsonObject { put("enteredinsulin", 1.0) },
+            buildJsonObject { put("absolute", 0.0) },
+            buildJsonObject { put("percent", -100) },
+            buildJsonObject { put("rate", 0.8) },
+            buildJsonObject { put("isEmulatingTempBasal", true) }
+        )) {
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(row(fields = JsonObject(extra +
+                ("insulin" to JsonPrimitive(2.2))))).status)
+        }
+    }
+
+    @Test fun basalAndExtendedBranchesCannotHideAnotherForm() {
+        val basal = buildJsonObject { put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8) }
+        val extended = buildJsonObject { put("eventType", "Combo Bolus"); put("duration", 30); put("enteredinsulin", 1.0) }
+        for (fields in listOf(JsonObject(basal + ("enteredinsulin" to JsonPrimitive(1.0))),
+            JsonObject(extended + ("absolute" to JsonPrimitive(0.8))),
+            JsonObject(extended + ("percent" to JsonPrimitive(0.0))))) {
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(row(fields = fields)).status)
+        }
+    }
+
+    @Test fun emulatedChildCannotSilentlyDropMixedOrRecursivePayloads() {
+        val child = buildJsonObject { put("enteredinsulin", 1.0); put("duration", 30); put("isEmulatingTempBasal", true) }
+        for (extra in listOf(
+            buildJsonObject { put("insulin", 2.0) },
+            buildJsonObject { put("carbs", 24) },
+            buildJsonObject { put("absolute", 0.8) },
+            buildJsonObject { put("isEmulatingTempBasal", false) },
+            buildJsonObject { put("extendedEmulated", child) }
+        )) {
+            val result = read(row(fields = buildJsonObject {
+                put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8)
+                put("extendedEmulated", JsonObject(child + extra))
+            }))
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.status)
+            assertTrue(result.records.isEmpty())
+        }
+    }
+
+    @Test fun nonDeliveryDurationsGlucoseAndInsulinConfigurationDoNotBecomeDoses() {
+        for (fields in listOf(
+            buildJsonObject { put("eventType", "Carb Correction"); put("carbs", 24); put("duration", 120) },
+            buildJsonObject { put("eventType", "Exercise"); put("duration", 30) },
+            buildJsonObject { put("eventType", "Note"); put("glucose", 5.5); put("icfg", config()) },
+            buildJsonObject { put("eventType", "Note"); put("enteredinsulin", JsonNull); put("rate", JsonNull) }
+        )) {
+            assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, read(row(fields = fields)).status)
+        }
+    }
 }
