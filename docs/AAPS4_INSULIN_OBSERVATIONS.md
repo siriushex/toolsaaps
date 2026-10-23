@@ -21,6 +21,10 @@ insulin indexes for the same retained revision and then drops raw JSON.
 Unknown bolus ICfg stays unknown. Contradictory bolus duration, malformed amounts,
 invalid source metadata or duplicate pump keys reject without partial success.
 Late retained revisions cannot be used as data available to an earlier prediction.
+This check applies to the entire collection revision before filtering the window,
+including empty or unrelated snapshots. A later edit can move, shorten or delete
+the only relevant dose, so checking the returned rows alone cannot establish
+earlier absence. Latest retained versions are not a historical version archive.
 Queries include intervals that start before the requested window and overlap it.
 Malformed records cannot be declared expired using an unknown duration.
 

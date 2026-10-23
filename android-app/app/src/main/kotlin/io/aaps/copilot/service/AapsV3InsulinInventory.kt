@@ -91,6 +91,8 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
         if (fromMs !in 1..atMs || atMs > knownAtMs || knownAtMs > LocalNightscoutV3Store.MAX_TIME)
             return unavailable(AapsV3ObservedInsulinStatus.INVALID)
         failure?.let { return unavailable(it) }
+        // Latest retained versions cannot recover a record moved outside this earlier query.
+        if (revision > knownAtMs) return unavailable(AapsV3ObservedInsulinStatus.LATE_EVIDENCE)
         val relevant = entries.filter { it.atMs <= atMs &&
             (it.observation == null || it.atMs >= fromMs || it.observation.endAtMs > fromMs) }
         if (relevant.any { it.observation == null }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)

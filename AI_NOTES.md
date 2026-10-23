@@ -1,3 +1,25 @@
+# Insulin History Knowledge Boundary And 0.1.11 - 2026-10-23
+
+- Main6a0a7894 CI39881365894 passed all three jobs. Native basal/profile source
+  and main integration are now verified; complete physical delivery is separate.
+- Three failing-first regressions reproduced an insulin inventory returning
+  earlier absence after a later edit moved the dose outside the query. Include
+  shortened/deleted rows, unrelated/empty snapshots and native Room cache/reopen.
+  Initial sandbox run could not access the existing Gradle cache; the authorized
+  rerun executed37tests and reproduced all three intended failures.
+- Check the retained collection revision before insulin-window filtering, matching
+  the profile-history knowledge boundary. No synthetic archive or old-dose fallback.
+- All131focused checks passed with one existing private-input skip and real SDK
+  TLS2.279s. Frozen full test/lint/compile/assemble passed in8m12s:6793passed,
+  six existing skips, zero failures/errors, real SDK TLS2.254s and zero lint errors
+  with382existing warnings/eight hints. All1431source hashes stayed unchanged.
+- Prepare0.1.11/code12 for existing internet updates:39,730,208bytes and the same
+  independently checked signing identity. APK retention passed. Exact-head CI/main
+  and public-download gates remain pending until independently verified.
+- No AAPS source/device, AI service, schema, dose, target, alarm or live recommended
+  eating-time admission is changed. Missing upstream/pump/clock receipts and
+  prospective forecast/controller validation cannot be replaced by software tests.
+
 # Native Reported Basal Segments - 2026-10-23
 
 - Continue from PR24/main4f1d173d. All six source checks passed and merged/tested
