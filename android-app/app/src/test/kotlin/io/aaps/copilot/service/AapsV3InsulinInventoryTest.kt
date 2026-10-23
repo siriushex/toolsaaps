@@ -130,6 +130,38 @@ class AapsV3InsulinInventoryTest {
         assertTrue(result.records.isEmpty())
     }
 
+    @Test fun lateMovedShortenedOrDeletedDeliveryCannotBecomeEarlierAbsence() {
+        val changed = listOf(
+            row(time = at + 1, revision = at + 10),
+            row(time = at - 7_200_000, revision = at + 10),
+            row(time = at - 7_200_000, revision = at + 10, fields = buildJsonObject {
+                put("eventType", "Temp Basal"); put("duration", 1); put("absolute", 0.8)
+            }),
+            row(time = at + 1, revision = at + 10, deleted = true)
+        )
+        for (source in changed) {
+            val result = read(source)
+            assertEquals(AapsV3ObservedInsulinStatus.LATE_EVIDENCE, result.status)
+            assertTrue(result.records.isEmpty())
+            assertFalse(result.upstreamCompletenessVerified)
+        }
+    }
+
+    @Test fun newerEmptyOrUnrelatedSnapshotCannotReconstructEarlierInventory() {
+        val unrelated = row("note", time = at + 1, revision = at + 10,
+            fields = buildJsonObject { put("eventType", "Note") })
+        for (rows in listOf(emptyList(), listOf(unrelated), listOf(row(), unrelated))) {
+            val timeline = AapsV3InsulinInventoryTimeline(LocalV3RetainedSnapshot.Complete(at + 10, rows))
+            val historical = timeline.read(at - 3_600_000, at, at)
+            assertEquals(AapsV3ObservedInsulinStatus.LATE_EVIDENCE, historical.status)
+            assertTrue(historical.records.isEmpty())
+            val current = timeline.read(at - 3_600_000, at, at + 10)
+            assertEquals(if (rows.size == 2) AapsV3ObservedInsulinStatus.OBSERVED
+                else AapsV3ObservedInsulinStatus.NOT_OBSERVED, current.status)
+            assertFalse(current.upstreamCompletenessVerified)
+        }
+    }
+
     @Test fun emptyAndOverLimitAreExplicitAndNeverProveCoverage() {
         val empty = read()
         assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, empty.status)

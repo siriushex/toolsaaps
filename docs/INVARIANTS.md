@@ -42,6 +42,9 @@
   cannot attest historical device-clock changes. Do not reapply EPS modifiers.
 - Immutable reported spans/quantities remain observational, not physical delivery,
   complete source/pump coverage, MealBasalHistory or live timer/therapy permission.
+- As-known insulin reads reject a collection revision newer than knowledge time
+  before filtering. A moved/shortened/deleted dose, unrelated change or empty
+  latest snapshot cannot be used to reconstruct an earlier absence of delivery.
 
 ## RC1 Target Admission
 

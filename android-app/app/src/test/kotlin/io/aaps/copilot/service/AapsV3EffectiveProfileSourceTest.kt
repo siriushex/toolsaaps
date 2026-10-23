@@ -105,6 +105,29 @@ class AapsV3EffectiveProfileSourceTest {
         assertNull(read.profile.observation)
     }
 
+    @Test fun movedInsulinCorrectionCannotHideFromAsKnownReadAcrossReopen() = runBlocking {
+        store().create(input("profile", at - 60_000))
+        fun dose(time: Long) = LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "dose", "local-v3-owner", time,
+            buildJsonObject { put("eventType", "Correction Bolus"); put("date", time); put("insulin", 2.2) }.toString())
+        val original = store().create(dose(at - 1)).document
+        val source = AapsV3EffectiveProfileSource(store())
+        val previousRevision = original.modifiedRevision
+        assertEquals(1, source.readEvidence(at - 30_000, at, previousRevision).insulin.records.size)
+        val changed = store().update(dose(at + 1), original.modifiedRevision).document
+        suspend fun verify(reader: AapsV3EffectiveProfileSource) {
+            val historical = reader.readEvidence(at - 30_000, at, previousRevision)
+            assertEquals(AapsV3ObservedInsulinStatus.LATE_EVIDENCE, historical.insulin.status)
+            assertTrue(historical.insulin.records.isEmpty())
+            assertFalse(historical.insulin.upstreamCompletenessVerified)
+            assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED,
+                reader.readEvidence(at - 30_000, at, changed.modifiedRevision).insulin.status)
+        }
+        verify(source)
+        db.close(); db = open()
+        verify(AapsV3EffectiveProfileSource(store()))
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
     @Test fun cachedScheduleCannotBeModifiedByAReader() = runBlocking {
         store().create(input("profile"))
         val profile = observed(AapsV3EffectiveProfileSource(store()).read(at)).profile

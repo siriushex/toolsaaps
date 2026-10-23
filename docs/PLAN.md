@@ -1,5 +1,17 @@
 # PLAN
 
+## Insulin History Knowledge Boundary And 0.1.11 (2026-10-23)
+
+- [x] Confirm main6a0a7894 CI39881365894 passed all three jobs.
+- [x] Reproduce three failures for hidden late insulin edits and native Room reopen.
+- [x] Reject the newer collection revision before filtering insulin windows.
+- [x] Pass131focused checks/one existing skip and6793full checks/six existing
+      skips;actual SDK TLS, zero lint errors, frozen source and APK retention pass.
+- [ ] Verify exact source CI and integrate the identical tested tree into main.
+- [ ] Publish and independently verify0.1.11/code12 over the existing update route.
+- Latest retained rows cannot prove earlier absence or full upstream/pump/clock
+  coverage. Live meal recommendation, targets, doses and alarms remain unchanged.
+
 ## Native Reported Basal Segments (2026-10-23)
 
 - [x] Reproduce contradictory-rate/type and duplicate-identity/privacy defects.
@@ -8,7 +20,8 @@
 - [x] Complete pure, Room/reopen/owner and actual pristine SDK TLS checks.
 - [x] Frozen full quality:6790passed/six existing skips, actual SDK TLS, zero lint
       errors, unchanged1431source hashes and all7176app classes retained.
-- [ ] Verify exact-head CI and integrate the matching tested tree into main.
+- [x] Pass six exact-source checks, integrate6a0a7894 with matching tree and verify
+      all three main CI39881365894 jobs.
 - Reported spans do not establish source/pump/clock completeness or authorize live
   meal advice. See AAPS4_REPORTED_BASAL.md for units and remaining admission.
 
