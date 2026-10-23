@@ -47,3 +47,7 @@ overflow, events acknowledged before an interrupted call, or skipped event types
 Delivery-start bounds, historical clock epochs, basal continuity and prospective
 forecast validation remain independent gates. This patch cannot admit a live
 meal-time recommendation or establish complete physical insulin delivery.
+
+AAPS4_COMBO_HISTORY_JOURNAL.md now retains validated application history blocks
+locally before native confirmation. It does not yet export those files into a
+clinical timeline, prove initial history or supply the missing clock/basal gates.

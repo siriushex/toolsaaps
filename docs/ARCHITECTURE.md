@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Combo Pre-Confirmation Journal
+
+The existing Combo reader now emits synchronous evidence checkpoints before
+confirmation, after its response and at read boundaries. The plugin retains
+bounded framed files in private no-backup storage, separate from pump credentials
+and settings export. Reopening preserves incomplete/corrupt/adverse reads; failure
+does not alter native pump control. Only unverified counts enter devicestatus.
+Raw blocks are not yet exported or admitted as a clinical delivery timeline.
+See AAPS4_COMBO_HISTORY_JOURNAL.md for limits, failure semantics and open gates.
+
 ## Passive Combo History Observations
 
 The existing Combo reader publishes session-local diagnostic snapshots through

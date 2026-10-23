@@ -16,7 +16,7 @@ index 92097043d4..2f2330932d 100644
          val historyGap = (payload[5].toPosInt() == 0x48)
  
 diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
-index c52e2f2f38..b001fb5a36 100644
+index c52e2f2f38..494b128239 100644
 --- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
 +++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
 @@ -11,11 +11,13 @@ import kotlinx.coroutines.SupervisorJob
@@ -33,7 +33,17 @@ index c52e2f2f38..b001fb5a36 100644
  import kotlinx.coroutines.sync.Mutex
  import kotlinx.coroutines.sync.withLock
  import kotlinx.coroutines.withContext
-@@ -201,6 +203,9 @@ class PumpIO(
+@@ -123,7 +125,8 @@ class PumpIO(
+     private val pumpStateStore: PumpStateStore,
+     private val bluetoothDevice: BluetoothDevice,
+     private val onNewDisplayFrame: (displayFrame: DisplayFrame?) -> Unit,
+-    private val onPacketReceiverException: (e: TransportLayer.PacketReceiverException) -> Unit
++    private val onPacketReceiverException: (e: TransportLayer.PacketReceiverException) -> Unit,
++    private val onHistoryCheckpoint: ((HistoryReadCheckpoint) -> Unit)? = null
+ ) {
+ 
+     // Mutex to synchronize sendPacketWithResponse and sendPacketWithoutResponse calls.
+@@ -201,6 +204,9 @@ class PumpIO(
      // before an initial mode was set.
      private val _currentModeFlow = MutableStateFlow<Mode?>(null)
  
@@ -43,7 +53,7 @@ index c52e2f2f38..b001fb5a36 100644
      /************************************
       *** PUBLIC FUNCTIONS AND CLASSES ***
       ************************************/
-@@ -916,60 +921,96 @@ class PumpIO(
+@@ -916,60 +922,110 @@ class PumpIO(
       *   to the history.
       * @throws ComboIOException if IO with the pump fails.
       */
@@ -70,6 +80,7 @@ index c52e2f2f38..b001fb5a36 100644
 +                readStartedAtEpochMs = Clock.System.now().toEpochMilliseconds(), readFinishedAtEpochMs = null,
 +                validatedBlocks = 0, confirmedBlocks = 0, parsedEvents = 0, unmappedEvents = 0
 +            )
++            checkpointHistory(HistoryReadCheckpoint.Phase.BEGIN)
 +            try {
 +                val historyDelta = mutableListOf<ApplicationLayer.CMDHistoryEvent>()
 +                var reachedEnd = false
@@ -124,8 +135,8 @@ index c52e2f2f38..b001fb5a36 100644
 +                        },
 +                        unmappedEventObserved = previous.unmappedEventObserved || unmapped > 0
 +                    )
- 
--                historyDelta.addAll(historyBlock.events)
++                    checkpointHistory(HistoryReadCheckpoint.Phase.BLOCK, packet.payload)
++
 +                    // Confirm this history block to let the Combo consider
 +                    // it processed. The Combo can then move on to the next
 +                    // history block.
@@ -136,6 +147,10 @@ index c52e2f2f38..b001fb5a36 100644
 +                    _historyReadObservation.value = _historyReadObservation.value.let {
 +                        it.copy(confirmedBlocks = it.confirmedBlocks + 1)
 +                    }
++                    checkpointHistory(HistoryReadCheckpoint.Phase.CONFIRMED)
+ 
+-                historyDelta.addAll(historyBlock.events)
++                    historyDelta.addAll(historyBlock.events)
  
 -                // Check if there is a next history block to get.
 -                // If not, we are done, and need to exit this loop.
@@ -144,8 +159,6 @@ index c52e2f2f38..b001fb5a36 100644
 -                ) {
 -                    reachedEnd = true
 -                    break
-+                    historyDelta.addAll(historyBlock.events)
-+
 +                    // Check if there is a next history block to get.
 +                    // If not, we are done, and need to exit this loop.
 +                    if (!historyBlock.moreEventsAvailable ||
@@ -160,16 +173,14 @@ index c52e2f2f38..b001fb5a36 100644
 -            if (!reachedEnd)
 -                throw ApplicationLayer.InfiniteHistoryDataException(
 -                    "Did not reach an end of the history event list even after $maxRequests request(s)"
--                )
 +                if (!reachedEnd)
 +                    throw ApplicationLayer.InfiniteHistoryDataException(
 +                        "Did not reach an end of the history event list even after $maxRequests request(s)"
 +                    )
- 
--            return@runPumpIOCall historyDelta
++
 +                _historyReadObservation.value = _historyReadObservation.value.copy(
 +                    state = HistoryReadObservation.State.RETURNED, readFinishedAtEpochMs = Clock.System.now().toEpochMilliseconds()
-+                )
+                 )
 +                return@runPumpIOCall historyDelta
 +            } finally {
 +                if (_historyReadObservation.value.state == HistoryReadObservation.State.READING ||
@@ -178,15 +189,38 @@ index c52e2f2f38..b001fb5a36 100644
 +                        state = HistoryReadObservation.State.FAILED, interruptedReadObserved = true,
 +                        readFinishedAtEpochMs = Clock.System.now().toEpochMilliseconds()
 +                    )
++                checkpointHistory(HistoryReadCheckpoint.Phase.END)
 +            }
++        }
++    }
+ 
+-            return@runPumpIOCall historyDelta
++    private fun checkpointHistory(phase: HistoryReadCheckpoint.Phase, payload: List<Byte> = emptyList()) {
++        try {
++            onHistoryCheckpoint?.invoke(HistoryReadCheckpoint(phase, _historyReadObservation.value, payload))
++        } catch (e: Exception) {
++            // Evidence failure must not change the existing pump-control exchange.
++            _historyReadObservation.value = _historyReadObservation.value.copy(journalWriteFailed = true)
++            logger(LogLevel.ERROR) { "History checkpoint unavailable; delivery coverage remains unverified" }
          }
      }
  
 diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
-index 0e6ba5f646..ca6b92161a 100644
+index 0e6ba5f646..e9cdcf69a6 100644
 --- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
 +++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
-@@ -524,6 +524,13 @@ class Pump(
+@@ -231,7 +231,9 @@ class Pump(
+     private val onEvent: (event: Event) -> Unit = { }
+ ) {
+ 
+-    private val pumpIO = PumpIO(pumpStateStore, bluetoothDevice, this::processDisplayFrame, this::packetReceiverExceptionThrown)
++    private val pumpIO = PumpIO(pumpStateStore, bluetoothDevice, this::processDisplayFrame, this::packetReceiverExceptionThrown) {
++        onEvent(Event.HistoryCheckpoint(bluetoothDevice.address, it))
++    }
+ 
+     // Updated by updateStatusImpl(). true if the Combo
+     // is currently in the stop mode. If true, commands
+@@ -524,6 +526,20 @@ class Pump(
       */
      sealed class Event {
  
@@ -197,10 +231,17 @@ index 0e6ba5f646..ca6b92161a 100644
 +            override fun toString() = "HistoryReadObserved(redacted)"
 +        }
 +
++        data class HistoryCheckpoint(
++            val address: BluetoothAddress,
++            val checkpoint: info.nightscout.comboctl.base.HistoryReadCheckpoint
++        ) : Event() {
++            override fun toString() = "HistoryCheckpoint(redacted)"
++        }
++
          object BatteryLow : Event()
          object ReservoirLow : Event()
          data class QuickBolusRequested @OptIn(ExperimentalTime::class) constructor(
-@@ -3023,7 +3030,11 @@ class Pump(
+@@ -3023,7 +3039,11 @@ class Pump(
  
      private suspend fun fetchHistoryDelta(): List<ApplicationLayer.CMDHistoryEvent> {
          pumpIO.switchMode(PumpIO.Mode.COMMAND)
@@ -214,9 +255,27 @@ index 0e6ba5f646..ca6b92161a 100644
  
      private suspend fun getBasalProfile(): BasalProfile = executeCommand(
 diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
-index 38aceefbe9..077c8eb4fe 100644
+index 38aceefbe9..c946a75659 100644
 --- a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
 +++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
+@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
+ 
+ class PumpIOTest : TestBase() {
+     // Common test code.
+-    class TestStates(setupInvariantPumpData: Boolean) {
++    class TestStates(setupInvariantPumpData: Boolean, onHistoryCheckpoint: ((HistoryReadCheckpoint) -> Unit)? = null) {
+ 
+         var testPumpStateStore: TestPumpStateStore
+         val testBluetoothDevice: TestBluetoothDevice
+@@ -57,7 +57,7 @@ class PumpIOTest : TestBase() {
+                 testIO.pumpClientCipher = invariantPumpData.pumpClientCipher
+             }
+ 
+-            pumpIO = PumpIO(testPumpStateStore, testBluetoothDevice, onNewDisplayFrame = {}, onPacketReceiverException = {})
++            pumpIO = PumpIO(testPumpStateStore, testBluetoothDevice, onNewDisplayFrame = {}, onPacketReceiverException = {}, onHistoryCheckpoint = onHistoryCheckpoint)
+         }
+ 
+         // Tests that a long button press is handled correctly.
 @@ -686,6 +686,12 @@ class PumpIOTest : TestBase() {
  
              val historyDelta = pumpIO.getCMDHistoryDelta(100)
@@ -231,48 +290,96 @@ index 38aceefbe9..077c8eb4fe 100644
  
              assertEquals(expectedHistoryDeltaEvents.size, historyDelta.size)
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
-index e7ceca0680..b8c8a53f62 100644
+index e7ceca0680..ab1af53123 100644
 --- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
-@@ -195,6 +195,7 @@ class ComboV2Plugin(
+@@ -195,6 +195,10 @@ class ComboV2Plugin(
  
      // These are initialized in connect() and torn down in disconnect().
      private var pump: ComboCtlPump? = null
 +    @Volatile private var lastHistoryRead: ComboCtlPump.Event.HistoryReadObserved? = null
++    private var historyJournal: ComboHistoryJournal? = null
++    @Volatile private var lastHistoryJournal: Triple<ComboCtlBluetoothAddress, String, JsonObject>? = null
++    private var historyJournalUnavailable = false
      private var connectionSetupJob: Job? = null
      private var stateAndStatusFlowsDeferred: Deferred<Unit>? = null
      private var pumpUIFlowsDeferred: Deferred<Unit>? = null
-@@ -422,6 +423,7 @@ class ComboV2Plugin(
+@@ -422,6 +426,13 @@ class ComboV2Plugin(
              // make sure any running pump instance is disconnected.
              pump?.disconnect()
              pump = null
 +            lastHistoryRead = null
++            try { historyJournal?.close() } catch (e: Exception) {
++                aapsLogger.error(LTag.PUMP, "History journal close failed")
++            }
++            historyJournal = null
++            lastHistoryJournal = null
++            historyJournalUnavailable = false
          }
  
          pumpManager = null
-@@ -1278,6 +1280,9 @@ class ComboV2Plugin(
+@@ -1278,6 +1289,10 @@ class ComboV2Plugin(
          createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
  
      override fun extendedStatus(): JsonObject = buildJsonObject {
++        currentHistoryJournalStatus()?.let { put("ComboHistoryJournal", it) }
 +        lastHistoryRead?.takeIf { it.address == getBluetoothAddress() }?.let {
 +            put("ComboHistoryRead", comboHistoryReadStatus(it.observation))
 +        }
          when (val alert = lastComboAlert) {
              is AlertScreenContent.Warning -> put("WarningCode", alert.code)
              is AlertScreenContent.Error   -> put("ErrorCode", alert.code)
-@@ -1843,6 +1848,7 @@ class ComboV2Plugin(
+@@ -1838,11 +1853,45 @@ class ComboV2Plugin(
+         _baseBasalRateUIFlow.value = activeBasalProfile?.get(currentHour)?.cctlBasalToIU()
+     }
+ 
++    @Synchronized
++    private fun storeHistoryCheckpoint(event: ComboCtlPump.Event.HistoryCheckpoint) {
++        var binding: String? = null
++        try {
++            check(!historyJournalUnavailable && event.address == getBluetoothAddress())
++            val data = pumpStateStore.getInvariantPumpData(event.address)
++            binding = comboHistoryBinding(event.address, data)
++            val journal = historyJournal ?: ComboHistoryJournal(
++                java.io.File(context.noBackupFilesDir, "combo-history-v1")
++            ).also { historyJournal = it }
++            journal.record(binding, event.checkpoint)
++            lastHistoryJournal = Triple(event.address, binding, journal.status(binding))
++        } catch (e: Exception) {
++            historyJournalUnavailable = true
++            lastHistoryJournal = binding?.let { Triple(event.address, it, buildJsonObject {
++                put("version", 1)
++                put("coverage", "unverified")
++                put("state", "FAILED")
++            }) }
++            throw java.io.IOException("History checkpoint unavailable")
++        }
++    }
++
++    private fun currentHistoryJournalStatus(): JsonObject? {
++        val snapshot = lastHistoryJournal ?: return null
++        val address = getBluetoothAddress() ?: return null
++        if (snapshot.first != address) return null
++        return try {
++            snapshot.third.takeIf { snapshot.second == comboHistoryBinding(address, pumpStateStore.getInvariantPumpData(address)) }
++        } catch (e: Exception) { null }
++    }
++
+     @OptIn(ExperimentalTime::class)
+     private fun handlePumpEvent(event: ComboCtlPump.Event) {
          aapsLogger.debug(LTag.PUMP, "Handling pump event $event")
  
          when (event) {
++            is ComboCtlPump.Event.HistoryCheckpoint -> storeHistoryCheckpoint(event)
 +            is ComboCtlPump.Event.HistoryReadObserved -> lastHistoryRead = event
              is ComboCtlPump.Event.BatteryLow           -> {
                  notificationManager.post(NotificationId.COMBO_PUMP_ALARM, TextRef.AndroidRes(R.string.combov2_battery_low_warning), level = NotificationLevel.NORMAL)
              }
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
-index cc80f66c67..770b678445 100644
+index cc80f66c67..776c4a5b65 100644
 --- a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
 +++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
-@@ -11,12 +11,17 @@ import app.aaps.core.interfaces.resources.ResourceHelper
+@@ -11,13 +11,24 @@ import app.aaps.core.interfaces.resources.ResourceHelper
  import app.aaps.core.keys.interfaces.TextRef
  import com.google.common.truth.Truth.assertThat
  import info.nightscout.comboctl.parser.AlertScreenContent
@@ -288,12 +395,78 @@ index cc80f66c67..770b678445 100644
  import org.mockito.kotlin.doReturn
 +import org.mockito.kotlin.doAnswer
  import org.mockito.kotlin.mock
++import org.mockito.kotlin.whenever
++import org.junit.jupiter.api.io.TempDir
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.Cipher
++import kotlinx.serialization.json.JsonPrimitive
++import kotlinx.serialization.json.jsonObject
  
  /**
-@@ -91,6 +96,28 @@ class ComboV2PluginErrorLockoutTest {
+  * The lockout after the Combo reports an error (#5263, #4479): the card that names the error must
+@@ -68,6 +79,9 @@ class ComboV2PluginErrorLockoutTest {
+ 
+     private val notificationManager = RecordingNotificationManager()
+     private lateinit var plugin: ComboV2Plugin
++    @TempDir lateinit var files: java.io.File
++    private val sp: app.aaps.core.interfaces.sharedPreferences.SP = mock()
++    private val context: android.content.Context = mock()
+ 
+     private val occlusion = AlertScreenContent.Error(4, AlertScreenContent.AlertScreenState.ERROR_TEXT)
+ 
+@@ -79,9 +93,9 @@ class ComboV2PluginErrorLockoutTest {
+             rh = rh,
+             preferences = mock(),
+             commandQueue = mock(),
+-            context = mock(),
++            context = context,
+             rxBus = mock(),
+-            sp = mock(),
++            sp = sp,
+             pumpSync = mock(),
+             dateUtil = mock(),
+             notificationManager = notificationManager,
+@@ -91,6 +105,65 @@ class ComboV2PluginErrorLockoutTest {
          )
      }
  
++    @Test
++    fun pluginWritesPrivateCheckpointsAndExposesOnlyScopedCounts() {
++        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
++        var paired = setOf(address)
++        val manager: PumpManager = mock { on { getPairedPumpAddresses() } doAnswer { paired } }
++        ComboV2Plugin::class.java.getDeclaredField("pumpManager").apply { isAccessible = true }.set(plugin, manager)
++        whenever(context.noBackupFilesDir).thenReturn(files)
++        var cipher = Cipher(ByteArray(16) { 1 }).toString()
++        whenever(sp.getString(any<String>(), any<String>())).thenAnswer {
++            when (it.getArgument<String>(0)) {
++                "combov2-cp-cipher-key", "combov2-pc-cipher-key" -> cipher
++                else -> ""
++            }
++        }
++        val method = ComboV2Plugin::class.java.getDeclaredMethod("handlePumpEvent", Pump.Event::class.java).apply { isAccessible = true }
++        val event = Pump.Event.HistoryCheckpoint(address, HistoryReadCheckpoint(
++            HistoryReadCheckpoint.Phase.BEGIN, HistoryReadObservation(state = HistoryReadObservation.State.READING)
++        ))
++        assertThat(event.toString()).isEqualTo("HistoryCheckpoint(redacted)")
++        method.invoke(plugin, event)
++        try {
++            val status = plugin.extendedStatus().getValue("ComboHistoryJournal").jsonObject
++            assertThat(status["coverage"]).isEqualTo(JsonPrimitive("unverified"))
++            assertThat(status["unclosedReads"]).isEqualTo(JsonPrimitive(1))
++            assertThat(status.toString()).doesNotContain(address.toString())
++            assertThat(status.toString()).doesNotContain(cipher)
++            val saved = java.io.File(files, "combo-history-v1").listFiles()!!.single { it.extension == "chr" }
++            assertThat(saved.readText()).doesNotContain(cipher)
++            cipher = Cipher(ByteArray(16) { 3 }).toString()
++            assertThat(plugin.extendedStatus().containsKey("ComboHistoryJournal")).isFalse()
++            paired = emptySet()
++            assertThat(plugin.extendedStatus().containsKey("ComboHistoryJournal")).isFalse()
++        } finally {
++            (ComboV2Plugin::class.java.getDeclaredField("historyJournal").apply { isAccessible = true }.get(plugin) as ComboHistoryJournal).close()
++        }
++    }
++
 +    @Test
 +    fun historyStatusSurvivesReleasedReaderButCannotFollowAnotherPairedPump() {
 +        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
@@ -319,12 +492,32 @@ index cc80f66c67..770b678445 100644
      @Test
      fun errorPostsTheNamedCardAndOneLockoutHint() {
          plugin.notifyAboutComboAlert(occlusion)
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadCheckpoint.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadCheckpoint.kt
+new file mode 100644
+index 0000000000..3645755375
+--- /dev/null
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadCheckpoint.kt
+@@ -0,0 +1,14 @@
++package info.nightscout.comboctl.base
++
++/** A checkpoint of the existing consuming reader, never proof of delivery coverage. */
++class HistoryReadCheckpoint(
++    val phase: Phase,
++    val observation: HistoryReadObservation,
++    payload: List<Byte> = emptyList()
++) {
++    val payload: List<Byte> = payload.toList()
++
++    enum class Phase { BEGIN, BLOCK, CONFIRMED, END }
++
++    override fun toString() = "HistoryReadCheckpoint(redacted)"
++}
 diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt
 new file mode 100644
-index 0000000000..5d2a543e3e
+index 0000000000..2899a7636a
 --- /dev/null
 +++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,20 @@
 +package info.nightscout.comboctl.base
 +
 +/** Session-local diagnostics, never a receipt of durable or complete insulin delivery. */
@@ -340,16 +533,17 @@ index 0000000000..5d2a543e3e
 +    val clockChangeObserved: Boolean = false,
 +    val unmappedEventObserved: Boolean = false,
 +    val interruptedReadObserved: Boolean = false,
-+    val malformedBlockObserved: Boolean = false
++    val malformedBlockObserved: Boolean = false,
++    val journalWriteFailed: Boolean = false
 +) {
 +    enum class State { NOT_READ, READING, RETURNED, FAILED }
 +}
 diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
 new file mode 100644
-index 0000000000..3fe5ad824c
+index 0000000000..47430dbd64
 --- /dev/null
 +++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,246 @@
 +package info.nightscout.comboctl.base
 +
 +import info.nightscout.comboctl.base.testUtils.produceTpLayerPacket
@@ -362,6 +556,52 @@ index 0000000000..3fe5ad824c
 +import kotlinx.coroutines.launch
 +
 +class HistoryBlockIntegrityTest {
++    @Test
++    fun checkpointsPrecedeConfirmationAndRetainExactPayload() = runBlockingWithWatchdog(10_000) {
++        val checkpoints = mutableListOf<HistoryReadCheckpoint>()
++        lateinit var state: PumpIOTest.TestStates
++        state = PumpIOTest.TestStates(true) { checkpoint ->
++            if (checkpoint.phase == HistoryReadCheckpoint.Phase.BLOCK)
++                assertTrue(ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK !in historyCommands(state))
++            checkpoints.add(checkpoint)
++        }
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            val packet = block(0xB7, 0x48)
++            feed(state, packet)
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                payload = byteArrayListOfInts(0, 0)
++            ))
++            state.pumpIO.getCMDHistoryDelta(10)
++            assertEquals(HistoryReadCheckpoint.Phase.entries, checkpoints.map { it.phase })
++            assertEquals(packet.payload, checkpoints[1].payload)
++            assertEquals(0, checkpoints[1].observation.confirmedBlocks)
++            assertEquals(1, checkpoints[2].observation.confirmedBlocks)
++            assertEquals(HistoryReadObservation.State.RETURNED, checkpoints.last().observation.state)
++        } finally { state.pumpIO.disconnect() }
++    }
++
++    @Test
++    fun observerFailureDoesNotChangeNativeCommands() = runBlockingWithWatchdog(10_000) {
++        var calls = 0
++        val state = PumpIOTest.TestStates(true) { calls++; throw IllegalStateException("synthetic storage failure") }
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            feed(state, block(0xB7, 0xB7))
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                payload = byteArrayListOfInts(0, 0)
++            ))
++            assertTrue(state.pumpIO.getCMDHistoryDelta(10).isEmpty())
++            assertTrue(calls > 0)
++            assertTrue(state.pumpIO.historyReadObservation.value.journalWriteFailed)
++            assertEquals(listOf(ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK, ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK), historyCommands(state))
++        } finally { state.pumpIO.disconnect() }
++    }
++
 +    private fun block(more: Int, gap: Int) = ApplicationLayer.Packet(
 +        command = ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK_RESPONSE,
 +        payload = byteArrayListOfInts(0, 0, 0, 0, more, gap, 0)
@@ -550,12 +790,262 @@ index 0000000000..3fe5ad824c
 +        }
 +    }
 +}
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
+new file mode 100644
+index 0000000000..b553c793d0
+--- /dev/null
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
+@@ -0,0 +1,244 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.HistoryReadObservation
++import info.nightscout.comboctl.base.BluetoothAddress
++import info.nightscout.comboctl.base.InvariantPumpData
++import java.io.Closeable
++import java.io.File
++import java.io.IOException
++import java.io.RandomAccessFile
++import java.nio.channels.FileChannel
++import java.nio.channels.FileLock
++import java.nio.file.Files
++import java.nio.file.LinkOption.NOFOLLOW_LINKS
++import java.nio.file.StandardOpenOption.READ
++import java.util.UUID
++import java.util.zip.CRC32
++import java.security.MessageDigest
++import java.util.concurrent.ConcurrentHashMap
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.JsonPrimitive
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.int
++import kotlinx.serialization.json.jsonObject
++import kotlinx.serialization.json.jsonPrimitive
++import kotlinx.serialization.json.put
++
++internal fun comboHistoryBinding(address: BluetoothAddress, data: InvariantPumpData): String =
++    MessageDigest.getInstance("SHA-256").digest(
++        "history-v1|$address|${data.clientPumpCipher}|${data.pumpClientCipher}|${data.keyResponseAddress}".toByteArray(Charsets.UTF_8)
++    ).joinToString("") { "%02x".format(it.toInt() and 255) }
++
++/** Private, bounded evidence only. Neither a closed file nor fsync proves delivery coverage. */
++internal class ComboHistoryJournal(
++    private val directory: File,
++    private val maxBytes: Long = 32L * 1024 * 1024,
++    private val maxReads: Int = 4096,
++    private val sync: (RandomAccessFile) -> Unit = { it.fd.sync() }
++) : Closeable {
++    private data class Entry(val binding: String?, var closed: Boolean, val corrupt: Boolean, var adverse: Boolean = false, var readFailed: Boolean = false)
++    private val entries = mutableListOf<Entry>()
++    private var lockFile: RandomAccessFile? = null
++    private var lock: FileLock? = null
++    private var activeFile: File? = null
++    private var activeEntry: Entry? = null
++    private var previousPhase: HistoryReadCheckpoint.Phase? = null
++    private var bytes = 0L
++    private var activeRecords = 0
++    private var failed = false
++    private var claimedPath: String? = null
++
++    init {
++        try {
++            require(maxBytes > 0 && maxReads > 0)
++            val created = !directory.exists()
++            if (created && !directory.mkdir()) throw IOException("History directory unavailable")
++            require(directory.isDirectory && !Files.isSymbolicLink(directory.toPath()))
++            if (created) FileChannel.open(checkNotNull(directory.parentFile).toPath(), READ).use { it.force(true) }
++            val path = directory.canonicalPath
++            check(OPEN_WRITERS.putIfAbsent(path, this) == null)
++            claimedPath = path
++            val lockPath = File(directory, "writer.lock")
++            require(!lockPath.exists() || Files.isRegularFile(lockPath.toPath(), NOFOLLOW_LINKS))
++            require(!Files.isSymbolicLink(lockPath.toPath()))
++            lockFile = RandomAccessFile(lockPath, "rw")
++            lock = lockFile!!.channel.tryLock() ?: throw IOException("History writer already active")
++            val files = directory.listFiles() ?: throw IOException("History directory unreadable")
++            require(files.size <= maxReads + 1)
++            for (file in files) {
++                if (file.name == "writer.lock") continue
++                require(file.name.matches(Regex("[0-9a-f-]{36}\\.chr")) && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
++                bytes += file.length()
++                require(bytes <= maxBytes)
++                entries += recover(file)
++            }
++        } catch (e: Exception) {
++            failed = true
++            releaseLock()
++            throw IOException("History journal unavailable")
++        }
++    }
++
++    @Synchronized
++    fun record(binding: String, checkpoint: HistoryReadCheckpoint) {
++        try {
++            check(!failed && lock?.isValid == true)
++            require(binding.matches(Regex("[0-9a-f]{64}")))
++            require(checkpoint.payload.size <= 4096)
++            val phase = checkpoint.phase
++            if (phase == HistoryReadCheckpoint.Phase.BEGIN) {
++                require(entries.size < maxReads)
++                previousPhase = null
++                activeRecords = 0
++            } else {
++                require(activeEntry?.binding == binding)
++            }
++            validateTransition(previousPhase, phase)
++            require(activeRecords < 256)
++            require(if (phase == HistoryReadCheckpoint.Phase.END)
++                checkpoint.observation.state in setOf(HistoryReadObservation.State.RETURNED, HistoryReadObservation.State.FAILED)
++            else checkpoint.observation.state == HistoryReadObservation.State.READING)
++            require((phase == HistoryReadCheckpoint.Phase.BLOCK) == checkpoint.payload.isNotEmpty())
++            val body = buildJsonObject {
++                put("version", 1)
++                put("binding", binding)
++                put("phase", phase.name)
++                put("observation", comboHistoryReadStatus(checkpoint.observation))
++                if (checkpoint.payload.isNotEmpty())
++                    put("payloadHex", checkpoint.payload.joinToString("") { "%02x".format(it.toInt() and 255) })
++            }.toString().toByteArray(Charsets.UTF_8)
++            require(body.size in 1..MAX_RECORD_BYTES && bytes + body.size + 8 <= maxBytes)
++            if (phase == HistoryReadCheckpoint.Phase.BEGIN) {
++                val file = File(directory, "${UUID.randomUUID()}.chr")
++                check(file.createNewFile())
++                activeFile = file
++                activeEntry = Entry(binding, false, false).also { entries += it }
++            }
++            val file = checkNotNull(activeFile)
++            require(file.length() + body.size + 8 <= MAX_READ_BYTES)
++            RandomAccessFile(file, "rw").use { out ->
++                out.seek(out.length())
++                out.writeInt(body.size)
++                out.write(body)
++                out.writeInt(checksum(body))
++                sync(out)
++            }
++            if (phase == HistoryReadCheckpoint.Phase.BEGIN)
++                FileChannel.open(directory.toPath(), READ).use { it.force(true) }
++            bytes += body.size + 8
++            activeRecords++
++            previousPhase = phase
++            activeEntry!!.adverse = activeEntry!!.adverse || adverse(comboHistoryReadStatus(checkpoint.observation))
++            activeEntry!!.readFailed = checkpoint.observation.state == HistoryReadObservation.State.FAILED
++            if (phase == HistoryReadCheckpoint.Phase.END) {
++                activeEntry!!.closed = true
++                activeFile = null
++                activeEntry = null
++            }
++        } catch (e: Exception) {
++            failed = true
++            throw IOException("History checkpoint not stored")
++        }
++    }
++
++    @Synchronized
++    fun status(binding: String): JsonObject = buildJsonObject {
++        val matching = entries.filter { it.binding == binding || it.binding == null }
++        put("version", 1)
++        put("coverage", "unverified")
++        put("state", if (failed) "FAILED" else if (activeEntry != null) "WRITING" else "STORED")
++        put("retainedReads", matching.size)
++        put("unclosedReads", matching.count { !it.closed })
++        put("corruptReads", matching.count { it.corrupt })
++        put("adverseReads", matching.count { it.adverse || it.corrupt })
++        put("failedReads", matching.count { it.readFailed })
++    }
++
++    private fun recover(file: File): Entry {
++        var binding: String? = null
++        return try {
++            val records = readRecords(file)
++            var previous: HistoryReadCheckpoint.Phase? = null
++            var hasAdverse = false
++            var readFailed = false
++            for (record in records) {
++                require(record["version"]?.jsonPrimitive?.int == 1)
++                val owner = record.getValue("binding").jsonPrimitive.content
++                require(owner.matches(Regex("[0-9a-f]{64}")))
++                if (binding == null) binding = owner else require(binding == owner)
++                val phase = HistoryReadCheckpoint.Phase.valueOf(record.getValue("phase").jsonPrimitive.content)
++                validateTransition(previous, phase)
++                val hex = record["payloadHex"]?.jsonPrimitive?.content
++                require(if (phase == HistoryReadCheckpoint.Phase.BLOCK) hex != null && hex.matches(Regex("(?:[0-9a-f]{2}){1,4096}")) else hex == null)
++                val observation = record.getValue("observation").jsonObject
++                require(observation["coverage"] == JsonPrimitive("unverified"))
++                val state = HistoryReadObservation.State.valueOf(observation.getValue("state").jsonPrimitive.content)
++                require(if (phase == HistoryReadCheckpoint.Phase.END) state in setOf(HistoryReadObservation.State.RETURNED, HistoryReadObservation.State.FAILED) else state == HistoryReadObservation.State.READING)
++                hasAdverse = hasAdverse || adverse(observation)
++                readFailed = state == HistoryReadObservation.State.FAILED
++                previous = phase
++            }
++            require(records.isNotEmpty())
++            Entry(binding, previous == HistoryReadCheckpoint.Phase.END, false, hasAdverse, readFailed)
++        } catch (e: Exception) {
++            Entry(binding, false, true)
++        }
++    }
++
++    @Synchronized
++    override fun close() {
++        failed = true
++        releaseLock()
++    }
++
++    private fun releaseLock() {
++        try {
++            try { lock?.release() } finally { lock = null; lockFile?.close(); lockFile = null }
++        } finally {
++            claimedPath?.let { OPEN_WRITERS.remove(it, this) }
++            claimedPath = null
++        }
++    }
++
++    companion object {
++        private const val MAX_RECORD_BYTES = 16384
++        private const val MAX_READ_BYTES = 2L * 1024 * 1024
++        // Do not open/close a second descriptor for a lock held by this JVM.
++        private val OPEN_WRITERS = ConcurrentHashMap<String, ComboHistoryJournal>()
++
++        private fun checksum(bytes: ByteArray) = CRC32().apply { update(bytes) }.value.toInt()
++
++        private fun adverse(observation: JsonObject) = listOf(
++            "gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved", "journalWriteFailed"
++        ).any { observation[it] == JsonPrimitive(true) }
++
++        private fun validateTransition(previous: HistoryReadCheckpoint.Phase?, next: HistoryReadCheckpoint.Phase) {
++            val valid = when (next) {
++                HistoryReadCheckpoint.Phase.BEGIN -> previous == null
++                HistoryReadCheckpoint.Phase.BLOCK -> previous in setOf(HistoryReadCheckpoint.Phase.BEGIN, HistoryReadCheckpoint.Phase.CONFIRMED)
++                HistoryReadCheckpoint.Phase.CONFIRMED -> previous == HistoryReadCheckpoint.Phase.BLOCK
++                HistoryReadCheckpoint.Phase.END -> previous != null && previous != HistoryReadCheckpoint.Phase.END
++            }
++            require(valid)
++        }
++
++        internal fun readRecords(file: File): List<JsonObject> {
++            require(file.length() <= MAX_READ_BYTES && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
++            return RandomAccessFile(file, "r").use { input ->
++                val result = mutableListOf<JsonObject>()
++                while (input.filePointer < input.length()) {
++                    require(result.size < 256)
++                    val length = input.readInt()
++                    require(length in 1..MAX_RECORD_BYTES && input.length() - input.filePointer >= length + 4L)
++                    val bytes = ByteArray(length)
++                    input.readFully(bytes)
++                    require(input.readInt() == checksum(bytes))
++                    result += Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
++                }
++                result
++            }
++        }
++    }
++}
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt
 new file mode 100644
-index 0000000000..02cd1fd6ad
+index 0000000000..b8203605c6
 --- /dev/null
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,24 @@
 +package info.nightscout.pump.combov2
 +
 +import info.nightscout.comboctl.base.HistoryReadObservation
@@ -578,10 +1068,181 @@ index 0000000000..02cd1fd6ad
 +    put("unmappedEventObserved", observation.unmappedEventObserved)
 +    put("interruptedReadObserved", observation.interruptedReadObserved)
 +    put("malformedBlockObserved", observation.malformedBlockObserved)
++    put("journalWriteFailed", observation.journalWriteFailed)
++}
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
+new file mode 100644
+index 0000000000..552eece0a2
+--- /dev/null
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
+@@ -0,0 +1,164 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.HistoryReadCheckpoint.Phase
++import info.nightscout.comboctl.base.HistoryReadObservation
++import info.nightscout.comboctl.base.toBluetoothAddress
++import java.io.File
++import java.io.IOException
++import java.io.RandomAccessFile
++import kotlinx.serialization.json.JsonPrimitive
++import kotlinx.serialization.json.jsonObject
++import org.junit.jupiter.api.Assertions.*
++import org.junit.jupiter.api.Test
++import org.junit.jupiter.api.io.TempDir
++
++class ComboHistoryJournalTest {
++    @TempDir lateinit var root: File
++    private val binding = "a".repeat(64)
++    private val directory get() = File(root, "history")
++    private fun checkpoint(phase: Phase) = HistoryReadCheckpoint(
++        phase,
++        HistoryReadObservation(
++            state = if (phase == Phase.END) HistoryReadObservation.State.RETURNED else HistoryReadObservation.State.READING,
++            readStartedAtEpochMs = 1000, readFinishedAtEpochMs = if (phase == Phase.END) 900 else null,
++            validatedBlocks = if (phase == Phase.BEGIN) 0 else 1,
++            confirmedBlocks = if (phase in setOf(Phase.CONFIRMED, Phase.END)) 1 else 0,
++            gapObserved = true
++        ),
++        if (phase == Phase.BLOCK) listOf(0, 0, 0, 0, 0xb7.toByte(), 0x48, 0) else emptyList()
++    )
++
++    @Test fun successfulReadSurvivesReopenWithRawPayloadAndBackwardsDeviceClock() {
++        var syncs = 0
++        ComboHistoryJournal(directory, sync = { it.fd.sync(); syncs++ }).use { journal ->
++            Phase.entries.forEach { journal.record(binding, checkpoint(it)) }
++        }
++        assertEquals(4, syncs)
++        val records = ComboHistoryJournal.readRecords(directory.listFiles()!!.single { it.extension == "chr" })
++        assertEquals(JsonPrimitive("00000000b74800"), records[1]["payloadHex"])
++        assertEquals(JsonPrimitive(900), records.last().getValue("observation").jsonObject["readFinishedAt"])
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(1), journal.status(binding)["retainedReads"])
++            assertEquals(JsonPrimitive(0), journal.status(binding)["unclosedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["adverseReads"])
++            assertEquals(JsonPrimitive("unverified"), journal.status(binding)["coverage"])
++            assertEquals(JsonPrimitive(0), journal.status("b".repeat(64))["retainedReads"])
++        }
++    }
++
++    @Test fun interruptedReadRemainsUnclosedAfterNewCleanRead() {
++        ComboHistoryJournal(directory).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            journal.record(binding, checkpoint(Phase.BLOCK))
++        }
++        ComboHistoryJournal(directory).use { journal ->
++            Phase.entries.forEach { journal.record(binding, checkpoint(it)) }
++            assertEquals(JsonPrimitive(1), journal.status(binding)["unclosedReads"])
++            assertEquals(JsonPrimitive(2), journal.status(binding)["retainedReads"])
++        }
++    }
++
++    @Test fun tornTailIsPreservedNotRepaired() {
++        ComboHistoryJournal(directory).use { journal -> Phase.entries.forEach { journal.record(binding, checkpoint(it)) } }
++        val file = directory.listFiles()!!.single { it.extension == "chr" }
++        RandomAccessFile(file, "rw").use { it.setLength(it.length() - 1) }
++        val before = file.readBytes()
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(1), journal.status(binding)["corruptReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["unclosedReads"])
++        }
++        assertArrayEquals(before, file.readBytes())
++    }
++
++    @Test fun checksumCorruptionIsDetectedEvenWithUnchangedLength() {
++        ComboHistoryJournal(directory).use { journal -> Phase.entries.forEach { journal.record(binding, checkpoint(it)) } }
++        val file = directory.listFiles()!!.single { it.extension == "chr" }
++        RandomAccessFile(file, "rw").use { it.seek(10); it.writeByte(0) }
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(1), journal.status(binding)["corruptReads"])
++        }
++    }
++
++    @Test fun byteLimitAndInvalidPhaseCannotBeSilentlyAccepted() {
++        ComboHistoryJournal(directory, maxBytes = 16).use { journal ->
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.BEGIN)) }
++            assertEquals(0, directory.listFiles()!!.count { it.extension == "chr" })
++        }
++        ComboHistoryJournal(directory).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.CONFIRMED)) }
++        }
++    }
++
++    @Test fun closedFailedReadStillCarriesFailureAndInterruptedEvidence() {
++        ComboHistoryJournal(directory).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            journal.record(binding, HistoryReadCheckpoint(Phase.END, HistoryReadObservation(
++                state = HistoryReadObservation.State.FAILED, interruptedReadObserved = true
++            )))
++        }
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(1), journal.status(binding)["failedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["adverseReads"])
++            assertEquals(JsonPrimitive("unverified"), journal.status(binding)["coverage"])
++        }
++    }
++
++    @Test fun secondWriterCannotUseSameDirectory() {
++        ComboHistoryJournal(directory).use { journal ->
++            assertThrows(IOException::class.java) { ComboHistoryJournal(directory) }
++            assertThrows(IOException::class.java) { ComboHistoryJournal(directory) }
++            journal.record(binding, checkpoint(Phase.BEGIN))
++        }
++        ComboHistoryJournal(directory).close()
++    }
++
++    @Test fun differentPairingMaterialCannotReuseThePreviousBinding() {
++        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
++        val first = info.nightscout.comboctl.base.InvariantPumpData(
++            clientPumpCipher = info.nightscout.comboctl.base.Cipher(ByteArray(16) { 1 }),
++            pumpClientCipher = info.nightscout.comboctl.base.Cipher(ByteArray(16) { 2 }),
++            keyResponseAddress = 16, pumpID = "synthetic-pump"
++        )
++        val second = first.copy(clientPumpCipher = info.nightscout.comboctl.base.Cipher(ByteArray(16) { 3 }))
++        assertNotEquals(comboHistoryBinding(address, first), comboHistoryBinding(address, second))
++        assertEquals(comboHistoryBinding(address, first), comboHistoryBinding(address, first))
++    }
++
++    @Test fun capacityRefusesWithoutDeletingEarlierEvidence() {
++        ComboHistoryJournal(directory, maxReads = 1).use { journal ->
++            Phase.entries.forEach { journal.record(binding, checkpoint(it)) }
++            val before = directory.listFiles()!!.single { it.extension == "chr" }.readBytes()
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.BEGIN)) }
++            assertEquals(JsonPrimitive("FAILED"), journal.status(binding)["state"])
++            assertArrayEquals(before, directory.listFiles()!!.single { it.extension == "chr" }.readBytes())
++        }
++    }
++
++    @Test fun syncFailureCannotAdvanceInMemoryStateOrResumeWriting() {
++        var writes = 0
++        ComboHistoryJournal(directory, sync = { if (++writes == 2) throw IOException("synthetic") else it.fd.sync() }).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.BLOCK)) }
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.CONFIRMED)) }
++            assertEquals(2, writes)
++            assertEquals(JsonPrimitive("FAILED"), journal.status(binding)["state"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["unclosedReads"])
++        }
++    }
++
++    @Test fun bindingChangeWithinReadIsRejected() {
++        ComboHistoryJournal(directory).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            assertThrows(IOException::class.java) { journal.record("b".repeat(64), checkpoint(Phase.BLOCK)) }
++        }
++    }
++
++    @Test fun symlinkDirectoryIsRejectedWithoutTouchingDestination() {
++        val target = File(root, "other").also { it.mkdir() }
++        java.nio.file.Files.createSymbolicLink(directory.toPath(), target.toPath())
++        assertThrows(IOException::class.java) { ComboHistoryJournal(directory) }
++        assertEquals(0, target.listFiles()!!.size)
++    }
 +}
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt
 new file mode 100644
-index 0000000000..48c9df98bf
+index 0000000000..1be1efc366
 --- /dev/null
 +++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt
 @@ -0,0 +1,39 @@
@@ -600,7 +1261,7 @@ index 0000000000..48c9df98bf
 +            assertEquals(JsonPrimitive("reader_session"), json["scope"])
 +            assertEquals(JsonPrimitive("unverified"), json["coverage"])
 +            assertEquals(JsonPrimitive(state.name), json["state"])
-+            assertEquals(13, json.size)
++            assertEquals(14, json.size)
 +            assertFalse(json.containsKey("timestamp"))
 +            assertFalse(json.containsKey("pumpId"))
 +        }
@@ -611,7 +1272,7 @@ index 0000000000..48c9df98bf
 +            state = HistoryReadObservation.State.FAILED, readStartedAtEpochMs = 1000, readFinishedAtEpochMs = 900,
 +            validatedBlocks = 3, confirmedBlocks = 2,
 +            parsedEvents = 7, unmappedEvents = 1, gapObserved = true, clockChangeObserved = true,
-+            unmappedEventObserved = true, interruptedReadObserved = true, malformedBlockObserved = true
++            unmappedEventObserved = true, interruptedReadObserved = true, malformedBlockObserved = true, journalWriteFailed = true
 +        ))
 +        assertEquals(JsonPrimitive(3), json["validatedBlocks"])
 +        assertEquals(JsonPrimitive(2), json["confirmedBlocks"])
@@ -620,7 +1281,7 @@ index 0000000000..48c9df98bf
 +        // Raw observation clocks retain backwards jumps; they do not map pump-event time.
 +        assertEquals(JsonPrimitive(1000L), json["readStartedAt"])
 +        assertEquals(JsonPrimitive(900L), json["readFinishedAt"])
-+        for (key in listOf("gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved"))
++        for (key in listOf("gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved", "journalWriteFailed"))
 +            assertEquals(JsonPrimitive(true), json[key])
 +    }
 +}

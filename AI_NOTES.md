@@ -1,3 +1,29 @@
+# Combo Pre-Confirmation History Journal - 2026-10-24
+
+- Rechecked mainf1a346eb and CI40020966910: all three jobs passed. PR36 review
+  and integration are complete; earlier API UNKNOWN remains unexplained.
+- Two failing-first reader assertions reproduced missing checkpoint callbacks.
+  Added BEGIN/BLOCK/CONFIRMED/END capture through the existing reader and event
+  callback, with validated raw application payload flushed before confirmation.
+- Bounded private no-backup files retain unknown-event bytes and raw clocks.
+  File framing/CRC, exclusive ownership, pairing binding and reopening preserve
+  unclosed/corrupt/adverse evidence; no automatic pruning or repair. Storage
+  failure is explicit and cannot change native pump-control commands.
+- Plugin exposes only unverified counts, including after reader disconnection;
+  changed pairing material hides old status even at the same Bluetooth address.
+  Raw journal upload and clinical timeline admission are not implemented here.
+- First journal checks caught a macOS temporary-path alias rejection and the
+  existing exact status-key count assertion; corrected. Nullable parent warning
+  fixed before the final combined recipe. No failed check is represented as green.
+- Native combined suite passed661tests/no failures/skips in43s and restored
+  the pristine RC1 checkout. Recipe cleanup18tests passed in31s. Added stock SDK
+  TLS and Room retention/no-therapy assertions for the count-only status.
+- Full Android test/lint/compile/assemble passed in2m31s:6821passed/six existing
+  skips, zero lint errors/382existing warnings/eight hints. Pristine SDK TLS ran
+  in2.191s; Room journal case passed. Frozen sources unchanged; all7178application
+  classes retained in the unchanged40,670,996byte APK. Exact-head CI/review remain
+  pending. No APK/server/phone deployment, credential change or therapy action.
+
 # Passive Combo History Observation - 2026-10-23
 
 - Rechecked mainfc38715a and CI40010194951: backend, session storage and Android
