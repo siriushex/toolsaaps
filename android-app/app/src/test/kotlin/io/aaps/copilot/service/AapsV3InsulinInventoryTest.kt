@@ -64,6 +64,7 @@ class AapsV3InsulinInventoryTest {
 
     @Test fun nativeEmulatedBasalSelectsOnlyTheExtendedChildAndItsPumpMetadata() {
         val child = buildJsonObject {
+            put("date", at - 60_000)
             put("duration", 30); put("enteredinsulin", 0.25); put("isEmulatingTempBasal", true)
             put("pumpId", 9); put("pumpType", "pump"); put("pumpSerial", "child-serial"); put("endId", 12)
         }
@@ -291,7 +292,12 @@ class AapsV3InsulinInventoryTest {
     }
 
     @Test fun emulatedChildCannotSilentlyDropMixedOrRecursivePayloads() {
-        val child = buildJsonObject { put("enteredinsulin", 1.0); put("duration", 30); put("isEmulatingTempBasal", true) }
+        val child = buildJsonObject {
+            put("date", at - 60_000); put("enteredinsulin", 1.0); put("duration", 30); put("isEmulatingTempBasal", true)
+        }
+        assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, read(row(fields = buildJsonObject {
+            put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8); put("extendedEmulated", child)
+        })).status)
         for (extra in listOf(
             buildJsonObject { put("insulin", 2.0) },
             buildJsonObject { put("carbs", 24) },
@@ -316,6 +322,122 @@ class AapsV3InsulinInventoryTest {
             buildJsonObject { put("eventType", "Note"); put("enteredinsulin", JsonNull); put("rate", JsonNull) }
         )) {
             assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, read(row(fields = fields)).status)
+        }
+    }
+
+    @Test fun emulatedDeliveryCannotBorrowWrapperTimeOrContradictItsClock() {
+        val child = buildJsonObject {
+            put("date", at - 60_000); put("utcOffset", 240)
+            put("enteredinsulin", 0.5); put("duration", 30); put("isEmulatingTempBasal", true)
+        }
+        val invalid = listOf(
+            JsonObject(child - "date"),
+            JsonObject(child + ("date" to JsonNull)),
+            JsonObject(child + ("date" to JsonPrimitive(at + 60_000))),
+            JsonObject(child + ("date" to JsonPrimitive(at - 120_000))),
+            JsonObject(child + ("utcOffset" to JsonPrimitive(180)))
+        )
+        for (nested in invalid) {
+            val result = read(row(), row("wrapped", fields = buildJsonObject {
+                put("eventType", "Temp Basal"); put("absolute", 1); put("duration", 30)
+                put("utcOffset", 240); put("extendedEmulated", nested)
+            }))
+            assertEquals(nested.toString(), AapsV3ObservedInsulinStatus.INVALID, result.status)
+            assertTrue(result.records.isEmpty())
+        }
+    }
+
+    @Test fun contradictoryTimestampAliasesCannotEnterInsulinInventory() {
+        for (extra in listOf(
+            buildJsonObject { put("mills", at - 1) },
+            buildJsonObject { put("timestamp", at - 1) },
+            buildJsonObject { put("created_at", java.time.Instant.ofEpochMilli(at - 1).toString()) },
+            buildJsonObject { put("created_at", "invalid-time") }
+        )) {
+            val result = read(row(fields = JsonObject(extra + ("insulin" to JsonPrimitive(2.2)))))
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.status)
+            assertTrue(result.records.isEmpty())
+        }
+    }
+
+    @Test fun malformedRecordedOffsetCannotSilentlyBecomeUtcOrCurrentZone() {
+        for (offset in listOf(JsonPrimitive(1441), JsonPrimitive(-1441), JsonPrimitive(1.5), JsonPrimitive("bad"))) {
+            val result = read(row(fields = buildJsonObject { put("insulin", 2.2); put("utcOffset", offset) }))
+            assertEquals(offset.toString(), AapsV3ObservedInsulinStatus.INVALID, result.status)
+            assertTrue(result.records.isEmpty())
+        }
+    }
+
+    @Test fun recordedOffsetsAndEquivalentAliasesNeverShiftTheUtcInstant() {
+        val time = at - 60_000
+        for (offset in listOf<Int?>(null, -1440, -300, 0, 240, 1440)) {
+            val result = read(row(fields = buildJsonObject {
+                put("insulin", 2.2); put("icfg", config()); put("utcOffset", offset?.let(::JsonPrimitive) ?: JsonNull)
+                put("mills", time); put("timestamp", time)
+                put("created_at", java.time.Instant.ofEpochMilli(time).atOffset(java.time.ZoneOffset.ofHours(4))
+                    .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+            }))
+            assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, result.status)
+            assertEquals(time, result.records.single().eventAtMs)
+            assertEquals(offset, result.records.single().recordedUtcOffsetMinutes)
+            assertEquals(AapsV3InsulinAnchorKind.UNSPECIFIED_EVENT, result.records.single().anchorKind)
+            assertFalse(result.upstreamCompletenessVerified)
+        }
+        assertNull(read(row()).records.single().recordedUtcOffsetMinutes)
+    }
+
+    @Test fun comboMetadataCannotConfirmDeliveryStartOrMealIntent() {
+        for (type in listOf("NORMAL", "SMB", "PRIMING")) {
+            val result = read(row(fields = buildJsonObject {
+                put("insulin", 2.2); put("icfg", config()); put("type", type)
+                put("pumpId", 123); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "fixture-pump")
+                put("utcOffset", 240)
+            }))
+            val record = result.records.single()
+            assertEquals(AapsV3InsulinAnchorKind.COMBO_BOLUS_START_UNVERIFIED, record.anchorKind)
+            assertEquals(type, (record.dose as AapsV3InsulinDose.Bolus).type)
+            assertEquals(at - 60_000, record.eventAtMs)
+            assertFalse(result.upstreamCompletenessVerified)
+            assertFalse(record.toString().contains("fixture-pump"))
+        }
+        val basal = read(row(fields = buildJsonObject {
+            put("eventType", "Temp Basal"); put("absolute", 0); put("duration", 30)
+            put("pumpId", 123); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "fixture-pump")
+        })).records.single()
+        assertEquals(AapsV3InsulinAnchorKind.REPORTED_INTERVAL_START, basal.anchorKind)
+    }
+
+    @Test fun contradictoryFutureAnchorCannotHideEarlierDelivery() {
+        val future = at + 60_000
+        val nested = buildJsonObject {
+            put("eventType", "Temp Basal"); put("absolute", 1); put("duration", 30)
+            put("extendedEmulated", buildJsonObject {
+                put("date", at - 60_000); put("duration", 30); put("enteredinsulin", 0.5); put("isEmulatingTempBasal", true)
+            })
+        }
+        for (fields in listOf(nested, buildJsonObject {
+            put("insulin", 2.2); put("timestamp", at - 60_000)
+        }, buildJsonObject {
+            put("insulin", 2.2); put("created_at", java.time.Instant.ofEpochMilli(future).plusNanos(1).toString())
+        })) {
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(row(time = future, fields = fields)).status)
+        }
+        assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, read(row(time = future)).status)
+    }
+
+    @Test fun emulatedChildKeepsItsOwnOffsetWithoutParentFallback() {
+        for ((parent, child) in listOf(240 to 240, 240 to null, null to -300, null to null)) {
+            val result = read(row(fields = buildJsonObject {
+                put("eventType", "Temp Basal"); put("absolute", 1); put("duration", 30)
+                put("utcOffset", parent?.let(::JsonPrimitive) ?: JsonNull)
+                put("extendedEmulated", buildJsonObject {
+                    put("date", at - 60_000); put("utcOffset", child?.let(::JsonPrimitive) ?: JsonNull)
+                    put("duration", 30); put("enteredinsulin", 0.5); put("isEmulatingTempBasal", true)
+                })
+            }))
+            assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, result.status)
+            assertEquals(child, result.records.single().recordedUtcOffsetMinutes)
+            assertEquals(AapsV3InsulinAnchorKind.REPORTED_INTERVAL_START, result.records.single().anchorKind)
         }
     }
 }

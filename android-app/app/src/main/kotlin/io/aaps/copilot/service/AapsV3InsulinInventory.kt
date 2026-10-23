@@ -5,12 +5,14 @@ import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3RetainedSnapshot
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.Collections
 import kotlinx.serialization.json.*
 
 enum class AapsV3ObservedInsulinStatus { UNCHECKED, OBSERVED, PARTIAL_CONTEXT, NOT_OBSERVED, INVALID, CONFLICTING, LATE_EVIDENCE, LIMIT_REACHED, ERROR }
 
 internal enum class AapsV3TempBasalType { NORMAL, EMULATED_PUMP_SUSPEND, PUMP_SUSPEND, SUPERBOLUS, FAKE_EXTENDED }
+internal enum class AapsV3InsulinAnchorKind { UNSPECIFIED_EVENT, COMBO_BOLUS_START_UNVERIFIED, REPORTED_INTERVAL_START }
 
 internal sealed class AapsV3InsulinDose {
     data class Bolus(val units: Double, val type: String, val basalInsulin: Boolean,
@@ -25,7 +27,9 @@ internal sealed class AapsV3InsulinDose {
 internal data class AapsV3InsulinObservation(
     val identifier: String, val eventAtMs: Long, val availableAtMs: Long,
     val createdRevision: Long, val modifiedRevision: Long, val invalidated: Boolean,
-    val pumpRecordIdentity: String?, val pumpEndId: Long?, val dose: AapsV3InsulinDose
+    val pumpRecordIdentity: String?, val pumpEndId: Long?, val dose: AapsV3InsulinDose,
+    val recordedUtcOffsetMinutes: Int? = null,
+    val anchorKind: AapsV3InsulinAnchorKind = AapsV3InsulinAnchorKind.UNSPECIFIED_EVENT
 ) {
     val endAtMs: Long get() = eventAtMs + when (dose) {
         is AapsV3InsulinDose.Bolus -> 0
@@ -44,7 +48,8 @@ internal class AapsV3InsulinRead(val status: AapsV3ObservedInsulinStatus, val re
 
 internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot) {
     val revision = snapshot.collectionRevision
-    private data class Entry(val atMs: Long, val observation: AapsV3InsulinObservation?)
+    private data class Entry(val atMs: Long, val observation: AapsV3InsulinObservation?, val conflictingTime: Boolean = false)
+    private data class RecordedClock(val atMs: Long, val offsetMinutes: Int?)
     private val entries: List<Entry>
     private val failure: AapsV3ObservedInsulinStatus?
 
@@ -68,8 +73,17 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
                 val dose = dose(body) ?: return@mapNotNull null
                 val identityBody = if (dose is AapsV3InsulinDose.Extended && string(body, "eventType") == "Temp Basal")
                     HistoryJson.obj(body.getValue("extendedEmulated")) else body
-                val at = HistoryJson.long(body.getValue("date"))
-                require(at == row.eventAtMs && at in 1..LocalNightscoutV3Store.MAX_TIME)
+                val clock = try {
+                    val outer = recordedClock(body)
+                    require(outer.atMs == row.eventAtMs)
+                    if (identityBody === body) outer else recordedClock(identityBody).also { child ->
+                        require(child.atMs == outer.atMs)
+                        require(child.offsetMinutes == null || outer.offsetMinutes == null || child.offsetMinutes == outer.offsetMinutes)
+                    }
+                } catch (_: Exception) {
+                    return@mapNotNull Entry(checkNotNull(row.eventAtMs), null, conflictingTime = true)
+                }
+                val at = clock.atMs
                 val duration = when (dose) {
                     is AapsV3InsulinDose.Bolus -> 0
                     is AapsV3InsulinDose.TempBasal -> dose.durationMs
@@ -79,7 +93,12 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
                 Entry(at, AapsV3InsulinObservation(row.identifier, at, row.modifiedRevision,
                     row.createdRevision, row.modifiedRevision, row.deleted || boolean(body, "isValid") == false ||
                         boolean(identityBody, "isValid") == false,
-                    pumpIdentity(identityBody, dose), identityBody["endId"]?.takeUnless { it == JsonNull }?.let(HistoryJson::long), dose))
+                    pumpIdentity(identityBody, dose), identityBody["endId"]?.takeUnless { it == JsonNull }?.let(HistoryJson::long), dose,
+                    clock.offsetMinutes, when {
+                        dose !is AapsV3InsulinDose.Bolus -> AapsV3InsulinAnchorKind.REPORTED_INTERVAL_START
+                        string(identityBody, "pumpType") == "ACCU_CHEK_COMBO" -> AapsV3InsulinAnchorKind.COMBO_BOLUS_START_UNVERIFIED
+                        else -> AapsV3InsulinAnchorKind.UNSPECIFIED_EVENT
+                    }))
             } catch (_: Exception) {
                 Entry(checkNotNull(row.eventAtMs), null)
             }
@@ -93,6 +112,8 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
         failure?.let { return unavailable(it) }
         // Latest retained versions cannot recover a record moved outside this earlier query.
         if (revision > knownAtMs) return unavailable(AapsV3ObservedInsulinStatus.LATE_EVIDENCE)
+        // A contradictory anchor cannot establish that its delivery lies outside this window.
+        if (entries.any { it.conflictingTime }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)
         val relevant = entries.filter { it.atMs <= atMs &&
             (it.observation == null || it.atMs >= fromMs || it.observation.endAtMs > fromMs) }
         if (relevant.any { it.observation == null }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)
@@ -193,6 +214,22 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
         }
         val identity = buildJsonArray { add(kind); add(type); add(serial); add(id) }.toString()
         return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+
+    private fun recordedClock(body: JsonObject): RecordedClock {
+        val at = HistoryJson.long(body.getValue("date"))
+        require(at in 1..LocalNightscoutV3Store.MAX_TIME)
+        for (key in listOf("mills", "timestamp")) {
+            body[key]?.takeUnless { it == JsonNull }?.let { require(HistoryJson.long(it) == at) }
+        }
+        string(body, "created_at")?.let {
+            val instant = Instant.parse(it)
+            require(instant.nano % 1_000_000 == 0 && instant.toEpochMilli() == at)
+        }
+        val offset = body["utcOffset"]?.takeUnless { it == JsonNull }?.let {
+            HistoryJson.signedLong(it).also { value -> require(value in -1440..1440) }.toInt()
+        }
+        return RecordedClock(at, offset)
     }
 
     private fun number(body: JsonObject, key: String) = body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::double)

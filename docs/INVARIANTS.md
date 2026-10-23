@@ -1,5 +1,16 @@
 # INVARIANTS
 
+## Insulin Recorded Time
+
+- Preserve the original optional offset; do not apply it again to an epoch date
+  or fill it from the current zone or an emulated wrapper.
+- Timestamp aliases and selected-child time must agree. Contradictions cannot
+  be filtered away as future/expired insulin or return a partial basal history.
+- A Combo-labelled bolus is not a confirmed start or meal intent. An inferred
+  interval endpoint, pump ID or clock offset cannot authorize meal advice.
+- Owner timing diagnostics contain counts only, exclude invalidations and clear
+  with ownership. Source completeness and therapy gates remain independent.
+
 ## Native Effective Profile Projection
 
 - An EPS observation is not a requested switch, catalog default or complete history.

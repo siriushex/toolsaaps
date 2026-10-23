@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Native Insulin Time Evidence
+
+Typed insulin observations retain original optional UTC offsets and distinguish
+Combo bolus records with unverified delivery starts from reported interval starts.
+Contradictory aliases/child clocks reject before window filtering. The existing
+owner exposes diagnostic counts only; no complete delivery or recommendation is
+inferred. See AAPS4_INSULIN_TIME_EVIDENCE.md for source semantics and open gates.
+
 ## Native Effective Profile Observations
 
 Catalog transport and native EPS projection share one typed schedule decoder.

@@ -1,3 +1,28 @@
+# Native Insulin Clock And Combo Anchors - 2026-10-23
+
+- Verified current main6a3921d2 and all three CI39930202544 jobs.
+- Reproduced three pure timestamp/offset failures. The first Room test exposed
+  a missing app field in its synthetic fixture; after correcting that fixture,
+  accepted wire data reproduced the intended OBSERVED-versus-INVALID failure.
+- Preserve original optional UTC offsets without shifting epoch dates. Verify
+  retained aliases, millisecond precision and the emulated child's own clock.
+  Contradictions reject before time-window filtering; no partial basal result.
+- Combo-labelled boluses now retain explicit unverified-start semantics. This
+  reflects the pinned driver's infused/finished event path, not proof of the
+  installed driver, complete delivery, meal intent or a clinically safe interval.
+- Existing owner diagnostics expose only active uncertain-start/missing-offset
+  counts and retain lifecycle cleanup. No new workers, API, schema or authority.
+- Initial full quality passed6815tests/six existing skips in6m38s. Review then
+  strengthened the old mixed-child fixture with a valid date and positive control
+  so the new clock guard could not mask its intended form validation.
+- Final frozen full test/lint/compile/assemble passed in2m44s:6815passed/six existing
+  skips, all ten new cases executed, real stock SDK TLS2.708s, zero lint errors,
+  382existing warnings/eight hints. All1431source hashes stayed unchanged and
+  all7178application classes were retained in the40,670,995byte local APK.
+  Exact-source CI and main integration remain separate gates. See
+  AAPS4_INSULIN_TIME_EVIDENCE.md for the source contract and remaining limits.
+- No AAPS, phone, server, live timer, target, dose or alert change.
+
 # Meal Research Interval Inventory - 2026-10-23
 
 - Main bdf7b070 has all three successful Verify jobs in run 39918968049.

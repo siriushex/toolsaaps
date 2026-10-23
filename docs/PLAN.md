@@ -1,5 +1,19 @@
 # PLAN
 
+## Native Insulin Clock And Combo Anchors (2026-10-23)
+
+- [x] Verify main6a3921d2 CI39930202544 passed all three jobs.
+- [x] Reproduce three pure time/offset failures and the accepted-wire Room failure.
+- [x] Preserve optional historical offsets and flag unverified Combo starts.
+- [x] Reject conflicting/missing child clocks before query filtering.
+- [x] Connect count-only diagnostics to the existing owner and clear on stop.
+- [x] Final frozen Android quality:6815passed/six existing skips, all ten new
+      cases, actual SDK TLS2.708s, zero lint errors and preserved app classes.
+- [ ] Inspect exact-source CI and review before integration.
+- [ ] Integrate only the tested tree, then inspect final main CI.
+- No current offset, pump identity, corrected record or synthetic test proves
+  complete physical delivery or admits a recommended waiting interval.
+
 ## Meal Research Interval Inventory (2026-10-23)
 
 - [x] Confirm main bdf7b070 CI39918968049 passed all three jobs.
@@ -8,7 +22,7 @@
 - [x] All 124 focused tests passed with no failures or skips.
 - [x] Frozen full Android quality: 6805 passed/six existing skips, real SDK TLS,
       zero lint errors and preserved application classes; no source drift.
-- [ ] Publish reviewed source and verify exact-head CI before integration.
+- [x] PR30 passed all six source checks; merge6a3921d2 and mainCI39930202544 passed.
 - No source/pump completeness or meal recommendation admission follows from
   this guard. Independent coverage and prospective validation remain required.
 
