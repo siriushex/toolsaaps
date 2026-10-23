@@ -22,6 +22,13 @@ child from a queried window. No partial basal projection follows from the invali
 inventory. Storage stays lossless; correction at a new revision refreshes the
 existing cache, including after native SQLite reopen.
 
+The same whole-inventory rejection applies when payload or delivery-form parsing
+fails before the clock is validated. Its retained event date alone cannot prove
+that delivery is outside the query. This includes future-dated malformed records
+and invalidations; neither may disappear as absent insulin. Transport retains the
+original payload. A valid correction refreshes the cache and restores ordinary
+window selection, without creating a source-completeness or delivery receipt.
+
 ## Accu-Chek Combo Semantics
 
 The pinned AAPS RC1 source is revision

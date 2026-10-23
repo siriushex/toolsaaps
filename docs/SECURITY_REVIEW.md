@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Insulin Window Integrity (2026-10-23)
+
+- Reject unparsed retained insulin before temporal filtering; future metadata
+  cannot hide conflicting delivery or clock evidence from a partial assessment.
+- No payload rewriting, new reader/worker, network route, schema or clinical write.
+  The stricter observational refusal does not change the live onset clock.
+- Missing original Combo delivery/clock coverage remains unproven after a valid
+  correction. No live meal recommendation or new therapy authority is granted.
+
 ## Insulin SDK Clock Preservation (2026-10-23)
 
 - Refuse clock-rewriting CREATE retry only for insulin-bearing native types.

@@ -19,6 +19,9 @@ Combo bolus records with unverified delivery starts from reported interval start
 Contradictory aliases/child clocks reject before window filtering. The existing
 owner exposes diagnostic counts only; no complete delivery or recommendation is
 inferred. See AAPS4_INSULIN_TIME_EVIDENCE.md for source semantics and open gates.
+Malformed retained delivery is rejected before temporal filtering, including
+future-dated records whose form prevented clock validation. A partial inventory
+cannot become a basal projection; valid future records remain excluded normally.
 
 ## Native Effective Profile Observations
 

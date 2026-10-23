@@ -1,3 +1,23 @@
+# Insulin Window Integrity - 2026-10-23
+
+- Rechecked main5ada3eaf and all three successful CI39984075902 jobs.
+- Three failing-first assertions reproduced partial OBSERVED or NOT_OBSERVED
+  inventory when a malformed future record failed before its clock was checked.
+  This also occurred through accepted wire data and native Room, not just fixtures.
+- Reject any unparsed retained insulin entry before temporal selection. Valid
+  future/expired records still filter normally; originals remain losslessly stored.
+- Tests cover conflicting earlier clocks, invalidated malformed records, corrupted
+  payload bytes/JSON, cache/reopen and recovery after a valid correction.
+- No AAPS, phone, server, schema, live clock, therapy or meal recommendation change.
+  Original Combo history/clock completeness and prospective safety remain open.
+- API UNKNOWN did not reproduce in the verified main run; diagnostics are retained,
+  no new production API fix is claimed.
+- All109focused tests passed. Frozen full Android test/lint/compile/assemble
+  passed in5m55s:6819passed/six existing skips, pristine SDK TLS2.099s, zero lint
+  errors/382existing warnings/eight hints. All1434source hashes unchanged and
+  all7178application classes retained in the40,670,996byte local APK.
+  Exact-head and post-merge CI remain separate gates; no APK publication.
+
 # Native Insulin Clock Preservation And API Diagnostics - 2026-10-23
 
 - PR32 merged atb1be8e62 with exact tree equality and all three main CI jobs green.

@@ -13,6 +13,11 @@ not alter the published APK or phone. Production clinical dispatch stays closed.
 
 ## Controlled Main Integration
 
+Insulin-window regressions exercise malformed future records through both the
+pure index and accepted v3 wire data in native Room, with cache/reopen/correction
+and valid-future controls. They do not require a real pump, payload or server.
+Run the full Android quality and pristine SDK TLS suite before integration.
+
 WORKSTREAMS.md tracks isolated assignments and coordinator-owned integration.
 The October21 reconciliation combines independently tested main/development
 features; neither prior suite proves the merged tree. Run full merged Android

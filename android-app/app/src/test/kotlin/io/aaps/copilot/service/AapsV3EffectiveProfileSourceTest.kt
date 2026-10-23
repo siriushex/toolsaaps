@@ -172,6 +172,49 @@ class AapsV3EffectiveProfileSourceTest {
         assertTrue(db.actionCommandDao().latest(10).isEmpty())
     }
 
+    @Test fun futureMalformedWireDeliveryBlocksPartialBasalAcrossCacheAndReopen() = runBlocking {
+        val from = at - 60_000
+        store().create(input("profile", from))
+        store().create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "current-basal", "local-v3-owner", from,
+            buildJsonObject {
+                put("eventType", "Temp Basal"); put("date", from); put("duration", 1); put("absolute", 0.8)
+            }.toString()))
+        val api = LocalNightscoutV3EntriesApi(db) { at + 100_000 }
+        val payload = buildJsonObject {
+            put("app", "AAPS"); put("eventType", "Temp Basal"); put("date", at + 60_000)
+            put("duration", 1); put("absolute", 0.8); put("carbs", 24)
+        }
+        val accepted = api.handle("POST", "/api/v3/treatments", emptyMap()) { payload.toString().toByteArray() }
+        assertEquals(201, accepted.status)
+        val id = Json.parseToJsonElement(accepted.body).jsonObject.getValue("identifier").jsonPrimitive.content
+        suspend fun rejected(reader: AapsV3EffectiveProfileSource) {
+            repeat(2) {
+                val result = reader.readEvidence(from, at, at + 200_000)
+                assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.insulin.status)
+                assertTrue(result.insulin.records.isEmpty())
+                assertEquals(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, result.reportedBasal.status)
+                assertTrue(result.reportedBasal.segments.isEmpty())
+                assertFalse(result.insulin.upstreamCompletenessVerified)
+            }
+        }
+        rejected(AapsV3EffectiveProfileSource(store()))
+        db.close(); db = open()
+        val reopened = AapsV3EffectiveProfileSource(store())
+        rejected(reopened)
+        val original = checkNotNull(store().get(LocalV3Collection.TREATMENTS, id))
+        val retained = Json.parseToJsonElement(original.payloadJson).jsonObject
+        assertEquals(24, retained.getValue("carbs").jsonPrimitive.int)
+        store().update(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, id, "local-v3-owner", at + 60_000,
+            JsonObject(retained - "carbs").toString()), original.modifiedRevision)
+        val corrected = reopened.readEvidence(from, at, at + 200_000)
+        assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, corrected.insulin.status)
+        assertEquals(listOf("current-basal"), corrected.insulin.records.map { it.identifier })
+        assertEquals(AapsV3ReportedBasalStatus.OBSERVED_WINDOW, corrected.reportedBasal.status)
+        assertFalse(corrected.insulin.upstreamCompletenessVerified)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(10).isEmpty())
+    }
+
     @Test fun profileHistorySharesRevisionAndRetainsCorrectionsAndDeletionAcrossReopen() = runBlocking {
         store().create(input("old", at - 60_000))
         val original = store().create(input("new", at - 10_000, 6.5)).document
