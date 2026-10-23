@@ -9,6 +9,8 @@ record404 retains native idempotent-delete semantics. No fallback creation,
 worker, endpoint or runtime authority is added. This prevents future silent
 transport gaps, not proof of an initially complete source/destination/pump window.
 See AAPS4_UPLOAD_PROFILE_RETRY.md for behavior and blocked-queue tradeoffs.
+The SDK preserves insulin CREATE clock evidence on utcOffset rejection rather
+than silently retrying with0. No new endpoint, schema or delivery authority.
 
 ## Native Insulin Time Evidence
 

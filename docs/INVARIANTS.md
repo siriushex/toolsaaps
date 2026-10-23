@@ -11,6 +11,8 @@
 
 ## Insulin Recorded Time
 
+- SDK retries cannot replace a rejected insulin UTC offset with0, including an
+  unknown offset and emulated basal. A rejected upload remains pending, not complete.
 - Preserve the original optional offset; do not apply it again to an epoch date
   or fill it from the current zone or an emulated wrapper.
 - Timestamp aliases and selected-child time must agree. Contradictions cannot
