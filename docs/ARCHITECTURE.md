@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Native Insulin Upload Receipts
+
+The pinned external uploader patch requires a successful, usable CREATE identity
+and an unchanged UPDATE identity before acknowledging bolus/TBR/extended history.
+Failed or missing receipts hold that existing collection cursor; invalidated
+record404 retains native idempotent-delete semantics. No fallback creation,
+worker, endpoint or runtime authority is added. This prevents future silent
+transport gaps, not proof of an initially complete source/destination/pump window.
+See AAPS4_UPLOAD_PROFILE_RETRY.md for behavior and blocked-queue tradeoffs.
+
 ## Native Insulin Time Evidence
 
 Typed insulin observations retain original optional UTC offsets and distinguish

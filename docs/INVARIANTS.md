@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## Native Insulin Upload Acknowledgement
+
+- A rejected/missing receipt cannot advance bolus, temporary-basal or extended
+  history or stage a new identifier, including after repeated failures/recreation.
+- UPDATE keeps its original identity; failure cannot become a fallback CREATE.
+  Native identifier-less success and explicit idempotent deletion remain distinct.
+- Holding an upload cursor cannot prove source/destination coverage, restore
+  previously skipped records, attest pump delivery or authorize a meal timer.
+
 ## Insulin Recorded Time
 
 - Preserve the original optional offset; do not apply it again to an epoch date

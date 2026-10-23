@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Native Insulin Upload Receipt (2026-10-23)
+
+- Only bolus/TBR/extended upload acknowledgement changes. Missing, malformed,
+  rejected or rebound receipt identity cannot update source identifiers/cursors.
+- A fixed-text refusal log contains no payload, identifier or error body.
+  Existing privacy patches remain required for the surrounding native transport.
+- There is no fallback CREATE, new endpoint, secret, worker or pump command.
+  An invalid record can block that upload collection until corrected; do not
+  hide the gap by clearing cursors. Other collection policies remain unchanged.
+- Receipt integrity is not source-window, destination-binding, physical-delivery
+  or clinical meal-timing admission. No device or server deployment performed.
+
 ## Insulin Recorded Clock (2026-10-23)
 
 - Contradictory timestamps cannot hide insulin outside a requested window;

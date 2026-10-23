@@ -50,7 +50,7 @@ index 6883cb9a10..b60bae2130 100644
 \ No newline at end of file
 +}
 diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
-index 5905fb2fd0..8c74de2fd3 100644
+index 5905fb2fd0..ea4bffa844 100644
 --- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
 +++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
 @@ -21,6 +21,7 @@ import app.aaps.core.data.model.TrendArrow
@@ -177,6 +177,155 @@ index 5905fb2fd0..8c74de2fd3 100644
      @Test
      @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
      fun nsAddRunningModeTest() = runTest {
+@@ -522,6 +616,148 @@ internal class NSClientV3PluginTest : TestBaseWithProfile() {
+         assertThat(storeDataForDb.nsIdRunningModes.snapshot()).hasSize(2)
+     }
+ 
++    @Test
++    fun insulinCreateRequiresAnIdentifierEvenWhenErrorsAreIgnored() = runTest {
++        whenever(config.isEnabled(ExternalOptions.IGNORE_NS_V3_ERRORS)).thenReturn(true)
++        val pairs = listOf(
++            DataSyncSelector.PairBolus(BS(timestamp = 10000, amount = 1.0, type = BS.Type.NORMAL,
++                iCfg = someICfg), 1),
++            DataSyncSelector.PairTemporaryBasal(TB(timestamp = 10000, type = TB.Type.NORMAL,
++                rate = 1.0, isAbsolute = true, duration = 3600000), 1),
++            DataSyncSelector.PairExtendedBolus(EB(timestamp = 10000, amount = 2.0, duration = 3600000), 1)
++        )
++        for (pair in pairs) {
++            for (identifier in listOf(null, "", " ", " receipt", "receipt\n")) {
++                whenever(nsAndroidClient.createTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(201, identifier))
++                assertThat(sut.nsAdd("treatments", pair, "0/1", effectiveProfile)).isFalse()
++            }
++            for (code in listOf(400, 401, 403, 404, 409, 422, 429, 500)) {
++                whenever(nsAndroidClient.createTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(code, "wrong-receipt"))
++                assertThat(sut.nsAdd("treatments", pair, "0/1", effectiveProfile)).isFalse()
++            }
++        }
++        assertThat(storeDataForDb.nsIdBoluses.snapshot()).isEmpty()
++        assertThat(storeDataForDb.nsIdTemporaryBasals.snapshot()).isEmpty()
++        assertThat(storeDataForDb.nsIdExtendedBoluses.snapshot()).isEmpty()
++    }
++
++    @Test
++    fun insulinUpdateCannotRebindItsIdentifierOrCreateAfterARefusal() = runTest {
++        val bolus = BS(timestamp = 10000, amount = 1.0, type = BS.Type.NORMAL,
++            iCfg = someICfg, ids = IDs(nightscoutId = "receipt-1"))
++        val pair = DataSyncSelector.PairBolus(bolus, 1)
++        whenever(config.isEnabled(ExternalOptions.IGNORE_NS_V3_ERRORS)).thenReturn(true)
++        for (response in listOf(CreateUpdateResponse(200, "receipt-2"), CreateUpdateResponse(201, ""),
++            CreateUpdateResponse(400, "receipt-2"), CreateUpdateResponse(404, null), CreateUpdateResponse(500, null))) {
++            whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(response)
++            assertThat(sut.nsUpdate("treatments", pair, "0/1")).isFalse()
++            assertThat(bolus.ids.nightscoutId).isEqualTo("receipt-1")
++        }
++        assertThat(storeDataForDb.nsIdBoluses.snapshot()).isEmpty()
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(200, null))
++        assertThat(sut.nsUpdate("treatments", pair, "0/1")).isTrue()
++        assertThat(bolus.ids.nightscoutId).isEqualTo("receipt-1")
++    }
++
++    @Test
++    fun comboBolusCursorWaitsForAnActualUploadReceipt() = runTest {
++        verifyInsulinReceiptCursor(kind = "bolus")
++    }
++
++    @Test
++    fun temporaryBasalCursorWaitsForAnActualUploadReceipt() = runTest {
++        verifyInsulinReceiptCursor(kind = "basal")
++    }
++
++    @Test
++    fun extendedBolusCursorWaitsForAnActualUploadReceipt() = runTest {
++        verifyInsulinReceiptCursor(kind = "extended")
++    }
++
++    @Test
++    fun emulatedBasalCursorWaitsForAnActualUploadReceipt() = runTest {
++        verifyInsulinReceiptCursor(kind = "emulated")
++    }
++
++    private suspend fun verifyInsulinReceiptCursor(kind: String) {
++        val key = when (kind) {
++            "bolus" -> NsclientLongKey.BolusLastSyncedId
++            "basal" -> NsclientLongKey.TemporaryBasalLastSyncedId
++            else -> NsclientLongKey.ExtendedBolusLastSyncedId
++        }
++        var cursor = 0L
++        var revision = 1L
++        val bolus = BS(id = 1, timestamp = 10000, amount = 1.0, type = BS.Type.NORMAL, iCfg = someICfg,
++            ids = IDs(pumpId = 501, pumpType = PumpType.ACCU_CHEK_COMBO, pumpSerial = "fixture-pump"))
++        val tb = TB(id = 1, timestamp = 10000, type = TB.Type.NORMAL,
++            rate = 1.0, isAbsolute = true, duration = 3600000)
++        val eb = EB(id = 1, timestamp = 10000, amount = 2.0, duration = 3600000, isEmulatingTempBasal = kind == "emulated")
++        whenever(preferences.get(key)).thenAnswer { cursor }
++        doAnswer { cursor = it.getArgument(1); null }.whenever(preferences).put(eq(key), any())
++        whenever(persistenceLayer.getLastBolusId()).thenAnswer { revision }
++        whenever(persistenceLayer.getLastTemporaryBasalId()).thenAnswer { revision }
++        whenever(persistenceLayer.getLastExtendedBolusId()).thenAnswer { revision }
++        whenever(persistenceLayer.getNextSyncElementBolus(any())).thenAnswer {
++            if (cursor < revision) Pair(bolus, bolus.copy(id = revision)) else null
++        }
++        whenever(persistenceLayer.getNextSyncElementTemporaryBasal(any())).thenAnswer {
++            if (cursor < revision) Pair(tb, tb.copy(id = revision)) else null
++        }
++        whenever(persistenceLayer.getNextSyncElementExtendedBolus(any())).thenAnswer {
++            if (cursor < revision) Pair(eb, eb.copy(id = revision)) else null
++        }
++        whenever(profileFunction.getProfile(10000)).thenReturn(effectiveProfile)
++        var uploader = sut
++        val selector = DataSyncSelectorV3(preferences, aapsLogger, dateUtil, profileFunction,
++            activePlugin, profileRepository, persistenceLayer, storeDataForDb, config, nsClientRepository) { uploader }
++        suspend fun upload() {
++            when (kind) {
++                "bolus" -> selector.processChangedBoluses()
++                "basal" -> selector.processChangedTemporaryBasals()
++                else -> selector.processChangedExtendedBoluses()
++            }
++        }
++        for (response in listOf(CreateUpdateResponse(400, null), CreateUpdateResponse(201, null))) {
++            whenever(nsAndroidClient.createTreatment(anyOrNull())).thenReturn(response)
++            upload()
++            assertThat(cursor).isEqualTo(0L)
++        }
++        whenever(nsAndroidClient.createTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(201, "receipt-1"))
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++
++        revision = 2L
++        clearInvocations(nsAndroidClient)
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(404, null))
++        repeat(7) {
++            upload()
++            assertThat(cursor).isEqualTo(1L)
++        }
++        uploader = buildPlugin(mock()).also { it.nsAndroidClient = nsAndroidClient }
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(400, null))
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(200, null))
++        upload()
++        assertThat(cursor).isEqualTo(2L)
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++
++        revision = 3L
++        bolus.isValid = false
++        tb.isValid = false
++        eb.isValid = false
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(400, null))
++        upload()
++        assertThat(cursor).isEqualTo(2L)
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(CreateUpdateResponse(404, null))
++        upload()
++        assertThat(cursor).isEqualTo(3L)
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++    }
++
+     // ---- 404/400-on-UPDATE bounded retry (NS read-after-write race fix) ----
+     // nsUpdate()'s Boolean return is what DataSyncSelectorV3 uses to advance the cursor:
+     // false = held (retry next round, cursor NOT advanced), true = advance.
 diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt
 index e9c0b7c134..aca674e790 100644
 --- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt
@@ -239,7 +388,7 @@ index e9c0b7c134..aca674e790 100644
                  if (cont) confirmLastExtendedBolusIdIfGreater(eb.second.id)
              } ?: run {
 diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
-index 1045353ed5..f2cd089080 100644
+index 1045353ed5..088e8826bb 100644
 --- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
 +++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
 @@ -977,12 +977,12 @@ class NSClientV3Plugin(
@@ -257,3 +406,28 @@ index 1045353ed5..f2cd089080 100644
                  dataPair.value.toNSExtendedBolus(profile)
              }
  
+@@ -1005,6 +1005,24 @@ class NSClientV3Plugin(
+                     Json.encodeToJsonElement(data)
+                 )
+                 call?.let { it(data) }?.let { result ->
++                    // A refused or unidentified insulin upload must not advance its history cursor.
++                    if (dataPair is DataSyncSelector.PairBolus || dataPair is DataSyncSelector.PairTemporaryBasal ||
++                        dataPair is DataSyncSelector.PairExtendedBolus
++                    ) {
++                        fun validId(value: String?) = !value.isNullOrBlank() && value.length <= 256 &&
++                            value.trim() == value && value.none(Char::isISOControl)
++                        val success = result.response == 200 || result.response == 201
++                        val acknowledged = when (operation) {
++                            Operation.CREATE -> success && validId(result.identifier)
++                            Operation.UPDATE -> validId(id) &&
++                                (success || (result.response == 404 && (dataPair.value as HasIDs).isValid == false)) &&
++                                (result.identifier == null || result.identifier == id)
++                        }
++                        if (!acknowledged) {
++                            nsClientRepository.addLog("\u25c4 WAIT", "Insulin upload not acknowledged; history remains pending")
++                            return false
++                        }
++                    }
+                     when (result.response) {
+                         200  -> {
+                             nsClientRepository.addLog("◄ UPDATED", "OK ${dataPair.value::class.simpleName}")

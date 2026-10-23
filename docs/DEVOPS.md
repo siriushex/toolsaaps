@@ -23,6 +23,12 @@ phone, clinical activation or public APK publication.
 
 ## RC1 Receiver Patch Verification
 
+The existing upload patch also requires valid insulin CREATE/UPDATE receipts;
+repeated refusals and uploader recreation cannot silently advance those cursors.
+Native test doubles exercise retained preference state, not an installed phone
+or full process-persistence attestation. Existing failure cleanup and source pin
+checks remain mandatory before the pristine SDK interoperability run.
+
 See AAPS4_MASTER_ADMISSION.md. `tools/aaps4_compat/verify_master.sh` temporarily
 applies the reviewed receiver/target-transaction/test patch to a clean pinned RC1
 checkout, runs native/SMS/executor and real Room rollback regressions, and reverses
