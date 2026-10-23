@@ -36,7 +36,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cat "$root/tools/aaps4_compat/master-admission.patch" \
-    "$root/tools/aaps4_compat/transport-privacy.patch" > "$temp/change.patch"
+    "$root/tools/aaps4_compat/transport-privacy.patch" \
+    "$root/tools/aaps4_compat/upload-profile-retry.patch" > "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply --check "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply "$temp/change.patch"
 applied=true
@@ -50,6 +51,8 @@ cd "$AAPS_RC1_DIR"
     --tests '*.clientcontrol.BatchActionMappingTest' \
     --tests '*.clientcontrol.ClientControlUplinkIntegrationTest' \
     --tests '*.SmsCommunicatorPluginTest' \
+    --tests '*.NSClientV3PluginTest' \
+    --tests '*.DataSyncSelectorV3Test' \
     :implementation:testAndroidHostTest --tests '*.WizardBolusExecutorImplTest' \
     :database:impl:testAndroidHostTest \
     --tests '*.InsertAndCancelCurrentTemporaryTargetTransactionTest' \

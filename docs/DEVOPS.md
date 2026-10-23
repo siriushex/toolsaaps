@@ -28,6 +28,10 @@ applies the reviewed receiver/target-transaction/test patch to a clean pinned RC
 checkout, runs native/SMS/executor and real Room rollback regressions, and reverses
 its own exact diff and added test file even after a test
 failure. Unknown concurrent edits are preserved and fail the check. The existing
+recipe now includes upload-profile-retry.patch and both complete native uploader
+suites; see AAPS4_UPLOAD_PROFILE_RETRY.md. A missing historical profile holds the
+corresponding upload queue, not a successful acknowledgement. This verification
+does not install the patch on a phone or attest full delivery history. The
 pristine SDK preparation gate stays unchanged; Verify separately installs the
 upstream-required Android37 platform (`platforms;android-37.0`, the exact Google
 package identifier) for native module tests. This is not a signed

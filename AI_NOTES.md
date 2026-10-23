@@ -1,3 +1,28 @@
+# Native Missing-Profile Upload Retry - 2026-10-23
+
+## Change And Evidence
+
+- Reproduced three failures in the pinned native uploader: missing-profile TBR
+  and EB advanced cursors; direct transport acknowledged without a network call.
+- Added a separate minimal retry patch: hold the unconverted record until its
+  historical profile is available. Preserve imported/identifier-only skips.
+- Initial two native suites86passed;16recipe checks passed. Extended combined
+  verification covers emulated delivery and HTTP failures followed by recovery.
+- Combined native recipe passed in1m4s:485tests, no failures/errors/skips,
+  including87uploader cases. Unchanged suites reused verified Gradle task outputs;
+  source cleanup returned the upstream checkout to its exact pristine pin.
+- All22recipe/JSON-isolation checks passed; shell syntax and whitespace pass.
+- The recipe applies/reverses only owned patches; unknown changes are preserved.
+  No Copilot runtime code, therapy, phone, server or existing APK modification.
+
+## Limits And Checks
+
+See AAPS4_UPLOAD_PROFILE_RETRY.md. An unavailable profile can hold that collection
+indefinitely; no reset or current-profile substitution is permitted. Historical
+skips, destination binding, physical delivery and clinical forecast validation
+remain separate. Exact-head CI and reviewed integration remain required; no new
+clinical admission follows from source verification.
+
 # Native Insulin Form Audit - 2026-10-23
 
 - Five pure regressions reproduced hidden basal/extended fields in carbohydrate,
