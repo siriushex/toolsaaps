@@ -1,5 +1,12 @@
 # INVARIANTS
 
+## Combo History Flags
+
+- Unknown continuation/gap flag bytes must not become end-of-history or no gap.
+- Reject before block confirmation; retry exhaustion cannot return empty success.
+- Recognized gap flags and event clocks remain unchanged. A valid header or full
+  local test run cannot prove upstream completeness or admit meal-time advice.
+
 ## Native Insulin Upload Acknowledgement
 
 - A rejected/missing receipt cannot advance bolus, temporary-basal or extended

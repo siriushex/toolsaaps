@@ -1,5 +1,18 @@
 # PLAN
 
+## Combo History Flag Integrity (2026-10-23)
+
+- [x] Recheck main42ff4ece and all three successful CI39996207099 jobs.
+- [x] Reproduce four native parser/acknowledgement failures on malformed headers.
+- [x] Reject unknown flags through the existing bounded retry path.
+- [x] Native619passed, recipe/isolation24passed; pristine SDK and full Copilot
+      quality commands passed with unchanged Android tasks up-to-date.
+- [ ] Verify exact-head CI and review.
+- [ ] Integrate the reviewed tree and verify final main CI.
+- Durable gap/clock coverage, basal delivery and prospective safety remain open.
+  Read-only API checks found running services and HTTPS401 without credentials;
+  no model request or production API repair is claimed.
+
 ## Insulin Window Integrity (2026-10-23)
 
 - [x] Recheck main5ada3eaf CI39984075902: all three jobs passed.
@@ -7,7 +20,7 @@
 - [x] Reject unparsed observations before time filtering; retain valid-future behavior.
 - [x] Focused109passed; full6819passed/six existing skips, pristine SDK TLS,
       zero lint errors, frozen source and all application classes retained.
-- [ ] Verify exact-head CI, integrate reviewed tree and verify final main CI.
+- [x] PR34 merged at42ff4ece with identical tree; mainCI39996207099 passed.
 - Full Combo coverage and prospective meal-time validation remain independent.
   Previous intermittent API UNKNOWN remains unexplained; no production API change.
 

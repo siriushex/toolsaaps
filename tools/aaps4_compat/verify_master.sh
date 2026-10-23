@@ -37,7 +37,8 @@ trap 'exit 143' TERM
 
 cat "$root/tools/aaps4_compat/master-admission.patch" \
     "$root/tools/aaps4_compat/transport-privacy.patch" \
-    "$root/tools/aaps4_compat/upload-profile-retry.patch" > "$temp/change.patch"
+    "$root/tools/aaps4_compat/upload-profile-retry.patch" \
+    "$root/tools/aaps4_compat/combo-history-integrity.patch" > "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply --check "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply "$temp/change.patch"
 applied=true
@@ -58,4 +59,5 @@ cd "$AAPS_RC1_DIR"
     --tests '*.InsertAndCancelCurrentTemporaryTargetTransactionTest' \
     --tests '*.CancelCurrentTemporaryTargetIfAnyTransactionTest' \
     :database:impl:jvmTest --tests '*.TargetAdmissionTransactionTest' \
-    :core:nssdk:jvmTest
+    :core:nssdk:jvmTest \
+    :pump:combov2:comboctl:testDebugUnitTest
