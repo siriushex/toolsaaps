@@ -1,3 +1,25 @@
+# Native Insulin Upload Receipts - 2026-10-23
+
+- Verified main6e3ea283 and all three mainCI39947886716 jobs.
+- Six native tests reproduced false upload acknowledgement and cursor advance
+  for Combo bolus, TBR, extended and emulated basal, plus identifier-rebinding
+  and missing CREATE receipt. All failures were intended assertions, no setup error.
+- Minimal extension of the existing upload-profile-retry.patch holds insulin
+  cursors on refused or malformed receipts even in error-ignore mode. Successful
+  identifier-less UPDATE and idempotent deletion404 preserve the native contract.
+  No fallback CREATE, new worker, endpoint or clinical/pump command.
+- Initial complete uploader suites passed42s; extended recreation/invalidation
+  checks passed all93tests in24s. Combined recipe passed491tests, no failures or
+  skips, in49s, including all six new cases. Its cleanup restored pristine RC1.
+- All16recipe ownership tests passed. JSON checks initially lacked AAPS_RC1_DIR;
+  after supplying the required environment, all six passed. No test was skipped.
+- Full local Android quality commands passed in10s with unchanged Android tasks
+  up-to-date: retained results6815passed/six existing skips, zero lint errors.
+  This is cached validation, not a new6815-test execution. All1442frozen source
+  hashes stayed unchanged. Exact-source and final main CI remain separate gates.
+- This prevents future silent gaps, not recovery or attestation of full history.
+  No phone, AAPS APK, server, live recommendation, target, dose or alert changed.
+
 # Native Insulin Clock And Combo Anchors - 2026-10-23
 
 - Verified current main6a3921d2 and all three CI39930202544 jobs.

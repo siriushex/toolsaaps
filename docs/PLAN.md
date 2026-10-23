@@ -1,5 +1,19 @@
 # PLAN
 
+## Insulin Upload Receipt Integrity (2026-10-23)
+
+- [x] Verify main6e3ea283 and all three CI39947886716 jobs.
+- [x] Reproduce six native receipt/queue failures before the change.
+- [x] Hold bolus/TBR/extended cursors on missing/rejected/rebound receipts;
+      preserve successful native updates and idempotent deletion.
+- [x] Pass93native uploader tests, including recreation, correction and deletion.
+- [x] Combined recipe passed491tests/no skips and restored the pristine RC1 tree.
+- [x] All22recipe/isolation checks passed. Full local Android quality passed with
+      unchanged tasks up-to-date;1442source hashes unchanged, zero lint errors.
+- [ ] Verify exact-source CI, merge unchanged tested tree, then verify main CI.
+- Initial source/destination/pump coverage and prospective clinical validation
+  still block live meal recommendations. This patch is not a phone update.
+
 ## Native Insulin Clock And Combo Anchors (2026-10-23)
 
 - [x] Verify main6a3921d2 CI39930202544 passed all three jobs.
@@ -9,8 +23,8 @@
 - [x] Connect count-only diagnostics to the existing owner and clear on stop.
 - [x] Final frozen Android quality:6815passed/six existing skips, all ten new
       cases, actual SDK TLS2.708s, zero lint errors and preserved app classes.
-- [ ] Inspect exact-source CI and review before integration.
-- [ ] Integrate only the tested tree, then inspect final main CI.
+- [x] PR31 passed all six exact-source checks and automatic review.
+- [x] Merge6e3ea283 retains the tested tree; mainCI39947886716 passed all three jobs.
 - No current offset, pump identity, corrected record or synthetic test proves
   complete physical delivery or admits a recommended waiting interval.
 
