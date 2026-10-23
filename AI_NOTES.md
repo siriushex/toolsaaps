@@ -1,3 +1,19 @@
+# Insulin History Release 0.1.12 - 2026-10-23
+
+- PR27 passed all six exact-source checks and automatic review. Main merge
+  c2cc714c retains tested tree002f396d; fresh main CI remains a separate gate.
+- Prepare0.1.12/code13 without changing package, signing identity or runtime
+  settings. Retain the hidden-delivery form refusal in the next internet APK.
+- Native missing-profile retry is a separately tested external source patch;
+  this APK does not install or modify AAPS. It cannot recover skipped records.
+- Full frozen Android quality passed in10m22s:6800passed/six existing skips,
+  actual stock SDK TLS4.032s, zero lint errors/382existing warnings/eight hints.
+  All1431source hashes and7176app classes retained;14release-helper tests passed.
+  Signed39,730,208byte APK prepared with the unchanged identity. Exact-source/main
+  CI and independent public download remain release gates.
+- No recommended meal-time admission, physical-delivery claim, therapy change,
+  AI service change or phone installation follows from preparing this candidate.
+
 # Native Missing-Profile Upload Retry - 2026-10-23
 
 ## Change And Evidence

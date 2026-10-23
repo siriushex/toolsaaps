@@ -1,5 +1,20 @@
 # PLAN
 
+## Insulin History Release 0.1.12 (2026-10-23)
+
+- [x] PR27 passed all six checks and review; merge c2cc714c has the identical
+      tested tree002f396d. Main CI39913092963 is tracked separately.
+- [x] Prepare new version0.1.12/code13; retain package and signing identity.
+- [x] Frozen local Android quality:6800passed/six existing skips, real stock SDK
+      TLS4.032s, zero lint errors;1431source hashes and all7176app classes retained.
+      Signed39,730,208byte APK prepared with the unchanged signing identity.
+- [ ] Verify exact-source CI, reviewed integration and final main CI.
+- [ ] Publish immutable APK and independently verify the public updater route.
+- Includes the native insulin-form audit. Missing-profile upload retry remains
+  an external AAPS patch, not an AAPS update delivered by this Copilot APK.
+  Existing onset clock, targets, doses and alerts remain unchanged; live meal
+  recommendations still require independent delivery and forecast admission.
+
 ## Native Missing-Profile Upload Retry (2026-10-23)
 
 - [x] Reproduce three native false acknowledgements/cursor-advance failures.
