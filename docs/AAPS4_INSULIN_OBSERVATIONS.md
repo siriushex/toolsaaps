@@ -28,6 +28,15 @@ earlier absence. Latest retained versions are not a historical version archive.
 Queries include intervals that start before the requested window and overlap it.
 Malformed records cannot be declared expired using an unknown duration.
 
+Native mapper precedence is not completeness evidence. A carbohydrate branch or
+unknown event cannot hide entered insulin, basal rate/percentage or an emulated
+child. An instantaneous bolus cannot silently discard interval fields. Conflicting
+forms reject the whole observational inventory, including old records with unknown
+support. Null fields, ordinary carbohydrate/exercise durations and glucose/profile
+configuration alone are not delivery. Emulated wrappers still select one child,
+which must explicitly be emulating basal and cannot contain another delivery form.
+Transport retention stays lossless; successful storage is separate from admission.
+
 The existing native connection owner publishes observation status and record count.
 The count includes invalidated retained records and is not delivered insulin or IOB.
 Stop/revocation/offline ownership clears the published observation status. No new

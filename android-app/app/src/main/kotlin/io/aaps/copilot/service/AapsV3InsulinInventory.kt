@@ -111,9 +111,14 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
 
     private fun dose(body: JsonObject): AapsV3InsulinDose? {
         val insulin = number(body, "insulin")
+        val event = string(body, "eventType")
+        val intervalFields = listOf("enteredinsulin", "absolute", "percent", "rate", "extendedEmulated")
+        val intervalEvidence = event in setOf("Temp Basal", "Combo Bolus") ||
+            intervalFields.any { present(body, it) } || boolean(body, "isEmulatingTempBasal") == true
         require(insulin == null || insulin >= 0)
-        // The native mapper chooses insulin before eventType and before carbohydrate fields.
+        // Native branch precedence is not proof that competing delivery fields are absent.
         if (insulin != null && insulin > 0) {
+            require(!intervalEvidence)
             require((number(body, "carbs") ?: 0.0) == 0.0)
             require((number(body, "duration") ?: 0.0) == 0.0 && (number(body, "durationInMilliseconds") ?: 0.0) == 0.0)
             require(body["extendedEmulated"] == null || body["extendedEmulated"] == JsonNull)
@@ -122,10 +127,20 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
             val config = body["icfg"]?.takeUnless { it == JsonNull }?.let { AapsV3ProfileJson.insulin(HistoryJson.obj(it)) }
             return AapsV3InsulinDose.Bolus(insulin, type, boolean(body, "isBasalInsulin") ?: false, config)
         }
-        if ((number(body, "carbs") ?: 0.0) != 0.0) return null
-        return when (string(body, "eventType")) {
+        require(boolean(body, "isBasalInsulin") != true)
+        if ((number(body, "carbs") ?: 0.0) != 0.0) {
+            require(!intervalEvidence)
+            return null
+        }
+        return when (event) {
             "Temp Basal" -> {
-                body["extendedEmulated"]?.takeUnless { it == JsonNull }?.let { return extended(HistoryJson.obj(it)) }
+                require(!present(body, "enteredinsulin"))
+                body["extendedEmulated"]?.takeUnless { it == JsonNull }?.let {
+                    val child = HistoryJson.obj(it)
+                    require(boolean(child, "isEmulatingTempBasal") == true)
+                    return extended(child)
+                }
+                require(boolean(body, "isEmulatingTempBasal") != true)
                 val duration = duration(body)
                 val absolute = number(body, "absolute")?.also { require(it >= 0) }
                 val percent = number(body, "percent")?.also { require(it >= -100) }
@@ -137,11 +152,18 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
             }
             "Combo Bolus" -> extended(body)
             "Correction Bolus", "Meal Bolus", "Snack Bolus" -> throw IllegalArgumentException("missing_native_insulin")
-            else -> null
+            else -> {
+                require(!intervalEvidence)
+                null
+            }
         }
     }
 
     private fun extended(body: JsonObject): AapsV3InsulinDose.Extended {
+        require((number(body, "insulin") ?: 0.0) == 0.0 && (number(body, "carbs") ?: 0.0) == 0.0)
+        require(boolean(body, "isBasalInsulin") != true)
+        require(listOf("absolute", "percent", "extendedEmulated").none { present(body, it) })
+        number(body, "rate")?.let { require(it >= 0) }
         val units = checkNotNull(number(body, "enteredinsulin")).also { require(it >= 0) }
         return AapsV3InsulinDose.Extended(units, duration(body), boolean(body, "isEmulatingTempBasal") ?: false)
     }
@@ -176,4 +198,5 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
     private fun number(body: JsonObject, key: String) = body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::double)
     private fun string(body: JsonObject, key: String) = body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::string)
     private fun boolean(body: JsonObject, key: String) = body[key]?.takeUnless { it == JsonNull }?.let(HistoryJson::bool)
+    private fun present(body: JsonObject, key: String) = body[key]?.let { it != JsonNull } == true
 }

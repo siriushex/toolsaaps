@@ -45,6 +45,11 @@
 - As-known insulin reads reject a collection revision newer than knowledge time
   before filtering. A moved/shortened/deleted dose, unrelated change or empty
   latest snapshot cannot be used to reconstruct an earlier absence of delivery.
+- Native branch precedence cannot erase competing insulin forms. Carbohydrate,
+  unrelated or unknown records with explicit interval-delivery evidence reject
+  the inventory rather than disappearing. Instantaneous and extended forms cannot
+  absorb another form's fields. A valid emulated wrapper selects exactly one child.
+  Successful transport storage does not qualify such a payload for prediction.
 
 ## RC1 Target Admission
 

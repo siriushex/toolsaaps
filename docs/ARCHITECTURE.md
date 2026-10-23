@@ -36,6 +36,9 @@ without separate coverage/clock/delivery admission. See AAPS4_REPORTED_BASAL.md.
 The insulin index, like profile history, rejects a newer retained collection
 revision before window filtering. Revisions of excluded rows must not erase
 exposure from an earlier as-known query; this is not a versioned history archive.
+The typed insulin index also audits delivery fields before applying native branch
+precedence. Mixed/unknown forms remain retained for diagnosis but cannot produce a
+partial insulin or basal read. Transport behavior and clinical tables are unchanged.
 
 ## RC1 Target Transaction Boundary
 

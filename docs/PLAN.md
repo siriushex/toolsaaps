@@ -1,5 +1,16 @@
 # PLAN
 
+## Native Insulin Form Audit (2026-10-23)
+
+- [x] Reproduce five form omissions plus one accepted-wire/native-Room omission.
+- [x] Reject hidden/competing native delivery forms without changing transport.
+- [x] All164focused tests passed; frozen full Android quality passed6800tests
+      with six existing skips, real SDK TLS, lint and APK retention checks.
+- [x] Mainfa6f22b7 CI39906923561 passed all three jobs.
+- [ ] Publish reviewed source, inspect exact-head CI and integrate into main.
+- Independent upload/pump/clock coverage and prospective meal-time validation
+  remain required. No recommended eating-time admission follows from this audit.
+
 ## Insulin History Knowledge Boundary And 0.1.11 (2026-10-23)
 
 - [x] Confirm main6a0a7894 CI39881365894 passed all three jobs.
