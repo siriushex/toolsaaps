@@ -21,7 +21,7 @@ internal data class AapsV3EffectiveProfileRead(
 }
 
 internal data class AapsV3ObservedClinicalRead(val profile: AapsV3EffectiveProfileRead, val insulin: AapsV3InsulinRead,
-    val profileHistory: AapsV3ProfileHistoryRead) {
+    val profileHistory: AapsV3ProfileHistoryRead, val reportedBasal: AapsV3ReportedBasalRead) {
     override fun toString() = "AapsV3ObservedClinicalRead(redacted)"
 }
 
@@ -45,7 +45,7 @@ internal class AapsV3EffectiveProfileSource(
         currentCoroutineContext().ensureActive()
         fun unavailable(profile: AapsV3ObservedProfileStatus, insulin: AapsV3ObservedInsulinStatus) =
             AapsV3ObservedClinicalRead(AapsV3EffectiveProfileRead(profile, null), AapsV3InsulinRead(insulin, null),
-                AapsV3ProfileHistoryRead(profile, null))
+                AapsV3ProfileHistoryRead(profile, null), AapsV3ReportedBasalRead(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, null))
         if (fromMs !in 1..atMs || atMs > knownAtMs || knownAtMs > LocalNightscoutV3Store.MAX_TIME) {
             return@withLock unavailable(AapsV3ObservedProfileStatus.INVALID, AapsV3ObservedInsulinStatus.INVALID)
         }
@@ -55,8 +55,10 @@ internal class AapsV3EffectiveProfileSource(
                 store.retainedSnapshot(LocalV3Collection.TREATMENTS, maxRows, maxPayloadBytes)
             ).also { cached = it }
             currentCoroutineContext().ensureActive()
-            AapsV3ObservedClinicalRead(index.profile.read(atMs, knownAtMs), index.insulin.read(fromMs, atMs, knownAtMs),
-                index.profile.readWindow(fromMs, atMs, knownAtMs))
+            val insulin = index.insulin.read(fromMs, atMs, knownAtMs)
+            val history = index.profile.readWindow(fromMs, atMs, knownAtMs)
+            AapsV3ObservedClinicalRead(index.profile.read(atMs, knownAtMs), insulin, history,
+                AapsV3ReportedBasalProjector.read(fromMs, atMs, knownAtMs, history, insulin))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             cached = null

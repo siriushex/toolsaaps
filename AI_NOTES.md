@@ -1,3 +1,27 @@
+# Native Reported Basal Segments - 2026-10-23
+
+- Continue from PR24/main4f1d173d. All six source checks passed and merged/tested
+  trees match. Automatic main CI remains a separate observation.
+- Initial16inventory tests reproduced two failures: contradictory absolute/start
+  rates and ignored unknown TBR type. Follow-up19segment tests reproduced duplicate
+  pump identity admission and timestamp-bearing gap rendering. New source APIs
+  failed compilation before wiring. These original failing logs are retained.
+- Preserve native TBR type and converted start rate. Join bounded reported spans
+  to historical EPS at one retained revision; clip/split without filling gaps or
+  inventing preemption. Absolute, percentage and extended-emulation addition stay
+  distinct; extra component units are not total basal or confirmed delivery.
+- Native ProfileSealed/MidnightUtils use system-local schedule time. The inspected
+  helper sources match pinned RC1, so a serialized profile timezone is not treated
+  as historical device-clock evidence. Percentage numeric units remain unavailable.
+- Add immutable/redacted span/gap diagnostics to the existing connection owner.
+  Corrections, deletion/reopen and actual pristine SDK TLS passed73focused checks.
+  Frozen full quality passed in7m20s:6790passed/six existing skips, zero failures/
+  errors, actual SDK TLS2.777s and lint zero errors/382existing warnings/eight hints.
+  All1431source hashes stayed unchanged; all7176compiled app classes were retained
+  by the APK guard. Exact-head CI and main integration remain separate gates.
+  No worker/schema, AAPS patch, forecast/dose/target/alarm,
+  live recommended meal time or APK/device/server deployment is introduced.
+
 # Native Historical Profile Windows - 2026-10-23
 
 - Continue from verified PR23/main a63e0f3f. All six source checks passed and

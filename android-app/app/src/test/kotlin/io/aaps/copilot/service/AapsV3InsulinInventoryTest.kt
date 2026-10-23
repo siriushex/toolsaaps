@@ -143,6 +143,43 @@ class AapsV3InsulinInventoryTest {
         assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(source).status)
     }
 
+    @Test fun contradictoryAbsoluteStartRateCannotBecomeObservedBasal() {
+        val source = row(fields = buildJsonObject {
+            put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8); put("rate", 1.2)
+        })
+        assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(source).status)
+    }
+
+    @Test fun unknownTemporaryBasalTypeCannotBeSilentlyTreatedAsNormal() {
+        val source = row(fields = buildJsonObject {
+            put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8); put("type", "UNRECOGNIZED")
+        })
+        assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(source).status)
+    }
+
+    @Test fun everyNativeTemporaryBasalTypeAndConvertedStartRateRemainExplicit() {
+        for (type in AapsV3TempBasalType.entries) {
+            val source = row(fields = buildJsonObject {
+                put("eventType", "Temp Basal"); put("duration", 30); put("absolute", 0.8)
+                put("rate", 0.8); put("type", type.name)
+            })
+            val dose = read(source).records.single().dose as AapsV3InsulinDose.TempBasal
+            assertEquals(type, dose.type)
+            assertEquals(0.8, dose.reportedRateAtStart!!, 0.0)
+        }
+    }
+
+    @Test fun percentageStartConversionIsNotMistakenForThePercentageItself() {
+        val source = row(fields = buildJsonObject {
+            put("eventType", "Temp Basal"); put("duration", 30); put("percent", -100)
+            put("rate", 0.0); put("type", "EMULATED_PUMP_SUSPEND")
+        })
+        val dose = read(source).records.single().dose as AapsV3InsulinDose.TempBasal
+        assertEquals(-100.0, dose.percentAdjustment!!, 0.0)
+        assertEquals(0.0, dose.reportedRateAtStart!!, 0.0)
+        assertEquals(AapsV3TempBasalType.EMULATED_PUMP_SUSPEND, dose.type)
+    }
+
     @Test fun invalidMetadataTimeAndUnitsNeverYieldPartialSuccess() {
         val source = row()
         for (bad in listOf(source.copy(source = "another-owner"), source.copy(payloadBytes = 1),

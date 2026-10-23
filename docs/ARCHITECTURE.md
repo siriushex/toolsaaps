@@ -21,6 +21,19 @@ intervals are immutable. Original modifiers/end do not reapply or invent reversi
 The owner publishes diagnostic history status/count only; these are not delivered
 basal or upstream coverage. See AAPS4_PROFILE_HISTORY.md.
 
+## Native Reported Basal Source
+
+The retained snapshot now also joins reported basal record spans to historical
+EPS intervals. Absolute U/hour, percentage adjustment and emulated extended
+addition remain distinct. Start-converted percentage scalars are provenance,
+not interval rates. Gaps are explicit; overlaps/duplicate pump identities and
+unsupported forms reject without a partial result. Numeric component units are
+not confirmed delivery or total emulated basal. The native owner exposes status
+and counts without an additional worker. Native schedule lookup uses the device's
+system clock, so serialized profile timezone cannot attest historical clock
+changes. No observed interval can create MealBasalHistory or unlock meal advice
+without separate coverage/clock/delivery admission. See AAPS4_REPORTED_BASAL.md.
+
 ## RC1 Target Transaction Boundary
 
 The external pinned RC1 admission patch carries a target-only callback from the

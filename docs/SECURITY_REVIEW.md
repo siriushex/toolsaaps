@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Native Reported Basal Source (2026-10-23)
+
+- Same bounded retained transaction/revision and native owner; no new network route,
+  credential, worker, schema, clinical writer or permission. End IDs are provenance,
+  not independently authenticated pump-stop receipts.
+- Unknown native types, contradictory absolute rates, duplicate pump identities,
+  unsupported forms and inconsistent/late inputs cannot produce partial admission.
+- Default segment/rate/gap/read rendering is redacted and result lists immutable.
+  Diagnostic counts and reported quantities do not grant delivery completeness,
+  historical clock trust or live meal/target authority. Source CI is not device proof.
+
 ## Native Profile Catalog (2026-10-21)
 
 - Existing loopback bearer/body/revision limits only; no new trust or authority.
