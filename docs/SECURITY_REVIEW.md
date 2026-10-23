@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Passive Combo Observation (2026-10-23)
+
+- Added wire data contains counts, adverse flags and raw device read times only;
+  no pump identifier, insulin amount, key, packet or new endpoint.
+- Internal callback retains paired address for scope but redacts its log string.
+- Snapshot is process/session-local and explicitly unverified. No authority is
+  granted by a clean read, HTTP receipt, stored diagnostic or backwards clock.
+- Cancellation diagnostics do not modify native non-cancellable pump exchanges.
+  Existing timeout, acknowledgement, read bounds and control paths remain intact.
+- Copilot keeps the opaque status as history, never as a treatment or permission
+  to publish a target. Durable source evidence and clinical validation remain open.
+
 ## Combo History Flags (2026-10-23)
 
 - Validate both header flags before native acknowledgement; unknown values cannot

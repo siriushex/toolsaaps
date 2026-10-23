@@ -39,8 +39,9 @@ Full Copilot Android quality and exact-source CI remain required for integration
 
 ## Evidence Still Missing
 
-A valid gap flag is retained by the native parser but only logged, not exported
-as durable coverage evidence. History reads consume acknowledged deltas; do not
+A valid gap flag was previously only logged. AAPS4_COMBO_HISTORY_OBSERVATION.md
+now adds passive session-local status diagnostics, not durable coverage evidence
+or a pre-confirmation journal. History reads consume acknowledged deltas; do not
 open a second reader on a real pump. Successful reading does not recover FIFO
 overflow, events acknowledged before an interrupted call, or skipped event types.
 Delivery-start bounds, historical clock epochs, basal continuity and prospective

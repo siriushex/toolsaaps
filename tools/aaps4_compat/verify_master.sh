@@ -60,4 +60,5 @@ cd "$AAPS_RC1_DIR"
     --tests '*.CancelCurrentTemporaryTargetIfAnyTransactionTest' \
     :database:impl:jvmTest --tests '*.TargetAdmissionTransactionTest' \
     :core:nssdk:jvmTest \
-    :pump:combov2:comboctl:testDebugUnitTest
+    :pump:combov2:comboctl:testDebugUnitTest \
+    :pump:combov2:testDebugUnitTest

@@ -131,6 +131,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertIn("*.DataSyncSelectorV3Test", arguments)
         self.assertIn(":core:nssdk:jvmTest", arguments)
         self.assertIn(":pump:combov2:comboctl:testDebugUnitTest", arguments)
+        self.assertIn(":pump:combov2:testDebugUnitTest", arguments)
 
     def test_missing_combo_patch_refuses_before_changing_source(self):
         self.combo_patch.unlink()

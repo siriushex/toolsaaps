@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Combo Observation Verification
+
+The same reversible compatibility recipe now runs both ComboCtl and the Combo
+plugin unit suites. No separate pump reader or transport is deployed. Rebuild
+the pristine SDK driver to exercise opaque ComboHistoryRead status over TLS;
+Copilot's Room import test verifies immutable history without therapy writes.
+See AAPS4_COMBO_HISTORY_OBSERVATION.md. Source integration does not install AAPS,
+publish an APK or enable a meal-time recommendation.
+
 ## Native Profile Catalog Stage
 
 LOCAL_NS_V3_PROFILE.md adds an immutable catalog route to the existing listener

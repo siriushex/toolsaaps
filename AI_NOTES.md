@@ -1,3 +1,26 @@
+# Passive Combo History Observation - 2026-10-23
+
+- Rechecked mainfc38715a and CI40010194951: backend, session storage and Android
+  all passed. Previous intermittent API UNKNOWN remains unexplained, not repaired.
+- Four failing-first native assertions reproduced absent read/gap/clock/error
+  observations. Instrumented the existing reader without new pump commands.
+- Preserve hazards within a reader instance, capture before confirmation and
+  distinguish confirmation response from durable storage. A cancelled native
+  non-cancellable exchange is not a clean diagnostic success.
+- Existing callback retains the last snapshot for the same paired address after
+  Bluetooth disconnect; native devicestatus transports it as opaque data.
+- Added native formatting/scope tests, pristine SDK round-trip assertion and
+  Copilot Room history/retry/no-therapy regression.
+- Intermediate builds exposed a synthetic packet ArrayList mismatch, a formatting
+  error and a missing coroutine import. The first cancellation fixture timed out
+  because it withheld the required non-cancellable response; fixture corrected.
+- No durable delivery-coverage claim, live timer, phone/server change or APK release.
+- Final native149passed, combined recipe646passed/no skips in37s and restored
+  pristine RC1. Recipe18tests and JSON-isolation6tests passed. Full Android
+  test/lint/compile/assemble passed in2m42s:6820passed/six existing skips, zero
+  lint errors/382existing warnings/eight hints. Frozen sources remained unchanged;
+  APK guard retained all7178application classes. Exact-head CI remains pending.
+
 # Combo History Flag Integrity - 2026-10-23
 
 - Verified PR34 main42ff4ece and all three successful CI39996207099 jobs.

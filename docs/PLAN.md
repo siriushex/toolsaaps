@@ -1,5 +1,17 @@
 # PLAN
 
+## Passive Combo History Observations (2026-10-23)
+
+- [x] Recheck mainfc38715a and CI40010194951, all three jobs successful.
+- [x] Reproduce four missing-observation assertions before reader instrumentation.
+- [x] Add session-local gap, unknown-event, clock-change and interrupted-read
+      diagnostics to existing native status; retain no new raw packets or doses.
+- [x] Native646passed, recipe/isolation24passed, pristine SDK TLS and full Android
+      quality passed:6820passed/six existing skips, zero lint errors.
+- [ ] Review exact-head CI and integrate only the verified tree.
+- Durable pre-confirmation receipts, physical basal completeness and prospective
+  meal-time validation remain open. No live recommendation or deployment here.
+
 ## Combo History Flag Integrity (2026-10-23)
 
 - [x] Recheck main42ff4ece and all three successful CI39996207099 jobs.
@@ -7,8 +19,8 @@
 - [x] Reject unknown flags through the existing bounded retry path.
 - [x] Native619passed, recipe/isolation24passed; pristine SDK and full Copilot
       quality commands passed with unchanged Android tasks up-to-date.
-- [ ] Verify exact-head CI and review.
-- [ ] Integrate the reviewed tree and verify final main CI.
+- [x] PR35 exact-head CI and review passed; mainfc38715a has identical tree.
+- [x] MainCI40010194951 passed all three jobs.
 - Durable gap/clock coverage, basal delivery and prospective safety remain open.
   Read-only API checks found running services and HTTPS401 without credentials;
   no model request or production API repair is claimed.

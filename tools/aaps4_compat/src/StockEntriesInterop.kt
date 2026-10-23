@@ -84,8 +84,16 @@ fun main() {
                 check(client.updateCalibration(calibrationUpdated.calibrations.single().copy(isValid = false)).response == 200)
                 check(!client.getSgvsModifiedSince(calibrationUpdated.lastServerModified!!, 1).calibrations.single().isValid)
                 stage = "device-status"
+                val historyObservation = buildJsonObject {
+                    put("version", 1); put("scope", "reader_session"); put("coverage", "unverified")
+                    put("state", "FAILED"); put("readStartedAt", at - 1000); put("readFinishedAt", at)
+                    put("validatedBlocks", 3); put("confirmedBlocks", 2); put("parsedEvents", 7); put("unmappedEvents", 1)
+                    put("gapObserved", true); put("clockChangeObserved", true); put("unmappedEventObserved", true)
+                    put("interruptedReadObserved", true); put("malformedBlockObserved", false)
+                }
                 val status = NSDeviceStatus(date = at, device = "sdk-test-pump", uploaderBattery = 99,
-                    isCharging = true, pump = NSDeviceStatus.Pump(reservoir = 60.5),
+                    isCharging = true, pump = NSDeviceStatus.Pump(reservoir = 60.5,
+                        extended = buildJsonObject { put("ComboHistoryRead", historyObservation) }),
                     openaps = NSDeviceStatus.OpenAps(iob = buildJsonObject { put("iob", -0.2) }))
                 val statusCreated = client.createDeviceStatus(status)
                 check(statusCreated.response == 201 && !statusCreated.identifier.isNullOrEmpty())
@@ -95,6 +103,7 @@ fun main() {
                 val statuses = client.getDeviceStatusModifiedSince(0)
                 check(statuses.single().date == at && statuses.single().createdAt == java.time.Instant.ofEpochMilli(at).toString())
                 check(statuses.single().pump?.reservoir == 60.5)
+                check(statuses.single().pump?.extended?.get("ComboHistoryRead") == historyObservation)
                 check(statuses.single().openaps?.iob?.get("iob") == JsonPrimitive(-0.2))
                 // SDK reconstruction inserts empty optional battery/status/uploader objects.
                 val roundTrip = client.createDeviceStatus(statuses.single())
