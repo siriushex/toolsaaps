@@ -1,5 +1,13 @@
 # Combo Pre-Confirmation History Journal - 2026-10-24
 
+- Follow-up inspection reproduced a plugin failure-status loss: after an injected
+  sync refusal, the next callback replaced the scoped FAILED snapshot with null.
+  Move latched refusal before the catch handler. The new regression covers
+  CONFIRMED/END/next-BEGIN callbacks, no storage retry and same-address re-pairing.
+  Initial test failed as expected. Both Combo suites passed165tests, then the
+  combined recipe passed662/no skips in36s and restored pristine RC1. Rebuilt
+  stock SDK; full Android quality passed in7s with unchanged tests up-to-date,
+  not a new6821-test run. Frozen sources and APK retention passed.
 - Rechecked mainf1a346eb and CI40020966910: all three jobs passed. PR36 review
   and integration are complete; earlier API UNKNOWN remains unexplained.
 - Two failing-first reader assertions reproduced missing checkpoint callbacks.
@@ -21,8 +29,10 @@
 - Full Android test/lint/compile/assemble passed in2m31s:6821passed/six existing
   skips, zero lint errors/382existing warnings/eight hints. Pristine SDK TLS ran
   in2.191s; Room journal case passed. Frozen sources unchanged; all7178application
-  classes retained in the unchanged40,670,996byte APK. Exact-head CI/review remain
-  pending. No APK/server/phone deployment, credential change or therapy action.
+  classes retained in the unchanged40,670,996byte APK. Initial head e16319c5 passed
+  both CI40027291640/40027332349 runs; its external review was still running when
+  the failure-status fix began. New-head CI/review remain required. No APK/server/
+  phone deployment, credential change or therapy action.
 
 # Passive Combo History Observation - 2026-10-23
 

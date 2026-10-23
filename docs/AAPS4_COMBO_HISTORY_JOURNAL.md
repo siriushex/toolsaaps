@@ -32,6 +32,10 @@ control continues unchanged; `journalWriteFailed` and a FAILED journal status
 make the missing evidence explicit. A later successful read cannot erase an
 earlier unclosed, corrupt, failed or adverse read.
 
+After a plugin storage failure, later checkpoints are refused without retrying
+storage or clearing the first scoped FAILED status. The status remains hidden
+if the paired pump or pairing material changes; refusal does not rebind it.
+
 Files are never automatically repaired, truncated, overwritten or pruned. On
 reopening, missing END records and invalid frames remain diagnostic failures.
 Limits are 32 MiB total, 4096 reads, 256 records/2 MiB per read, 16 KiB per record

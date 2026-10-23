@@ -12,6 +12,8 @@
   hide cached status on changed address or pairing material, including same address.
 - Capacity exhaustion, OS errors and unavailable storage latch failure, not
   clinical readiness. Initial coverage, clock epochs and basal safety stay open.
+- Later refused callbacks cannot erase the first scoped storage failure or
+  retry the failed writer. A changed pairing still hides the previous status.
 
 ## Combo History Observation Boundary
 

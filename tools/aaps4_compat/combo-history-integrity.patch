@@ -290,7 +290,7 @@ index 38aceefbe9..c946a75659 100644
  
              assertEquals(expectedHistoryDeltaEvents.size, historyDelta.size)
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
-index e7ceca0680..ab1af53123 100644
+index e7ceca0680..b153cecdf8 100644
 --- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
 @@ -195,6 +195,10 @@ class ComboV2Plugin(
@@ -329,15 +329,17 @@ index e7ceca0680..ab1af53123 100644
          when (val alert = lastComboAlert) {
              is AlertScreenContent.Warning -> put("WarningCode", alert.code)
              is AlertScreenContent.Error   -> put("ErrorCode", alert.code)
-@@ -1838,11 +1853,45 @@ class ComboV2Plugin(
+@@ -1838,11 +1853,47 @@ class ComboV2Plugin(
          _baseBasalRateUIFlow.value = activeBasalProfile?.get(currentHour)?.cctlBasalToIU()
      }
  
 +    @Synchronized
 +    private fun storeHistoryCheckpoint(event: ComboCtlPump.Event.HistoryCheckpoint) {
++        // Keep the first scoped failure visible when later callbacks are refused.
++        if (historyJournalUnavailable) throw java.io.IOException("History checkpoint unavailable")
 +        var binding: String? = null
 +        try {
-+            check(!historyJournalUnavailable && event.address == getBluetoothAddress())
++            check(event.address == getBluetoothAddress())
 +            val data = pumpStateStore.getInvariantPumpData(event.address)
 +            binding = comboHistoryBinding(event.address, data)
 +            val journal = historyJournal ?: ComboHistoryJournal(
@@ -376,7 +378,7 @@ index e7ceca0680..ab1af53123 100644
                  notificationManager.post(NotificationId.COMBO_PUMP_ALARM, TextRef.AndroidRes(R.string.combov2_battery_low_warning), level = NotificationLevel.NORMAL)
              }
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
-index cc80f66c67..776c4a5b65 100644
+index cc80f66c67..eddb40f5fd 100644
 --- a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
 +++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
 @@ -11,13 +11,24 @@ import app.aaps.core.interfaces.resources.ResourceHelper
@@ -426,7 +428,7 @@ index cc80f66c67..776c4a5b65 100644
              pumpSync = mock(),
              dateUtil = mock(),
              notificationManager = notificationManager,
-@@ -91,6 +105,65 @@ class ComboV2PluginErrorLockoutTest {
+@@ -91,6 +105,109 @@ class ComboV2PluginErrorLockoutTest {
          )
      }
  
@@ -464,6 +466,50 @@ index cc80f66c67..776c4a5b65 100644
 +            assertThat(plugin.extendedStatus().containsKey("ComboHistoryJournal")).isFalse()
 +        } finally {
 +            (ComboV2Plugin::class.java.getDeclaredField("historyJournal").apply { isAccessible = true }.get(plugin) as ComboHistoryJournal).close()
++        }
++    }
++
++    @Test
++    fun checkpointFailureRemainsVisibleAfterLaterCallbacksWithoutRetryingStorage() {
++        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
++        val manager: PumpManager = mock { on { getPairedPumpAddresses() } doReturn setOf(address) }
++        ComboV2Plugin::class.java.getDeclaredField("pumpManager").apply { isAccessible = true }.set(plugin, manager)
++        var cipher = Cipher(ByteArray(16) { 1 }).toString()
++        whenever(sp.getString(any<String>(), any<String>())).thenAnswer {
++            when (it.getArgument<String>(0)) {
++                "combov2-cp-cipher-key", "combov2-pc-cipher-key" -> cipher
++                else -> ""
++            }
++        }
++        var writes = 0
++        ComboHistoryJournal(java.io.File(files, "history"), sync = {
++            if (++writes == 2) throw java.io.IOException("synthetic") else it.fd.sync()
++        }).use { journal ->
++            ComboV2Plugin::class.java.getDeclaredField("historyJournal").apply { isAccessible = true }.set(plugin, journal)
++            val method = ComboV2Plugin::class.java.getDeclaredMethod("handlePumpEvent", Pump.Event::class.java).apply { isAccessible = true }
++            fun event(phase: HistoryReadCheckpoint.Phase) = Pump.Event.HistoryCheckpoint(address, HistoryReadCheckpoint(
++                phase,
++                HistoryReadObservation(state = if (phase == HistoryReadCheckpoint.Phase.END)
++                    HistoryReadObservation.State.FAILED else HistoryReadObservation.State.READING),
++                if (phase == HistoryReadCheckpoint.Phase.BLOCK) listOf(0) else emptyList()
++            ))
++            method.invoke(plugin, event(HistoryReadCheckpoint.Phase.BEGIN))
++            val failure = org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException::class.java) {
++                method.invoke(plugin, event(HistoryReadCheckpoint.Phase.BLOCK))
++            }
++            assertThat(failure.cause).isInstanceOf(java.io.IOException::class.java)
++            val failed = plugin.extendedStatus().getValue("ComboHistoryJournal").jsonObject
++            assertThat(failed["state"]).isEqualTo(JsonPrimitive("FAILED"))
++            assertThat(failed["coverage"]).isEqualTo(JsonPrimitive("unverified"))
++            for (phase in listOf(HistoryReadCheckpoint.Phase.CONFIRMED, HistoryReadCheckpoint.Phase.END, HistoryReadCheckpoint.Phase.BEGIN)) {
++                org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException::class.java) {
++                    method.invoke(plugin, event(phase))
++                }
++                assertThat(plugin.extendedStatus()["ComboHistoryJournal"]).isEqualTo(failed)
++            }
++            assertThat(writes).isEqualTo(2)
++            cipher = Cipher(ByteArray(16) { 3 }).toString()
++            assertThat(plugin.extendedStatus().containsKey("ComboHistoryJournal")).isFalse()
 +        }
 +    }
 +
