@@ -17,6 +17,9 @@
   or fill it from the current zone or an emulated wrapper.
 - Timestamp aliases and selected-child time must agree. Contradictions cannot
   be filtered away as future/expired insulin or return a partial basal history.
+- Payload/form failure must also reject before time filtering, not skip clock
+  validation and disappear as future insulin. Invalidations do not repair it.
+  Valid out-of-window observations retain normal temporal selection.
 - A Combo-labelled bolus is not a confirmed start or meal intent. An inferred
   interval endpoint, pump ID or clock offset cannot authorize meal advice.
 - Owner timing diagnostics contain counts only, exclude invalidations and clear

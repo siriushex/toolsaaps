@@ -1,5 +1,16 @@
 # PLAN
 
+## Insulin Window Integrity (2026-10-23)
+
+- [x] Recheck main5ada3eaf CI39984075902: all three jobs passed.
+- [x] Reproduce three failures for malformed future insulin and partial basal data.
+- [x] Reject unparsed observations before time filtering; retain valid-future behavior.
+- [x] Focused109passed; full6819passed/six existing skips, pristine SDK TLS,
+      zero lint errors, frozen source and all application classes retained.
+- [ ] Verify exact-head CI, integrate reviewed tree and verify final main CI.
+- Full Combo coverage and prospective meal-time validation remain independent.
+  Previous intermittent API UNKNOWN remains unexplained; no production API change.
+
 ## Native Insulin Offset Refusal And API Diagnostics (2026-10-23)
 
 - [x] Confirm PR32 mainb1be8e62 and all three CI39967313348 jobs.
@@ -8,7 +19,7 @@
 - [x] Instrument unexpected API terminal states and repeat the isolated test20times.
 - [x] Combined recipe497passed, isolation22passed, backend1977passed/27existing
       skips, unchanged Android quality tasks passed up-to-date.
-- [ ] Verify exact-source CI and main integration.
+- [x] PR33 exact-head checks and review passed; main5ada3eaf CI39984075902 passed.
 - No clinical timer admission: original Combo history, delivery-start bounds,
   basal continuity and prospective forecast safety remain separate requirements.
 

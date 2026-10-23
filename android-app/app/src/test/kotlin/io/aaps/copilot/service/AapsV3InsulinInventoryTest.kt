@@ -113,6 +113,45 @@ class AapsV3InsulinInventoryTest {
         assertTrue(result.records.isEmpty())
     }
 
+    @Test fun malformedFutureDeliveryCannotHideAnEarlierClockOrReturnPartialInventory() {
+        val earlier = at - 60_000
+        val malformed = listOf(
+            buildJsonObject { put("insulin", 2.2); put("duration", 30); put("timestamp", earlier) },
+            buildJsonObject {
+                put("eventType", "Temp Basal"); put("absolute", 0.8); put("timestamp", earlier)
+            },
+            buildJsonObject {
+                put("eventType", "Temp Basal"); put("extendedEmulated", buildJsonObject {
+                    put("date", earlier); put("duration", 30); put("enteredinsulin", -1)
+                    put("isEmulatingTempBasal", true)
+                })
+            }
+        )
+        for (fields in malformed) {
+            for (deleted in listOf(false, true)) {
+                val result = read(row(), row("invalid-future", at + 60_000, fields, deleted = deleted))
+                assertEquals(AapsV3ObservedInsulinStatus.INVALID, result.status)
+                assertTrue(result.records.isEmpty())
+                assertFalse(result.upstreamCompletenessVerified)
+            }
+        }
+    }
+
+    @Test fun corruptFuturePayloadCannotBecomeAbsenceOfInsulin() {
+        val broken = row("invalid-future", time = at + 60_000)
+        for (source in listOf(broken.copy(payloadBytes = 1), broken.copy(payloadJson = "{", payloadBytes = 1))) {
+            assertEquals(AapsV3ObservedInsulinStatus.INVALID, read(source).status)
+        }
+    }
+
+    @Test fun validatedFutureAndExpiredRecordsStillUseTheRequestedWindow() {
+        val current = row()
+        val result = read(current, row("future", at + 60_000), row("expired", at - 7_200_000))
+        assertEquals(AapsV3ObservedInsulinStatus.OBSERVED, result.status)
+        assertEquals(listOf(current.identifier), result.records.map { it.identifier })
+        assertFalse(result.upstreamCompletenessVerified)
+    }
+
     @Test fun pumpIdentityIsScopedToNativeRecordKindAndEndIdentitySurvives() {
         val common = buildJsonObject { put("pumpId", 123); put("pumpType", "pump"); put("pumpSerial", "serial"); put("endId", 456) }
         val bolus = row("bolus", fields = JsonObject(common + ("insulin" to JsonPrimitive(2.2))))

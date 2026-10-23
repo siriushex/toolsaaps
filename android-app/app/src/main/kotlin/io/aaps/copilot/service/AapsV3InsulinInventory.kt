@@ -48,7 +48,7 @@ internal class AapsV3InsulinRead(val status: AapsV3ObservedInsulinStatus, val re
 
 internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot) {
     val revision = snapshot.collectionRevision
-    private data class Entry(val atMs: Long, val observation: AapsV3InsulinObservation?, val conflictingTime: Boolean = false)
+    private data class Entry(val atMs: Long, val observation: AapsV3InsulinObservation?)
     private data class RecordedClock(val atMs: Long, val offsetMinutes: Int?)
     private val entries: List<Entry>
     private val failure: AapsV3ObservedInsulinStatus?
@@ -81,7 +81,7 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
                         require(child.offsetMinutes == null || outer.offsetMinutes == null || child.offsetMinutes == outer.offsetMinutes)
                     }
                 } catch (_: Exception) {
-                    return@mapNotNull Entry(checkNotNull(row.eventAtMs), null, conflictingTime = true)
+                    return@mapNotNull Entry(checkNotNull(row.eventAtMs), null)
                 }
                 val at = clock.atMs
                 val duration = when (dose) {
@@ -112,11 +112,10 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
         failure?.let { return unavailable(it) }
         // Latest retained versions cannot recover a record moved outside this earlier query.
         if (revision > knownAtMs) return unavailable(AapsV3ObservedInsulinStatus.LATE_EVIDENCE)
-        // A contradictory anchor cannot establish that its delivery lies outside this window.
-        if (entries.any { it.conflictingTime }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)
+        // Unparsed delivery or clock evidence cannot establish that insulin lies outside this window.
+        if (entries.any { it.observation == null }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)
         val relevant = entries.filter { it.atMs <= atMs &&
-            (it.observation == null || it.atMs >= fromMs || it.observation.endAtMs > fromMs) }
-        if (relevant.any { it.observation == null }) return unavailable(AapsV3ObservedInsulinStatus.INVALID)
+            (it.atMs >= fromMs || checkNotNull(it.observation).endAtMs > fromMs) }
         val records = relevant.map { checkNotNull(it.observation) }.sortedWith(compareBy({ it.eventAtMs }, { it.identifier }))
         if (records.any { it.availableAtMs > knownAtMs }) return unavailable(AapsV3ObservedInsulinStatus.LATE_EVIDENCE)
         val keys = records.mapNotNull { it.pumpRecordIdentity }
