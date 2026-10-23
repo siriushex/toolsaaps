@@ -72,6 +72,33 @@ class LocalNightscoutV3DeviceStatusApiTest {
         assertEquals(2, rows(call()).size)
     }
 
+    @Test fun comboHistoryHazardsAreRetainedWithoutBecomingDeliveryOrClockAuthority() = runBlocking {
+        val observation = buildJsonObject {
+            put("version", 1); put("scope", "reader_session"); put("coverage", "unverified")
+            put("state", "FAILED"); put("readStartedAt", at); put("readFinishedAt", at - 1000)
+            put("validatedBlocks", 3); put("confirmedBlocks", 2); put("parsedEvents", 7); put("unmappedEvents", 1)
+            put("gapObserved", true); put("clockChangeObserved", true); put("unmappedEventObserved", true)
+            put("interruptedReadObserved", true); put("malformedBlockObserved", false)
+        }
+        fun status(time: Long, history: JsonObject) = buildJsonObject {
+            put("date", time); put("device", "pump-a")
+            putJsonObject("pump") { putJsonObject("extended") { put("ComboHistoryRead", history) } }
+        }.toString()
+        val first = call("POST", "devicestatus", status(at, observation))
+        assertEquals(201, first.status)
+        api = LocalNightscoutV3EntriesApi(db) { now + 1 }
+        assertEquals(200, call("POST", "devicestatus", status(at, observation)).status)
+        val clean = JsonObject(observation + ("gapObserved" to JsonPrimitive(false)))
+        assertEquals(201, call("POST", "devicestatus", status(at + 1000, clean)).status)
+        val retained = rows(call()).associateBy { it.getValue("date").jsonPrimitive.long }
+        assertEquals(observation, retained.getValue(at).getValue("pump").jsonObject
+            .getValue("extended").jsonObject.getValue("ComboHistoryRead"))
+        assertEquals(clean, retained.getValue(at + 1000).getValue("pump").jsonObject
+            .getValue("extended").jsonObject.getValue("ComboHistoryRead"))
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.glucoseDao().since(0).isEmpty())
+    }
+
     @Test fun historyIsCompleteAndUsesModificationTimeRatherThanEventTime() = runBlocking {
         val first = call("POST", "devicestatus", sample())
         val late = call("POST", "devicestatus", sample(at - 86_400_000, "pump-b"))

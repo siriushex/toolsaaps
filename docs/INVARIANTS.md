@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Combo History Observation Boundary
+
+- Only the existing history reader observes blocks; no diagnostic second reader.
+- Record adverse flags before confirmation; count confirmations only after return.
+- Later clean reads cannot clear hazards within the same reader instance.
+- Cancellation cannot produce clean diagnostic success during a non-cancellable
+  command exchange. Native command, delivery and cancellation behavior is unchanged.
+- A session snapshot or confirmation count is never durable coverage. Reader
+  recreation, process death, missing/stale status and clock jumps remain unknown.
+- Retained snapshots follow only the same paired pump. No internal address in
+  callback logs or the added status subtree; no clinical projection from upload.
+
 ## Combo History Flags
 
 - Unknown continuation/gap flag bytes must not become end-of-history or no gap.

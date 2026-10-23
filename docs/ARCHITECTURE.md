@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Passive Combo History Observations
+
+The existing Combo reader publishes session-local diagnostic snapshots through
+its existing event callback and `pump.extended.ComboHistoryRead` status subtree.
+The driver retains the last snapshot while disconnected and scopes it to the
+paired address. Native SDK and Copilot immutable status storage retain it without
+therapy projection. These observations are explicitly unverified, not a durable
+delivery journal. See AAPS4_COMBO_HISTORY_OBSERVATION.md.
+
 ## Combo History Header Validation
 
 The minimal external Combo parser patch rejects unknown history-continuation or

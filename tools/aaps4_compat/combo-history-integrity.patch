@@ -15,12 +15,341 @@ index 92097043d4..2f2330932d 100644
          val moreEventsAvailable = (payload[4].toPosInt() == 0x48)
          val historyGap = (payload[5].toPosInt() == 0x48)
  
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
+index c52e2f2f38..b001fb5a36 100644
+--- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/PumpIO.kt
+@@ -11,11 +11,13 @@ import kotlinx.coroutines.SupervisorJob
+ import kotlinx.coroutines.async
+ import kotlinx.coroutines.cancelAndJoin
+ import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.currentCoroutineContext
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.isActive
+ import kotlinx.coroutines.sync.Mutex
+ import kotlinx.coroutines.sync.withLock
+ import kotlinx.coroutines.withContext
+@@ -201,6 +203,9 @@ class PumpIO(
+     // before an initial mode was set.
+     private val _currentModeFlow = MutableStateFlow<Mode?>(null)
+ 
++    private val _historyReadObservation = MutableStateFlow(HistoryReadObservation())
++    val historyReadObservation = _historyReadObservation.asStateFlow()
++
+     /************************************
+      *** PUBLIC FUNCTIONS AND CLASSES ***
+      ************************************/
+@@ -916,60 +921,96 @@ class PumpIO(
+      *   to the history.
+      * @throws ComboIOException if IO with the pump fails.
+      */
++    @OptIn(ExperimentalTime::class)
+     suspend fun getCMDHistoryDelta(maxRequests: Int = 40): List<ApplicationLayer.CMDHistoryEvent> {
+         require(maxRequests >= 10) { "Maximum amount of requests must be at least 10; caller specified $maxRequests" }
+ 
+         return runPumpIOCall("get history delta", Mode.COMMAND) {
+-            val historyDelta = mutableListOf<ApplicationLayer.CMDHistoryEvent>()
+-            var reachedEnd = false
+-
+-            // Keep requesting history blocks until we reach the end,
+-            // and fill historyDelta with the events from each block,
+-            // skipping those events whose IDs are unknown (this is
+-            // taken care of by parseCMDReadHistoryBlockResponsePacket()).
+-            for (requestNr in 1 until maxRequests) {
+-                // Request the current history block from the Combo.
+-                val packet = sendPacketWithResponse(
+-                    ApplicationLayer.createCMDReadHistoryBlockPacket(),
+-                    ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK_RESPONSE
+-                )
++            _historyReadObservation.value = _historyReadObservation.value.copy(
++                state = HistoryReadObservation.State.READING,
++                readStartedAtEpochMs = Clock.System.now().toEpochMilliseconds(), readFinishedAtEpochMs = null,
++                validatedBlocks = 0, confirmedBlocks = 0, parsedEvents = 0, unmappedEvents = 0
++            )
++            try {
++                val historyDelta = mutableListOf<ApplicationLayer.CMDHistoryEvent>()
++                var reachedEnd = false
++
++                // Keep requesting history blocks until we reach the end,
++                // and fill historyDelta with the events from each block,
++                // skipping those events whose IDs are unknown (this is
++                // taken care of by parseCMDReadHistoryBlockResponsePacket()).
++                for (requestNr in 1 until maxRequests) {
++                    // Request the current history block from the Combo.
++                    val packet = sendPacketWithResponse(
++                        ApplicationLayer.createCMDReadHistoryBlockPacket(),
++                        ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK_RESPONSE
++                    )
+ 
+-                // Try to parse and validate the packet data.
+-                val historyBlock = try {
+-                    ApplicationLayer.parseCMDReadHistoryBlockResponsePacket(packet)
+-                } catch (t: Throwable) {
+-                    logger(LogLevel.ERROR) {
+-                        "Could not parse history block; data may have been corrupted; requesting the block again (throwable: $t)"
++                    // Try to parse and validate the packet data.
++                    val historyBlock = try {
++                        ApplicationLayer.parseCMDReadHistoryBlockResponsePacket(packet)
++                    } catch (t: Throwable) {
++                        _historyReadObservation.value = _historyReadObservation.value.copy(malformedBlockObserved = true)
++                        logger(LogLevel.ERROR) {
++                            "Could not parse history block; data may have been corrupted; requesting the block again (throwable: $t)"
++                        }
++                        continue
+                     }
+-                    continue
+-                }
+ 
+-                // Confirm this history block to let the Combo consider
+-                // it processed. The Combo can then move on to the next
+-                // history block.
+-                sendPacketWithResponse(
+-                    ApplicationLayer.createCMDConfirmHistoryBlockPacket(),
+-                    ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE
+-                )
++                    // Preserve adverse observations before an acknowledgement can consume the block.
++                    val previous = _historyReadObservation.value
++                    val unmapped = packet.payload[6].toPosInt() - historyBlock.events.size
++                    _historyReadObservation.value = previous.copy(
++                        validatedBlocks = previous.validatedBlocks + 1,
++                        parsedEvents = previous.parsedEvents + historyBlock.events.size,
++                        unmappedEvents = previous.unmappedEvents + unmapped,
++                        gapObserved = previous.gapObserved || historyBlock.historyGap,
++                        clockChangeObserved = previous.clockChangeObserved || historyBlock.events.any {
++                            it.detail is ApplicationLayer.CMDHistoryEventDetail.NewDateTimeSet
++                        },
++                        unmappedEventObserved = previous.unmappedEventObserved || unmapped > 0
++                    )
+ 
+-                historyDelta.addAll(historyBlock.events)
++                    // Confirm this history block to let the Combo consider
++                    // it processed. The Combo can then move on to the next
++                    // history block.
++                    sendPacketWithResponse(
++                        ApplicationLayer.createCMDConfirmHistoryBlockPacket(),
++                        ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE
++                    )
++                    _historyReadObservation.value = _historyReadObservation.value.let {
++                        it.copy(confirmedBlocks = it.confirmedBlocks + 1)
++                    }
+ 
+-                // Check if there is a next history block to get.
+-                // If not, we are done, and need to exit this loop.
+-                if (!historyBlock.moreEventsAvailable ||
+-                    (historyBlock.numRemainingEvents <= historyBlock.events.size)
+-                ) {
+-                    reachedEnd = true
+-                    break
++                    historyDelta.addAll(historyBlock.events)
++
++                    // Check if there is a next history block to get.
++                    // If not, we are done, and need to exit this loop.
++                    if (!historyBlock.moreEventsAvailable ||
++                        (historyBlock.numRemainingEvents <= historyBlock.events.size)
++                    ) {
++                        reachedEnd = true
++                        break
++                    }
+                 }
+-            }
+ 
+-            if (!reachedEnd)
+-                throw ApplicationLayer.InfiniteHistoryDataException(
+-                    "Did not reach an end of the history event list even after $maxRequests request(s)"
+-                )
++                if (!reachedEnd)
++                    throw ApplicationLayer.InfiniteHistoryDataException(
++                        "Did not reach an end of the history event list even after $maxRequests request(s)"
++                    )
+ 
+-            return@runPumpIOCall historyDelta
++                _historyReadObservation.value = _historyReadObservation.value.copy(
++                    state = HistoryReadObservation.State.RETURNED, readFinishedAtEpochMs = Clock.System.now().toEpochMilliseconds()
++                )
++                return@runPumpIOCall historyDelta
++            } finally {
++                if (_historyReadObservation.value.state == HistoryReadObservation.State.READING ||
++                    !currentCoroutineContext().isActive)
++                    _historyReadObservation.value = _historyReadObservation.value.copy(
++                        state = HistoryReadObservation.State.FAILED, interruptedReadObserved = true,
++                        readFinishedAtEpochMs = Clock.System.now().toEpochMilliseconds()
++                    )
++            }
+         }
+     }
+ 
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
+index 0e6ba5f646..ca6b92161a 100644
+--- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/main/Pump.kt
+@@ -524,6 +524,13 @@ class Pump(
+      */
+     sealed class Event {
+ 
++        data class HistoryReadObserved(
++            val address: BluetoothAddress,
++            val observation: info.nightscout.comboctl.base.HistoryReadObservation
++        ) : Event() {
++            override fun toString() = "HistoryReadObserved(redacted)"
++        }
++
+         object BatteryLow : Event()
+         object ReservoirLow : Event()
+         data class QuickBolusRequested @OptIn(ExperimentalTime::class) constructor(
+@@ -3023,7 +3030,11 @@ class Pump(
+ 
+     private suspend fun fetchHistoryDelta(): List<ApplicationLayer.CMDHistoryEvent> {
+         pumpIO.switchMode(PumpIO.Mode.COMMAND)
+-        return pumpIO.getCMDHistoryDelta()
++        try {
++            return pumpIO.getCMDHistoryDelta()
++        } finally {
++            onEvent(Event.HistoryReadObserved(address, pumpIO.historyReadObservation.value))
++        }
+     }
+ 
+     private suspend fun getBasalProfile(): BasalProfile = executeCommand(
+diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
+index 38aceefbe9..077c8eb4fe 100644
+--- a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
++++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
+@@ -686,6 +686,12 @@ class PumpIOTest : TestBase() {
+ 
+             val historyDelta = pumpIO.getCMDHistoryDelta(100)
+ 
++            val observation = pumpIO.historyReadObservation.value
++            assertEquals(HistoryReadObservation.State.RETURNED, observation.state)
++            assertEquals(expectedHistoryDeltaEvents.size, observation.parsedEvents)
++            assertEquals(true, observation.clockChangeObserved)
++            assertEquals(observation.validatedBlocks, observation.confirmedBlocks)
++
+             pumpIO.disconnect()
+ 
+             assertEquals(expectedHistoryDeltaEvents.size, historyDelta.size)
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+index e7ceca0680..b8c8a53f62 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+@@ -195,6 +195,7 @@ class ComboV2Plugin(
+ 
+     // These are initialized in connect() and torn down in disconnect().
+     private var pump: ComboCtlPump? = null
++    @Volatile private var lastHistoryRead: ComboCtlPump.Event.HistoryReadObserved? = null
+     private var connectionSetupJob: Job? = null
+     private var stateAndStatusFlowsDeferred: Deferred<Unit>? = null
+     private var pumpUIFlowsDeferred: Deferred<Unit>? = null
+@@ -422,6 +423,7 @@ class ComboV2Plugin(
+             // make sure any running pump instance is disconnected.
+             pump?.disconnect()
+             pump = null
++            lastHistoryRead = null
+         }
+ 
+         pumpManager = null
+@@ -1278,6 +1280,9 @@ class ComboV2Plugin(
+         createFailurePumpEnactResult(R.string.combov2_extended_bolus_not_supported)
+ 
+     override fun extendedStatus(): JsonObject = buildJsonObject {
++        lastHistoryRead?.takeIf { it.address == getBluetoothAddress() }?.let {
++            put("ComboHistoryRead", comboHistoryReadStatus(it.observation))
++        }
+         when (val alert = lastComboAlert) {
+             is AlertScreenContent.Warning -> put("WarningCode", alert.code)
+             is AlertScreenContent.Error   -> put("ErrorCode", alert.code)
+@@ -1843,6 +1848,7 @@ class ComboV2Plugin(
+         aapsLogger.debug(LTag.PUMP, "Handling pump event $event")
+ 
+         when (event) {
++            is ComboCtlPump.Event.HistoryReadObserved -> lastHistoryRead = event
+             is ComboCtlPump.Event.BatteryLow           -> {
+                 notificationManager.post(NotificationId.COMBO_PUMP_ALARM, TextRef.AndroidRes(R.string.combov2_battery_low_warning), level = NotificationLevel.NORMAL)
+             }
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+index cc80f66c67..770b678445 100644
+--- a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+@@ -11,12 +11,17 @@ import app.aaps.core.interfaces.resources.ResourceHelper
+ import app.aaps.core.keys.interfaces.TextRef
+ import com.google.common.truth.Truth.assertThat
+ import info.nightscout.comboctl.parser.AlertScreenContent
++import info.nightscout.comboctl.base.HistoryReadObservation
++import info.nightscout.comboctl.base.toBluetoothAddress
++import info.nightscout.comboctl.main.Pump
++import info.nightscout.comboctl.main.PumpManager
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import org.junit.jupiter.api.BeforeEach
+ import org.junit.jupiter.api.Test
+ import org.mockito.kotlin.any
+ import org.mockito.kotlin.doReturn
++import org.mockito.kotlin.doAnswer
+ import org.mockito.kotlin.mock
+ 
+ /**
+@@ -91,6 +96,28 @@ class ComboV2PluginErrorLockoutTest {
+         )
+     }
+ 
++    @Test
++    fun historyStatusSurvivesReleasedReaderButCannotFollowAnotherPairedPump() {
++        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
++        var paired = setOf(address)
++        val manager: PumpManager = mock { on { getPairedPumpAddresses() } doAnswer { paired } }
++        ComboV2Plugin::class.java.getDeclaredField("pumpManager").apply { isAccessible = true }.set(plugin, manager)
++        val observation = HistoryReadObservation(
++            state = HistoryReadObservation.State.FAILED, gapObserved = true, readStartedAtEpochMs = 1000,
++            readFinishedAtEpochMs = 2000, interruptedReadObserved = true
++        )
++        val event = Pump.Event.HistoryReadObserved(address, observation)
++        assertThat(event.toString()).isEqualTo("HistoryReadObserved(redacted)")
++        ComboV2Plugin::class.java.getDeclaredMethod("handlePumpEvent", Pump.Event::class.java)
++            .apply { isAccessible = true }.invoke(plugin, event)
++        // No Pump instance is acquired: the cached callback is the upload source while disconnected.
++        assertThat(plugin.extendedStatus()["ComboHistoryRead"]).isEqualTo(comboHistoryReadStatus(observation))
++        paired = setOf("12:34:56:78:9A:BD".toBluetoothAddress())
++        assertThat(plugin.extendedStatus().containsKey("ComboHistoryRead")).isFalse()
++        paired = emptySet()
++        assertThat(plugin.extendedStatus().containsKey("ComboHistoryRead")).isFalse()
++    }
++
+     @Test
+     fun errorPostsTheNamedCardAndOneLockoutHint() {
+         plugin.notifyAboutComboAlert(occlusion)
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt
+new file mode 100644
+index 0000000000..5d2a543e3e
+--- /dev/null
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/HistoryReadObservation.kt
+@@ -0,0 +1,19 @@
++package info.nightscout.comboctl.base
++
++/** Session-local diagnostics, never a receipt of durable or complete insulin delivery. */
++data class HistoryReadObservation(
++    val state: State = State.NOT_READ,
++    val readStartedAtEpochMs: Long? = null,
++    val readFinishedAtEpochMs: Long? = null,
++    val validatedBlocks: Int = 0,
++    val confirmedBlocks: Int = 0,
++    val parsedEvents: Int = 0,
++    val unmappedEvents: Int = 0,
++    val gapObserved: Boolean = false,
++    val clockChangeObserved: Boolean = false,
++    val unmappedEventObserved: Boolean = false,
++    val interruptedReadObserved: Boolean = false,
++    val malformedBlockObserved: Boolean = false
++) {
++    enum class State { NOT_READ, READING, RETURNED, FAILED }
++}
 diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
 new file mode 100644
-index 0000000000..1d23672c28
+index 0000000000..3fe5ad824c
 --- /dev/null
 +++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,200 @@
 +package info.nightscout.comboctl.base
 +
 +import info.nightscout.comboctl.base.testUtils.produceTpLayerPacket
@@ -29,6 +358,8 @@ index 0000000000..1d23672c28
 +import kotlin.test.assertEquals
 +import kotlin.test.assertFailsWith
 +import kotlin.test.assertTrue
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
 +
 +class HistoryBlockIntegrityTest {
 +    private fun block(more: Int, gap: Int) = ApplicationLayer.Packet(
@@ -99,6 +430,9 @@ index 0000000000..1d23672c28
 +                payload = byteArrayListOfInts(0, 0)
 +            ))
 +            assertTrue(state.pumpIO.getCMDHistoryDelta(10).isEmpty())
++            assertEquals(HistoryReadObservation.State.RETURNED, state.pumpIO.historyReadObservation.value.state)
++            assertTrue(state.pumpIO.historyReadObservation.value.malformedBlockObserved)
++            assertEquals(1, state.pumpIO.historyReadObservation.value.confirmedBlocks)
 +            assertEquals(listOf(
 +                ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
 +                ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
@@ -120,9 +454,173 @@ index 0000000000..1d23672c28
 +            assertFailsWith<ApplicationLayer.InfiniteHistoryDataException> {
 +                state.pumpIO.getCMDHistoryDelta(10)
 +            }
++            assertEquals(HistoryReadObservation.State.FAILED, state.pumpIO.historyReadObservation.value.state)
++            assertTrue(state.pumpIO.historyReadObservation.value.interruptedReadObserved)
++            assertTrue(state.pumpIO.historyReadObservation.value.malformedBlockObserved)
 +            assertEquals(List(9) { ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK }, historyCommands(state))
 +        } finally {
 +            state.pumpIO.disconnect()
 +        }
++    }
++
++    @Test
++    fun recognizedGapSurvivesLaterCleanReadButNotReaderRecreation() = runBlockingWithWatchdog(10_000) {
++        val state = PumpIOTest.TestStates(setupInvariantPumpData = true)
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            for (gap in listOf(0x48, 0xB7)) {
++                feed(state, block(0xB7, gap))
++                feed(state, ApplicationLayer.Packet(
++                    command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                    payload = byteArrayListOfInts(0, 0)
++                ))
++                assertTrue(state.pumpIO.getCMDHistoryDelta(10).isEmpty())
++                val observation = state.pumpIO.historyReadObservation.value
++                assertEquals(HistoryReadObservation.State.RETURNED, observation.state)
++                assertTrue(observation.gapObserved)
++                assertEquals(1, observation.validatedBlocks)
++                assertEquals(1, observation.confirmedBlocks)
++                assertEquals(0, observation.parsedEvents)
++            }
++            assertEquals(HistoryReadObservation(), PumpIOTest.TestStates(true).pumpIO.historyReadObservation.value)
++        } finally {
++            state.pumpIO.disconnect()
++        }
++    }
++
++    @Test
++    fun cancellationAfterParsingKeepsGapWithoutClaimingConfirmation() = runBlockingWithWatchdog(10_000) {
++        val state = PumpIOTest.TestStates(true)
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            feed(state, block(0xB7, 0x48))
++            val reader = launch { state.pumpIO.getCMDHistoryDelta(10) }
++            val pending = state.pumpIO.historyReadObservation.first { it.validatedBlocks == 1 }
++            assertEquals(HistoryReadObservation.State.READING, pending.state)
++            assertEquals(0, pending.confirmedBlocks)
++            assertTrue(pending.gapObserved)
++            reader.cancel()
++            // Native command/response is deliberately non-cancellable. Let that exchange finish.
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                payload = byteArrayListOfInts(0, 0)
++            ))
++            reader.join()
++            val failed = state.pumpIO.historyReadObservation.value
++            assertEquals(HistoryReadObservation.State.FAILED, failed.state)
++            assertTrue(failed.confirmedBlocks in 0..1)
++            assertTrue(failed.gapObserved)
++            assertTrue(failed.interruptedReadObserved)
++        } finally {
++            state.pumpIO.disconnect()
++        }
++    }
++
++    @Test
++    fun skippedUnknownEventRemainsVisibleAsUnmappedObservation() = runBlockingWithWatchdog(10_000) {
++        val state = PumpIOTest.TestStates(true)
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            // Synthetic 2026-01-01 12:00:00, unknown type, valid native CRCs.
++            val detail = byteArrayListOfInts(0, 192, 66, 104, 0, 0, 0, 0, 255, 255)
++            val counter = byteArrayListOfInts(1, 0, 0, 0)
++            fun checksum(bytes: List<Byte>): List<Byte> {
++                val crc = calculateCRC16MCRF4XX(bytes)
++                return byteArrayListOfInts(crc and 255, (crc ushr 8) and 255)
++            }
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK_RESPONSE,
++                payload = ArrayList(byteArrayListOfInts(0, 0, 1, 0, 0xB7, 0xB7, 1) + detail + checksum(detail) + counter + checksum(counter))
++            ))
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                payload = byteArrayListOfInts(0, 0)
++            ))
++            assertTrue(state.pumpIO.getCMDHistoryDelta(10).isEmpty())
++            val observed = state.pumpIO.historyReadObservation.value
++            assertEquals(1, observed.unmappedEvents)
++            assertEquals(0, observed.parsedEvents)
++            assertTrue(observed.unmappedEventObserved)
++            assertEquals(HistoryReadObservation.State.RETURNED, observed.state)
++        } finally {
++            state.pumpIO.disconnect()
++        }
++    }
++}
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt
+new file mode 100644
+index 0000000000..02cd1fd6ad
+--- /dev/null
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatus.kt
+@@ -0,0 +1,23 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadObservation
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++
++internal fun comboHistoryReadStatus(observation: HistoryReadObservation) = buildJsonObject {
++    put("version", 1)
++    put("scope", "reader_session")
++    put("coverage", "unverified")
++    put("state", observation.state.name)
++    observation.readStartedAtEpochMs?.let { put("readStartedAt", it) }
++    observation.readFinishedAtEpochMs?.let { put("readFinishedAt", it) }
++    put("validatedBlocks", observation.validatedBlocks)
++    put("confirmedBlocks", observation.confirmedBlocks)
++    put("parsedEvents", observation.parsedEvents)
++    put("unmappedEvents", observation.unmappedEvents)
++    put("gapObserved", observation.gapObserved)
++    put("clockChangeObserved", observation.clockChangeObserved)
++    put("unmappedEventObserved", observation.unmappedEventObserved)
++    put("interruptedReadObserved", observation.interruptedReadObserved)
++    put("malformedBlockObserved", observation.malformedBlockObserved)
++}
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt
+new file mode 100644
+index 0000000000..48c9df98bf
+--- /dev/null
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadStatusTest.kt
+@@ -0,0 +1,39 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadObservation
++import kotlinx.serialization.json.JsonPrimitive
++import org.junit.jupiter.api.Assertions.assertEquals
++import org.junit.jupiter.api.Assertions.assertFalse
++import org.junit.jupiter.api.Test
++
++class ComboHistoryReadStatusTest {
++    @Test fun everyStateExplicitlyRemainsSessionLocalAndUnverified() {
++        for (state in HistoryReadObservation.State.entries) {
++            val json = comboHistoryReadStatus(HistoryReadObservation(state = state))
++            assertEquals(JsonPrimitive("reader_session"), json["scope"])
++            assertEquals(JsonPrimitive("unverified"), json["coverage"])
++            assertEquals(JsonPrimitive(state.name), json["state"])
++            assertEquals(13, json.size)
++            assertFalse(json.containsKey("timestamp"))
++            assertFalse(json.containsKey("pumpId"))
++        }
++    }
++
++    @Test fun countsAndAdverseFlagsSurviveStatusComposition() {
++        val json = comboHistoryReadStatus(HistoryReadObservation(
++            state = HistoryReadObservation.State.FAILED, readStartedAtEpochMs = 1000, readFinishedAtEpochMs = 900,
++            validatedBlocks = 3, confirmedBlocks = 2,
++            parsedEvents = 7, unmappedEvents = 1, gapObserved = true, clockChangeObserved = true,
++            unmappedEventObserved = true, interruptedReadObserved = true, malformedBlockObserved = true
++        ))
++        assertEquals(JsonPrimitive(3), json["validatedBlocks"])
++        assertEquals(JsonPrimitive(2), json["confirmedBlocks"])
++        assertEquals(JsonPrimitive(7), json["parsedEvents"])
++        assertEquals(JsonPrimitive(1), json["unmappedEvents"])
++        // Raw observation clocks retain backwards jumps; they do not map pump-event time.
++        assertEquals(JsonPrimitive(1000L), json["readStartedAt"])
++        assertEquals(JsonPrimitive(900L), json["readFinishedAt"])
++        for (key in listOf("gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved"))
++            assertEquals(JsonPrimitive(true), json[key])
 +    }
 +}
