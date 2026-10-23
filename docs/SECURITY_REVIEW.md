@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Combo History Flags (2026-10-23)
+
+- Validate both header flags before native acknowledgement; unknown values cannot
+  manufacture a false end-of-history or no-overflow observation.
+- Fixed exception text contains no pump identity, timestamps or dose data.
+  Existing bounded retry/stop behavior is retained; no added pump command.
+- Valid FIFO gaps still lack durable exported coverage. No recommendation,
+  therapy, phone, server or medical-data change is included in this stage.
+
 ## Insulin Window Integrity (2026-10-23)
 
 - Reject unparsed retained insulin before temporal filtering; future metadata

@@ -1,3 +1,23 @@
+# Combo History Flag Integrity - 2026-10-23
+
+- Verified PR34 main42ff4ece and all three successful CI39996207099 jobs.
+- Four failing-first native tests show unknown flag bytes decoded as false and
+  malformed blocks confirmed before the reader knew its history was incomplete.
+- A six-line parser guard rejects unknown continuation/FIFO-gap values through
+  existing bounded retries. Recognized flags, timestamps and delivery logic stay
+  unchanged. Full Combo tests are added to the reversible compatibility recipe.
+- Read-only production checks: API/text/image active without restarts; admission
+  check completed successfully. The failed source-update unit was from October18,
+  not a new API crash. External unauthenticated session/status returned401.
+  This does not verify inference, fix the intermittent CI UNKNOWN or deploy code.
+- No phone, server, APK publication, timer recommendation or therapy change.
+  Durable source gap/clock receipts and prospective safety remain unresolved.
+- Native Combo122passed; combined recipe619passed/no skips in40s and restored
+  pristine RC1. Recipe18tests and JSON-isolation6tests passed. Pristine SDK rebuilt.
+- Full Copilot test/lint/compile/assemble passed in9s with unchanged Android tasks
+  up-to-date, not a newly executed6819-test run. Frozen sources were unchanged;
+  APK retention passed. Exact-head and final main CI remain separate gates.
+
 # Insulin Window Integrity - 2026-10-23
 
 - Rechecked main5ada3eaf and all three successful CI39984075902 jobs.

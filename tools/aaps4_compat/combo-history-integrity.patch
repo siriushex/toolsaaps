@@ -1,0 +1,128 @@
+diff --git a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/ApplicationLayer.kt b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/ApplicationLayer.kt
+index 92097043d4..2f2330932d 100644
+--- a/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/ApplicationLayer.kt
++++ b/pump/combov2/comboctl/src/commonMain/kotlin/info/nightscout/comboctl/base/ApplicationLayer.kt
+@@ -1341,6 +1341,12 @@ object ApplicationLayer {
+         logger(LogLevel.DEBUG) { "Packet contains $numEvents history event(s)" }
+ 
+         val numRemainingEvents = (payload[2].toPosInt() shl 0) or (payload[3].toPosInt() shl 8)
++        // Unknown flags must not imply end-of-history or an intact FIFO.
++        for (index in 4..5) {
++            val flag = payload[index].toPosInt()
++            if (flag != 0x48 && flag != 0xB7)
++                throw PayloadDataCorruptionException(packet, "Invalid history block flag")
++        }
+         val moreEventsAvailable = (payload[4].toPosInt() == 0x48)
+         val historyGap = (payload[5].toPosInt() == 0x48)
+ 
+diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
+new file mode 100644
+index 0000000000..1d23672c28
+--- /dev/null
++++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/HistoryBlockIntegrityTest.kt
+@@ -0,0 +1,105 @@
++package info.nightscout.comboctl.base
++
++import info.nightscout.comboctl.base.testUtils.produceTpLayerPacket
++import info.nightscout.comboctl.base.testUtils.runBlockingWithWatchdog
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFailsWith
++import kotlin.test.assertTrue
++
++class HistoryBlockIntegrityTest {
++    private fun block(more: Int, gap: Int) = ApplicationLayer.Packet(
++        command = ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK_RESPONSE,
++        payload = byteArrayListOfInts(0, 0, 0, 0, more, gap, 0)
++    )
++
++    @Test
++    fun rejectsEveryUnknownContinuationFlag() {
++        for (value in 0..255) {
++            if (value == 0x48 || value == 0xB7) continue
++            val packet = block(value, 0xB7)
++            val original = packet.payload.toList()
++            assertFailsWith<ApplicationLayer.PayloadDataCorruptionException>("flag=$value") {
++                ApplicationLayer.parseCMDReadHistoryBlockResponsePacket(packet)
++            }
++            assertEquals(original, packet.payload)
++        }
++    }
++
++    @Test
++    fun rejectsEveryUnknownGapFlag() {
++        for (value in 0..255) {
++            if (value == 0x48 || value == 0xB7) continue
++            assertFailsWith<ApplicationLayer.PayloadDataCorruptionException>("flag=$value") {
++                ApplicationLayer.parseCMDReadHistoryBlockResponsePacket(block(0xB7, value))
++            }
++        }
++    }
++
++    @Test
++    fun preservesRecognizedFlagsIncludingActualGap() {
++        for (more in listOf(0x48, 0xB7)) for (gap in listOf(0x48, 0xB7)) {
++            val parsed = ApplicationLayer.parseCMDReadHistoryBlockResponsePacket(block(more, gap))
++            assertEquals(more == 0x48, parsed.moreEventsAvailable)
++            assertEquals(gap == 0x48, parsed.historyGap)
++            assertEquals(0, parsed.numRemainingEvents)
++            assertTrue(parsed.events.isEmpty())
++        }
++    }
++
++    private suspend fun feed(state: PumpIOTest.TestStates, packet: ApplicationLayer.Packet) {
++        state.testIO.feedIncomingData(produceTpLayerPacket(
++            packet.toTransportLayerPacketInfo(), checkNotNull(state.testIO.pumpClientCipher)
++        ).toByteList())
++    }
++
++    private fun historyCommands(state: PumpIOTest.TestStates) = state.testIO.sentPacketData.mapNotNull {
++        val transport = it.toTransportLayerPacket()
++        if (transport.command != TransportLayer.Command.DATA) null
++        else ApplicationLayer.Packet(transport).command.takeIf { command -> command in setOf(
++            ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
++            ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK
++        ) }
++    }
++
++    @Test
++    fun corruptFlagsAreRetriedWithoutConfirmationBeforeValidBlock() = runBlockingWithWatchdog(10_000) {
++        val state = PumpIOTest.TestStates(setupInvariantPumpData = true)
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            feed(state, block(0, 0xB7))
++            feed(state, block(0xB7, 0))
++            feed(state, block(0xB7, 0xB7))
++            feed(state, ApplicationLayer.Packet(
++                command = ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK_RESPONSE,
++                payload = byteArrayListOfInts(0, 0)
++            ))
++            assertTrue(state.pumpIO.getCMDHistoryDelta(10).isEmpty())
++            assertEquals(listOf(
++                ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
++                ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
++                ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK,
++                ApplicationLayer.Command.CMD_CONFIRM_HISTORY_BLOCK
++            ), historyCommands(state))
++        } finally {
++            state.pumpIO.disconnect()
++        }
++    }
++
++    @Test
++    fun exhaustedCorruptHistoryIsNeitherConfirmedNorReturnedAsEmpty() = runBlockingWithWatchdog(10_000) {
++        val state = PumpIOTest.TestStates(setupInvariantPumpData = true)
++        state.feedInitialPackets()
++        state.pumpIO.connect(initialMode = PumpIO.Mode.COMMAND, runHeartbeat = false)
++        try {
++            repeat(9) { feed(state, block(0, 0)) }
++            assertFailsWith<ApplicationLayer.InfiniteHistoryDataException> {
++                state.pumpIO.getCMDHistoryDelta(10)
++            }
++            assertEquals(List(9) { ApplicationLayer.Command.CMD_READ_HISTORY_BLOCK }, historyCommands(state))
++        } finally {
++            state.pumpIO.disconnect()
++        }
++    }
++}

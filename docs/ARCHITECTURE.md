@@ -1,5 +1,12 @@
 # ARCHITECTURE
 
+## Combo History Header Validation
+
+The minimal external Combo parser patch rejects unknown history-continuation or
+FIFO-gap flags before PumpIO acknowledges the block. Existing retries and valid
+event handling remain unchanged. No new reader or delivery authority is added.
+See AAPS4_COMBO_HISTORY_INTEGRITY.md; durable gap/clock coverage is still absent.
+
 ## Native Insulin Upload Receipts
 
 The pinned external uploader patch requires a successful, usable CREATE identity

@@ -28,6 +28,12 @@ phone, clinical activation or public APK publication.
 
 ## RC1 Receiver Patch Verification
 
+The combined recipe also applies combo-history-integrity.patch and runs the full
+native Combo module suite. Synthetic packets exercise malformed history flags
+and acknowledgement order without accessing a real pump. The same exact-diff
+cleanup owns all four patches; prepare.sh still requires pristine upstream.
+See AAPS4_COMBO_HISTORY_INTEGRITY.md. This is not an AAPS phone deployment.
+
 The upload patch also includes SDK clock-refusal regressions. These use the
 native JVM HTTP client with a local synthetic server, not a real pump or service.
 The backend owner composition regression now runs20isolated cases and includes
