@@ -10,10 +10,13 @@ import kotlinx.serialization.json.*
 
 enum class AapsV3ObservedInsulinStatus { UNCHECKED, OBSERVED, PARTIAL_CONTEXT, NOT_OBSERVED, INVALID, CONFLICTING, LATE_EVIDENCE, LIMIT_REACHED, ERROR }
 
+internal enum class AapsV3TempBasalType { NORMAL, EMULATED_PUMP_SUSPEND, PUMP_SUSPEND, SUPERBOLUS, FAKE_EXTENDED }
+
 internal sealed class AapsV3InsulinDose {
     data class Bolus(val units: Double, val type: String, val basalInsulin: Boolean,
         val configuration: AapsV3InsulinConfiguration?) : AapsV3InsulinDose()
-    data class TempBasal(val durationMs: Long, val absoluteUnitsPerHour: Double?, val percentAdjustment: Double?) : AapsV3InsulinDose()
+    data class TempBasal(val durationMs: Long, val absoluteUnitsPerHour: Double?, val percentAdjustment: Double?,
+        val type: AapsV3TempBasalType = AapsV3TempBasalType.NORMAL, val reportedRateAtStart: Double? = null) : AapsV3InsulinDose()
     data class Extended(val units: Double, val durationMs: Long, val emulatingTempBasal: Boolean) : AapsV3InsulinDose()
     final override fun toString() = "AapsV3InsulinDose(redacted)"
 }
@@ -125,7 +128,10 @@ internal class AapsV3InsulinInventoryTimeline(snapshot: LocalV3RetainedSnapshot)
                 val absolute = number(body, "absolute")?.also { require(it >= 0) }
                 val percent = number(body, "percent")?.also { require(it >= -100) }
                 require((absolute != null) xor (percent != null))
-                AapsV3InsulinDose.TempBasal(duration, absolute, percent)
+                val type = AapsV3TempBasalType.valueOf(string(body, "type") ?: "NORMAL")
+                val startRate = number(body, "rate")?.also { require(it >= 0) }
+                require(absolute == null || startRate == null || absolute == startRate)
+                AapsV3InsulinDose.TempBasal(duration, absolute, percent, type, startRate)
             }
             "Combo Bolus" -> extended(body)
             "Correction Bolus", "Meal Bolus", "Snack Bolus" -> throw IllegalArgumentException("missing_native_insulin")

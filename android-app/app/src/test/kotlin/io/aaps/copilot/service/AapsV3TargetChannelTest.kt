@@ -197,11 +197,25 @@ class AapsV3TargetChannelTest {
         now.addAndGet(100); channel.checkConnection()
         assertEquals(AapsV3ObservedProfileStatus.OBSERVED, channel.state.value.observedProfileHistory)
         assertEquals(1, channel.state.value.profileHistoryIntervalCount)
+        assertEquals(AapsV3ReportedBasalStatus.NOT_OBSERVED, channel.state.value.observedBasal)
+        assertEquals(1, channel.state.value.basalGapCount)
+        val basalAt = at - 3_600_000
+        LocalNightscoutV3Store(db, now::get).create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS,
+            "basal", "local-v3-owner", basalAt, buildJsonObject {
+                put("eventType", "Temp Basal"); put("date", basalAt); put("duration", 60); put("absolute", 0.8)
+            }.toString()))
+        now.addAndGet(100); channel.checkConnection()
+        assertEquals(AapsV3ReportedBasalStatus.OBSERVED_WITH_GAPS, channel.state.value.observedBasal)
+        assertEquals(1, channel.state.value.basalSegmentCount)
+        assertEquals(2, channel.state.value.basalGapCount)
         baseline = { "native_clinical_projection_unavailable" }
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
         assertTrue(db.therapyDao().since(0).isEmpty())
         channel.stop()
         assertEquals(AapsV3ObservedProfileStatus.UNCHECKED, channel.state.value.observedProfileHistory)
         assertEquals(0, channel.state.value.profileHistoryIntervalCount)
+        assertEquals(AapsV3ReportedBasalStatus.UNCHECKED, channel.state.value.observedBasal)
+        assertEquals(0, channel.state.value.basalSegmentCount)
+        assertEquals(0, channel.state.value.basalGapCount)
     }
 }

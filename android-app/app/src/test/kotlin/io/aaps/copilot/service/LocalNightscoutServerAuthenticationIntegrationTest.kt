@@ -679,6 +679,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(profileHistory.status).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
             assertThat(profileHistory.intervals.single().observation).isEqualTo(latestProfile)
             assertThat(profileHistory.upstreamCompletenessVerified).isFalse()
+            val basalRead = profileSource.readEvidence(latestProfile.eventAtMs, profileWindowEnd,
+                maxOf(profileWindowEnd, checkNotNull(profileRead.retainedRevision))).reportedBasal
+            assertThat(basalRead.status).isEqualTo(AapsV3ReportedBasalStatus.OBSERVED_WINDOW)
+            assertThat(basalRead.segments.single().profile).isEqualTo(latestProfile)
+            assertThat((basalRead.segments.single().rate as AapsV3BasalRate.ExtendedAddition).unitsPerHour).isEqualTo(0.5)
+            assertThat(basalRead.upstreamCompletenessVerified).isFalse()
             val knownAt = maxOf(latestProfile.eventAtMs, checkNotNull(profileRead.retainedRevision))
             val insulinRead = profileSource.readEvidence(1, latestProfile.eventAtMs, knownAt).insulin
             assertThat(insulinRead.status).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)

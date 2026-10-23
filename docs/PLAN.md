@@ -1,5 +1,17 @@
 # PLAN
 
+## Native Reported Basal Segments (2026-10-23)
+
+- [x] Reproduce contradictory-rate/type and duplicate-identity/privacy defects.
+- [x] Decode typed TBR provenance and build revision-bound reported spans/gaps.
+- [x] Wire historical EPS, insulin and reported-basal diagnostics through one owner.
+- [x] Complete pure, Room/reopen/owner and actual pristine SDK TLS checks.
+- [x] Frozen full quality:6790passed/six existing skips, actual SDK TLS, zero lint
+      errors, unchanged1431source hashes and all7176app classes retained.
+- [ ] Verify exact-head CI and integrate the matching tested tree into main.
+- Reported spans do not establish source/pump/clock completeness or authorize live
+  meal advice. See AAPS4_REPORTED_BASAL.md for units and remaining admission.
+
 ## Native Historical Profile Windows (2026-10-23)
 
 - [x] Reproduce late as-known profile reuse and cached-schedule mutation.
@@ -7,7 +19,7 @@
 - [x] Pass pure, native Room/reopen/cache and owner-lifecycle regressions.
 - [x] Full quality:6766passed/six existing skips, actual pristine SDK TLS,
       zero lint errors, unchanged1429source hashes and all7164app classes retained.
-- [ ] Publish reviewed source, verify exact-head CI and integrate matching tree.
+- [x] Publish PR24, pass all six source checks and integrate4f1d173d with matching tree.
 - No source/pump completeness, delivered basal or recommended eating-time
   admission is claimed; see AAPS4_PROFILE_HISTORY.md.
 

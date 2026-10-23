@@ -26,6 +26,23 @@
   compatibility view is not an admission receipt. Cached schedules/window lists
   cannot be mutated by readers. Observed intervals are not basal delivery coverage.
 
+## Native Reported Basal Segments
+
+- Reported basal and profile windows must share one retained revision and knowledge
+  boundary. Preserve original record/end/pump identity and historical profile context.
+- No record, a zero-duration record or invalidation cannot prove normal basal or
+  suspension. Keep gaps explicit; do not fill from a schedule or scalar IOB.
+- Absolute rate, percentage adjustment and emulated extended addition are different
+  components. A converted start scalar is not an interval percentage conversion.
+  An extra component is not total basal; ordinary extended/bolus exposure stays
+  separately accounted for. Standalone fake and basal-insulin boluses are unsupported.
+- Overlap cannot invent preemption or addition. Duplicate pump keys conflict. A
+  late/invalid/over-limit input cannot produce a partial usable inventory.
+- AAPS native schedule lookups use system-local time. Profile timezone/offset alone
+  cannot attest historical device-clock changes. Do not reapply EPS modifiers.
+- Immutable reported spans/quantities remain observational, not physical delivery,
+  complete source/pump coverage, MealBasalHistory or live timer/therapy permission.
+
 ## RC1 Target Admission
 
 - A target-only native commit must carry its original receipt deadline through

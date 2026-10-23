@@ -148,6 +148,34 @@ class AapsV3EffectiveProfileSourceTest {
         assertNull(after.profile.observation)
     }
 
+    @Test fun reportedBasalSharesSnapshotAndRetainsCorrectionsDeletionAndReopenWithoutClinicalWrites() = runBlocking {
+        val from = at - 3_600_000
+        store().create(input("profile", from - 60_000))
+        fun basal(rate: Double) = LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "basal", "local-v3-owner", from,
+            buildJsonObject {
+                put("eventType", "Temp Basal"); put("date", from); put("duration", 60)
+                put("absolute", rate); put("rate", rate); put("type", "NORMAL")
+            }.toString())
+        val original = store().create(basal(0.8)).document
+        val source = AapsV3EffectiveProfileSource(store())
+        val first = source.readEvidence(from, at, at + 200_000)
+        assertEquals(first.insulin.retainedRevision, first.reportedBasal.retainedRevision)
+        assertEquals(first.profileHistory.retainedRevision, first.reportedBasal.retainedRevision)
+        assertEquals(0.8, first.reportedBasal.segments.single().reportedComponentUnits!!, 1e-12)
+        val updated = store().update(basal(0.6), original.modifiedRevision).document
+        assertEquals(0.6, source.readEvidence(from, at, at + 200_000)
+            .reportedBasal.segments.single().reportedComponentUnits!!, 1e-12)
+        store().delete(LocalV3Collection.TREATMENTS, "basal", updated.modifiedRevision)
+        db.close(); db = open()
+        val reopened = AapsV3EffectiveProfileSource(store()).readEvidence(from, at, at + 200_000).reportedBasal
+        assertEquals(AapsV3ReportedBasalStatus.NOT_OBSERVED, reopened.status)
+        assertTrue(reopened.segments.isEmpty())
+        assertEquals(from, reopened.gaps.single().startMs)
+        assertEquals(at, reopened.gaps.single().endMs)
+        assertFalse(reopened.upstreamCompletenessVerified)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
     @Test fun correctionsAndTimeMovesReplaceTheIdentityAndInvalidateTheCachedProjection() = runBlocking {
         val first = store().create(input("first")).document
         val second = store().create(input("second", at + 10_000)).document
