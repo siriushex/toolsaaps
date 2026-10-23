@@ -51,6 +51,17 @@ worker, server route, database schema, model execution or therapy writer is adde
 
 ## Requirements For A Recommendation
 
+The research inventory must inspect interval evidence even without a dose-units
+field. Rate-only absolute/percentage basal and explicit basal/suspend/resume
+records cannot disappear from the bolus-only forecast. Unrecognized forms,
+zero-rate suspension, malformed rates and old intervals with unknown support
+remain unsupported. No duration or delivery is invented from those fields.
+Assessment, direct simulation and direct forward projection all refuse such an
+inventory, preserving the separate live prediction. Ordinary food/exercise
+duration and null interval fields do not create insulin records.
+This refusal closes an omission, not source/pump completeness: independent
+upstream coverage and clinical validation below remain necessary.
+
 1. Capture explicit meal intent, actual meal start and confirmed bolus delivery
    linkage separately. An entered timestamp, positive IOB, SMB or correction
    bolus must not silently become proof of a planned meal.

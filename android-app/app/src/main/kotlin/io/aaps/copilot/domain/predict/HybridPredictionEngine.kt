@@ -1560,11 +1560,14 @@ class HybridPredictionEngine(
         return type.contains("bolus") || type.contains("correction") || type == "insulin"
     }
 
+    // Rate-only intervals and pump state records cannot establish absence of insulin.
     private fun mealRecordMayContainInsulin(event: TherapyEvent): Boolean = eventCanCarryInsulin(event) ||
+        normalize(event.type).replace("_", "") in setOf("basal", "tempbasal", "temporarybasal",
+            "basalrate", "extendedbolus", "combobolus", "pumpsuspend", "pumpresume") ||
         event.payload.any { (key, value) ->
             when (key.lowercase(Locale.US).filter(Char::isLetterOrDigit)) {
                 "bolusunits", "insulinunits", "insulin", "enteredinsulin" -> true
-                "extendedemulated" -> value.trim() != "null"
+                "extendedemulated", "rate", "absolute", "percent", "relative" -> value.trim() != "null"
                 "isbasalinsulin", "isemulatingtempbasal" -> value.trim().uppercase(Locale.US) !in setOf("FALSE", "0")
                 else -> false
             }
