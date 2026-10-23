@@ -23,6 +23,13 @@ phone, clinical activation or public APK publication.
 
 ## RC1 Receiver Patch Verification
 
+The upload patch also includes SDK clock-refusal regressions. These use the
+native JVM HTTP client with a local synthetic server, not a real pump or service.
+The backend owner composition regression now runs20isolated cases and includes
+fixed state, rejected-storage stack locations and synthetic transport counts on
+unexpected terminal states. No request text, token or database body is printed.
+This instruments the intermittent PR32 UNKNOWN; it does not establish its cause.
+
 The existing upload patch also requires valid insulin CREATE/UPDATE receipts;
 repeated refusals and uploader recreation cannot silently advance those cursors.
 Native test doubles exercise retained preference state, not an installed phone

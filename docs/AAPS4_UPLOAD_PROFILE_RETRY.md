@@ -14,7 +14,7 @@ cursor. An apparently drained queue therefore can omit insulin history.
 ## Minimal Patch
 
 `tools/aaps4_compat/upload-profile-retry.patch` changes only the two uploader
-classes and adds synthetic tests to their existing native suites:
+classes, the native SDK, and synthetic tests in their existing suites:
 
 - A missing historical profile returns false for both CREATE and UPDATE of a
   temporary basal or extended bolus, including an emulated basal and invalidation.
@@ -57,6 +57,20 @@ The new refusal log contains fixed text only, with no identifier, payload or
 server error text. The existing transport-privacy patch remains required.
 
 ## Limits
+
+The native SDK's CREATE fallback must not invent an insulin clock offset. For
+NSBolus, NSTemporaryBasal (including an emulated extended child) and
+NSExtendedBolus, a400 naming utcOffset is returned unchanged, with no second
+POST and no mutation to0. Signed, missing and zero original offsets remain
+unchanged. The uploader's receipt guard above then keeps the record pending.
+Other native treatment and glucose fallback behavior is unchanged. This can
+leave an incompatible destination record blocked; do not silently change its
+clock merely to drain the queue. It does not repair previously rewritten offsets.
+
+Native MockWebServer tests cover the actual serialized request and refusal,
+successful insulin uploads, unchanged non-insulin fallback, and client cleanup.
+UPDATE's native immutable-clock wire policy remains unchanged; this stage does
+not attest the original pump clock, interval continuity or historical start time.
 
 If the historical profile or valid upload receipt never becomes available, that
 collection remains blocked. Newer records cannot bypass the gap; other collections

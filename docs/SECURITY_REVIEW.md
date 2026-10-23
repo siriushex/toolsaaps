@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Insulin SDK Clock Preservation (2026-10-23)
+
+- Refuse clock-rewriting CREATE retry only for insulin-bearing native types.
+  Preserve the original offset and identifier; no alternate write or pump action.
+- Combined receipt handling retains the rejected queue entry. No claim of initial
+  history completeness, old-gap repair or recommended meal-time admission.
+- API test diagnostics contain synthetic counters and exception frame names,
+  not request bodies or credentials. Production error handling is unchanged.
+
 ## Native Insulin Upload Receipt (2026-10-23)
 
 - Only bolus/TBR/extended upload acknowledgement changes. Missing, malformed,

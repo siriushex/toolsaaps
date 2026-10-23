@@ -518,7 +518,8 @@ def test_owner_composition_passes_explicit_daily_read_admission(provisioned, ser
         assert not synthetic_transport.requests
 
 
-def test_signed_history_context_job_and_archive_keep_existing_contracts(running, monkeypatch):
+@pytest.mark.parametrize("_attempt", range(20))
+def test_signed_history_context_job_and_archive_keep_existing_contracts(running, monkeypatch, _attempt):
     run = running
     rejected_checks = []
     original_check = run.resources.check
@@ -550,7 +551,12 @@ def test_signed_history_context_job_and_archive_keep_existing_contracts(running,
         if rejected_checks:
             pytest.fail(f"protected storage rejected: {rejected_checks}", pytrace=False)
         raise
-    assert final["state"] == "SUCCEEDED" and final["result"] == {"text": "Synthetic answer"}
+    assert final["state"] == "SUCCEEDED", (
+        f"terminal state: {final['state']}; protected storage rejected: {rejected_checks}; "
+        f"synthetic requests: {len(run.channel.requests)}; "
+        f"writers closed: {[writer.closed for writer in run.channel.connections]}"
+    )
+    assert final["result"] == {"text": "Synthetic answer"}
     assert submit(run.client, run.key, run.tokens, body, request_id=request_id,
                   deadline_ms=deadline).json()["job_id"] == job_id
     assert len(run.channel.requests) == len(run.channel.peers) == 1

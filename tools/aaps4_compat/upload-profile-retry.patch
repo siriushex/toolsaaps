@@ -431,3 +431,131 @@ index 1045353ed5..088e8826bb 100644
                      when (result.response) {
                          200  -> {
                              nsClientRepository.addLog("◄ UPDATED", "OK ${dataPair.value::class.simpleName}")
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
+index 9fbc1da736..5687f6317f 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
+@@ -13,6 +13,9 @@ import app.aaps.core.nssdk.localmodel.entry.NSMbgV3
+ import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
+ import app.aaps.core.nssdk.localmodel.food.NSFood
+ import app.aaps.core.nssdk.localmodel.treatment.CreateUpdateResponse
++import app.aaps.core.nssdk.localmodel.treatment.NSBolus
++import app.aaps.core.nssdk.localmodel.treatment.NSExtendedBolus
++import app.aaps.core.nssdk.localmodel.treatment.NSTemporaryBasal
+ import app.aaps.core.nssdk.localmodel.treatment.NSTreatment
+ import app.aaps.core.nssdk.mapper.toCalibrationMbg
+ import app.aaps.core.nssdk.mapper.toLocal
+@@ -385,7 +388,9 @@ class NSAndroidClientImpl(
+                 deduplicatedIdentifier = response.body()?.deduplicatedIdentifier,
+                 lastModified = response.body()?.lastModified
+             )
+-        } else if (response.code == 400 && errorResponse?.contains("Bad or missing utcOffset field") == true && nsTreatment.utcOffset != 0L) {
++        } else if (response.code == 400 && errorResponse?.contains("Bad or missing utcOffset field") == true && nsTreatment.utcOffset != 0L &&
++            nsTreatment !is NSBolus && nsTreatment !is NSTemporaryBasal && nsTreatment !is NSExtendedBolus
++        ) {
+             // Record can be originally uploaded without utcOffset
+             // because utcOffset is mandatory and cannot be change, try 0
+             nsTreatment.utcOffset = 0
+diff --git a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsSdkErrorBodyContractTest.kt b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsSdkErrorBodyContractTest.kt
+index 5d6a24b58a..c5eb0869ea 100644
+--- a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsSdkErrorBodyContractTest.kt
++++ b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsSdkErrorBodyContractTest.kt
+@@ -4,6 +4,12 @@ import app.aaps.core.nssdk.NSAndroidClientImpl
+ import app.aaps.core.nssdk.localmodel.entry.Direction
+ import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
+ import app.aaps.core.nssdk.localmodel.entry.NsUnits
++import app.aaps.core.nssdk.localmodel.treatment.NSBolus
++import app.aaps.core.nssdk.localmodel.treatment.NSCarbs
++import app.aaps.core.nssdk.localmodel.treatment.NSExtendedBolus
++import app.aaps.core.nssdk.localmodel.treatment.NSTemporaryBasal
++import app.aaps.core.nssdk.localmodel.treatment.NSTreatment
++import app.aaps.core.nssdk.localmodel.treatment.EventType
+ import com.google.common.truth.Truth.assertThat
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.test.runTest
+@@ -53,9 +59,85 @@ class NsSdkErrorBodyContractTest {
+ 
+     @AfterEach
+     fun tearDown() {
++        client.close()
+         server.close()
+     }
+ 
++    private fun insulin(kind: String, offset: Long?): NSTreatment {
++        val date = 1785992179555L
++        val extended = NSExtendedBolus(date = date, identifier = null, utcOffset = offset,
++            isValid = true, eventType = EventType.COMBO_BOLUS, pumpId = 501,
++            endId = null, pumpType = "ACCU_CHEK_COMBO", pumpSerial = "fixture-pump",
++            duration = 3600000, enteredinsulin = 1.0, isEmulatingTempBasal = kind == "emulated", rate = 1.0)
++        return when (kind) {
++            "bolus" -> NSBolus(date = date, identifier = null, utcOffset = offset,
++                isValid = true, eventType = EventType.CORRECTION_BOLUS, notes = null,
++                pumpId = 501, endId = null, pumpType = "ACCU_CHEK_COMBO", pumpSerial = "fixture-pump",
++                insulin = 1.0, type = NSBolus.BolusType.NORMAL, isBasalInsulin = false, iCfg = null)
++            "extended" -> extended
++            else -> NSTemporaryBasal(date = date, identifier = null, utcOffset = offset,
++                isValid = true, eventType = EventType.TEMPORARY_BASAL, pumpId = 501,
++                endId = null, pumpType = "ACCU_CHEK_COMBO", pumpSerial = "fixture-pump",
++                duration = 3600000, rate = 1.0, isAbsolute = true, type = NSTemporaryBasal.Type.NORMAL,
++                absolute = 1.0, extendedEmulated = extended.takeIf { kind == "emulated" })
++        }
++    }
++
++    private suspend fun rejectedInsulinKeepsClock(kind: String) {
++        for (offset in listOf(120L, -180L, null, 0L)) {
++            val record = insulin(kind, offset)
++            val before = server.requestCount
++            // Two refusals also bound the unpatched fallback without a hanging request.
++            repeat(2) { server.enqueue(MockResponse.Builder().code(400)
++                .body("Bad or missing utcOffset field").build()) }
++            val response = client.createTreatment(record)
++            assertThat(response.response).isEqualTo(400)
++            assertThat(server.requestCount - before).isEqualTo(1)
++            assertThat(record.utcOffset).isEqualTo(offset)
++            assertThat(record.date).isEqualTo(1785992179555L)
++            if (record is NSTemporaryBasal && record.extendedEmulated != null) {
++                assertThat(record.extendedEmulated!!.utcOffset).isEqualTo(offset)
++                assertThat(record.extendedEmulated!!.date).isEqualTo(record.date)
++            }
++            val sent = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
++            assertThat(sent["date"]?.jsonPrimitive?.content).isEqualTo("1785992179555")
++            if (offset != null) assertThat(sent["utcOffset"]?.jsonPrimitive?.content).isEqualTo(offset.toString())
++            else assertThat(sent["utcOffset"]?.jsonPrimitive?.content).isAnyOf(null, "null")
++        }
++    }
++
++    @Test fun `Combo bolus clock refusal does not fabricate UTC`() = runTest { rejectedInsulinKeepsClock("bolus") }
++    @Test fun `temporary basal clock refusal does not fabricate UTC`() = runTest { rejectedInsulinKeepsClock("basal") }
++    @Test fun `extended bolus clock refusal does not fabricate UTC`() = runTest { rejectedInsulinKeepsClock("extended") }
++    @Test fun `emulated basal clock refusal does not fabricate UTC`() = runTest { rejectedInsulinKeepsClock("emulated") }
++
++    @Test
++    fun `successful insulin upload retains its original clock`() = runTest {
++        for (kind in listOf("bolus", "basal", "extended", "emulated")) {
++            val record = insulin(kind, -180L)
++            server.enqueue(MockResponse.Builder().code(201).body("""{"identifier":"receipt-1"}""").build())
++            val response = client.createTreatment(record)
++            assertThat(response.identifier).isEqualTo("receipt-1")
++            assertThat(record.utcOffset).isEqualTo(-180L)
++            assertThat(record.date).isEqualTo(1785992179555L)
++            val sent = Json.parseToJsonElement(server.takeRequest().body!!.utf8()).jsonObject
++            assertThat(sent["utcOffset"]?.jsonPrimitive?.content).isEqualTo("-180")
++        }
++        assertThat(server.requestCount).isEqualTo(4)
++    }
++
++    @Test
++    fun `non insulin treatment retains the native offset fallback`() = runTest {
++        val food = NSCarbs(date = 1785992179555, identifier = null, utcOffset = 120,
++            isValid = true, eventType = EventType.CARBS_CORRECTION, notes = null,
++            pumpId = null, endId = null, pumpType = null, pumpSerial = null, carbs = 20.0, duration = null)
++        server.enqueue(MockResponse.Builder().code(400).body("Bad or missing utcOffset field").build())
++        server.enqueue(MockResponse.Builder().code(201).body("""{"identifier":"receipt-1"}""").build())
++        assertThat(client.createTreatment(food).response).isEqualTo(201)
++        assertThat(server.requestCount).isEqualTo(2)
++        assertThat(food.utcOffset).isEqualTo(0L)
++    }
++
+     private fun sgv(utcOffset: Long) = NSSgvV3(
+         date = 1785992179555,
+         device = "test",

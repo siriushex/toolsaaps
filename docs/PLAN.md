@@ -1,5 +1,17 @@
 # PLAN
 
+## Native Insulin Offset Refusal And API Diagnostics (2026-10-23)
+
+- [x] Confirm PR32 mainb1be8e62 and all three CI39967313348 jobs.
+- [x] Reproduce four clock-rewriting failures in native HTTP tests.
+- [x] Preserve insulin offsets on CREATE refusal; retain non-insulin behavior.
+- [x] Instrument unexpected API terminal states and repeat the isolated test20times.
+- [x] Combined recipe497passed, isolation22passed, backend1977passed/27existing
+      skips, unchanged Android quality tasks passed up-to-date.
+- [ ] Verify exact-source CI and main integration.
+- No clinical timer admission: original Combo history, delivery-start bounds,
+  basal continuity and prospective forecast safety remain separate requirements.
+
 ## Insulin Upload Receipt Integrity (2026-10-23)
 
 - [x] Verify main6e3ea283 and all three CI39947886716 jobs.
@@ -10,7 +22,8 @@
 - [x] Combined recipe passed491tests/no skips and restored the pristine RC1 tree.
 - [x] All22recipe/isolation checks passed. Full local Android quality passed with
       unchanged tasks up-to-date;1442source hashes unchanged, zero lint errors.
-- [ ] Verify exact-source CI, merge unchanged tested tree, then verify main CI.
+- [x] PR32 checks passed after one backend rerun; mainb1be8e62 CI39967313348 passed.
+- The intermittent backend UNKNOWN remains unexplained, not fixed by that rerun.
 - Initial source/destination/pump coverage and prospective clinical validation
   still block live meal recommendations. This patch is not a phone update.
 

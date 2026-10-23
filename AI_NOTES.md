@@ -1,3 +1,22 @@
+# Native Insulin Clock Preservation And API Diagnostics - 2026-10-23
+
+- PR32 merged atb1be8e62 with exact tree equality and all three main CI jobs green.
+- Initial new native test compilation exposed an incorrect fixture enum name;
+  corrected that setup before reproducing four intended POST-count failures.
+- SDK utcOffset fallback no longer fabricates0 for bolus, TBR, extended or
+  emulated basal. Six native cases include positive uploads and non-insulin control.
+- Unexpected API UNKNOWN now exposes existing rejected-storage diagnostics even
+  when terminal polling returns normally. Twenty isolated repetitions run on CI.
+  This is test instrumentation, not a claimed fix for the unestablished failure.
+- No device/server/therapy change or recommended meal timer admission.
+- Focused native suite12passed; combined recipe497passed/no skips in39s and
+  restored pristine RC1. An earlier recipe attempt stopped before tests because
+  ANDROID_HOME was missing; the corrected environment completed normally.
+- Recipe/isolation22passed. Backend126focused and1977full passed, with27existing
+  optional-fixture skips. Full Android test/lint/compile/assemble passed7s;
+  unchanged Android tasks were up-to-date, not newly executed tests.
+  Exact-source and post-merge CI remain separate gates.
+
 # Native Insulin Upload Receipts - 2026-10-23
 
 - Verified main6e3ea283 and all three mainCI39947886716 jobs.
