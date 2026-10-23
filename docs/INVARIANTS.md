@@ -14,6 +14,8 @@
   clinical readiness. Initial coverage, clock epochs and basal safety stay open.
 - Later refused callbacks cannot erase the first scoped storage failure or
   retry the failed writer. A changed pairing still hides the previous status.
+- Torn tails retain only a validated BEGIN binding. Unknown-origin corruption
+  stays in unscopedCorruptReads, never another pairing's history counters.
 
 ## Combo History Observation Boundary
 

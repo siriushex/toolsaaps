@@ -38,14 +38,21 @@ if the paired pump or pairing material changes; refusal does not rebind it.
 
 Files are never automatically repaired, truncated, overwritten or pruned. On
 reopening, missing END records and invalid frames remain diagnostic failures.
+Recovery validates frames incrementally. An intact BEGIN keeps the file bound
+to its original pairing even if a later frame is torn. A damaged or invalid
+BEGIN cannot establish a binding; such a file remains unscoped and is not added
+to any pairing's retained/unclosed/corrupt/adverse/failed counters.
 Limits are 32 MiB total, 4096 reads, 256 records/2 MiB per read, 16 KiB per record
 and 4096 payload bytes. Exhaustion stops journaling, not insulin delivery. Export receipts
 and safe retention/pruning are separate work; this is not an unlimited archive.
 
 Existing devicestatus carries `ComboHistoryJournal` counts and state only:
 version, coverage=`unverified`, state, retainedReads, unclosedReads, corruptReads,
-adverseReads and failedReads. Counts are read observations, not unique clinical
-events. Missing/unavailable status cannot establish coverage. Final session
+adverseReads and failedReads. `unscopedCorruptReads` separately reports files
+whose pairing cannot be established, without assigning them to the current pump.
+Counts are read observations, not unique clinical events. A zero scoped count
+does not establish clean storage or coverage. Missing/unavailable status cannot
+establish coverage. Final session
 diagnostics retain their existing `ComboHistoryRead` subtree.
 
 ## Acceptance And Remaining Gates

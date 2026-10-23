@@ -96,6 +96,7 @@ fun main() {
                     put("version", 1); put("coverage", "unverified"); put("state", "STORED")
                     put("retainedReads", 3); put("unclosedReads", 1); put("corruptReads", 0)
                     put("adverseReads", 2); put("failedReads", 1)
+                    put("unscopedCorruptReads", 1)
                 }
                 val status = NSDeviceStatus(date = at, device = "sdk-test-pump", uploaderBattery = 99,
                     isCharging = true, pump = NSDeviceStatus.Pump(reservoir = 60.5,

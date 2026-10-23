@@ -2,6 +2,10 @@
 
 ## Combo Pre-Confirmation Journal
 
+Recovery retains the pairing from a validated BEGIN prefix even when a later
+frame is corrupt. Files without such a prefix contribute only to the explicit
+unscopedCorruptReads count; they never contaminate another pairing's counters.
+
 The existing Combo reader now emits synchronous evidence checkpoints before
 confirmation, after its response and at read boundaries. The plugin retains
 bounded framed files in private no-backup storage, separate from pump credentials

@@ -1,5 +1,15 @@
 # Combo Pre-Confirmation History Journal - 2026-10-24
 
+- PR37 review of7ada4f30 found that whole-file recovery discarded an intact BEGIN
+  binding when the tail was torn, attributing corruption to every later pairing.
+  Three failing-first cases reproduced cross-pairing counts, invalid-BEGIN
+  attribution and first-frame checksum corruption. Incremental recovery now
+  retains only validated prefix ownership; unscopedCorruptReads is separate.
+  Original damaged bytes remain unchanged. SDK/Room fixtures retain the new
+  diagnostic without granting any clinical authority. Combined native664passed
+  in36s and restored pristine RC1; full Android6821passed/six existing skips in
+  2m30s, actual stock SDK TLS2.173s, zero lint errors, frozen source/APK guards
+  passed. Exact new-head CI/review and main integration remain pending.
 - Follow-up inspection reproduced a plugin failure-status loss: after an injected
   sync refusal, the next callback replaced the scoped FAILED snapshot with null.
   Move latched refusal before the catch handler. The new regression covers

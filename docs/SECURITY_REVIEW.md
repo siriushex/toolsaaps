@@ -13,6 +13,9 @@
   meal-timing authority. No credential migration, endpoint or background reader.
 - Same-address re-pairing hides cached prior-binding status. Restored settings,
   original local-clock bytes and successful flushes do not prove continuity.
+- Incremental frame recovery retains a validated BEGIN binding across a damaged
+  tail. Invalid/unreadable BEGIN frames cannot claim a pairing; their count is
+  explicitly unscoped, not attributed to every current or future pump.
 
 ## Passive Combo Observation (2026-10-23)
 

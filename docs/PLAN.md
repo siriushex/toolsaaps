@@ -10,6 +10,8 @@
       real stock SDK TLS2.191s, zero lint errors and frozen source/APK guards.
 - [x] Follow-up failure-status regression reproduced and fixed; native662passed,
       pristine SDK and full Android quality passed with unchanged tests up-to-date.
+- [x] PR37 pairing-isolation finding reproduced with three failures and fixed;
+      native664passed, full Android6821passed/six skips and actual SDK TLS passed.
 - [ ] Verify exact-head CI.
 - [ ] Exact-head review and main integration after all checks.
 - Clinical timeline admission, physical basal completeness, prospective safety

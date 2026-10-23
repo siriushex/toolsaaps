@@ -104,6 +104,7 @@ class LocalNightscoutV3DeviceStatusApiTest {
             put("version", 1); put("coverage", "unverified"); put("state", "STORED")
             put("retainedReads", 3); put("unclosedReads", 1); put("corruptReads", 0)
             put("adverseReads", 2); put("failedReads", 1)
+            put("unscopedCorruptReads", 1)
         }
         fun status(time: Long, value: JsonObject) = buildJsonObject {
             put("date", time); put("device", "pump-a")

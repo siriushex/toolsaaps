@@ -838,10 +838,10 @@ index 0000000000..47430dbd64
 +}
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
 new file mode 100644
-index 0000000000..b553c793d0
+index 0000000000..29e111a04c
 --- /dev/null
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,250 @@
 +package info.nightscout.pump.combov2
 +
 +import info.nightscout.comboctl.base.HistoryReadCheckpoint
@@ -989,7 +989,7 @@ index 0000000000..b553c793d0
 +
 +    @Synchronized
 +    fun status(binding: String): JsonObject = buildJsonObject {
-+        val matching = entries.filter { it.binding == binding || it.binding == null }
++        val matching = entries.filter { it.binding == binding }
 +        put("version", 1)
 +        put("coverage", "unverified")
 +        put("state", if (failed) "FAILED" else if (activeEntry != null) "WRITING" else "STORED")
@@ -998,20 +998,20 @@ index 0000000000..b553c793d0
 +        put("corruptReads", matching.count { it.corrupt })
 +        put("adverseReads", matching.count { it.adverse || it.corrupt })
 +        put("failedReads", matching.count { it.readFailed })
++        put("unscopedCorruptReads", entries.count { it.binding == null && it.corrupt })
 +    }
 +
 +    private fun recover(file: File): Entry {
 +        var binding: String? = null
 +        return try {
-+            val records = readRecords(file)
 +            var previous: HistoryReadCheckpoint.Phase? = null
 +            var hasAdverse = false
 +            var readFailed = false
-+            for (record in records) {
++            scanRecords(file) { record ->
 +                require(record["version"]?.jsonPrimitive?.int == 1)
 +                val owner = record.getValue("binding").jsonPrimitive.content
 +                require(owner.matches(Regex("[0-9a-f]{64}")))
-+                if (binding == null) binding = owner else require(binding == owner)
++                if (binding != null) require(binding == owner)
 +                val phase = HistoryReadCheckpoint.Phase.valueOf(record.getValue("phase").jsonPrimitive.content)
 +                validateTransition(previous, phase)
 +                val hex = record["payloadHex"]?.jsonPrimitive?.content
@@ -1020,11 +1020,13 @@ index 0000000000..b553c793d0
 +                require(observation["coverage"] == JsonPrimitive("unverified"))
 +                val state = HistoryReadObservation.State.valueOf(observation.getValue("state").jsonPrimitive.content)
 +                require(if (phase == HistoryReadCheckpoint.Phase.END) state in setOf(HistoryReadObservation.State.RETURNED, HistoryReadObservation.State.FAILED) else state == HistoryReadObservation.State.READING)
++                // Retain only a validated prefix binding if a later frame is torn.
++                binding = owner
 +                hasAdverse = hasAdverse || adverse(observation)
 +                readFailed = state == HistoryReadObservation.State.FAILED
 +                previous = phase
 +            }
-+            require(records.isNotEmpty())
++            require(previous != null)
 +            Entry(binding, previous == HistoryReadCheckpoint.Phase.END, false, hasAdverse, readFailed)
 +        } catch (e: Exception) {
 +            Entry(binding, false, true)
@@ -1068,20 +1070,24 @@ index 0000000000..b553c793d0
 +            require(valid)
 +        }
 +
-+        internal fun readRecords(file: File): List<JsonObject> {
++        internal fun readRecords(file: File): List<JsonObject> = buildList {
++            scanRecords(file) { add(it) }
++        }
++
++        private fun scanRecords(file: File, onRecord: (JsonObject) -> Unit) {
 +            require(file.length() <= MAX_READ_BYTES && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
-+            return RandomAccessFile(file, "r").use { input ->
-+                val result = mutableListOf<JsonObject>()
++            RandomAccessFile(file, "r").use { input ->
++                var records = 0
 +                while (input.filePointer < input.length()) {
-+                    require(result.size < 256)
++                    require(records < 256)
 +                    val length = input.readInt()
 +                    require(length in 1..MAX_RECORD_BYTES && input.length() - input.filePointer >= length + 4L)
 +                    val bytes = ByteArray(length)
 +                    input.readFully(bytes)
 +                    require(input.readInt() == checksum(bytes))
-+                    result += Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
++                    onRecord(Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject)
++                    records++
 +                }
-+                result
 +            }
 +        }
 +    }
@@ -1118,10 +1124,10 @@ index 0000000000..b8203605c6
 +}
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
 new file mode 100644
-index 0000000000..552eece0a2
+index 0000000000..ddbcc7fece
 --- /dev/null
 +++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,214 @@
 +package info.nightscout.pump.combov2
 +
 +import info.nightscout.comboctl.base.HistoryReadCheckpoint
@@ -1199,9 +1205,59 @@ index 0000000000..552eece0a2
 +        ComboHistoryJournal(directory).use { journal -> Phase.entries.forEach { journal.record(binding, checkpoint(it)) } }
 +        val file = directory.listFiles()!!.single { it.extension == "chr" }
 +        RandomAccessFile(file, "rw").use { it.seek(10); it.writeByte(0) }
++        val before = file.readBytes()
 +        ComboHistoryJournal(directory).use { journal ->
-+            assertEquals(JsonPrimitive(1), journal.status(binding)["corruptReads"])
++            for (owner in listOf(binding, "b".repeat(64))) {
++                assertEquals(JsonPrimitive(0), journal.status(owner)["retainedReads"])
++                assertEquals(JsonPrimitive(0), journal.status(owner)["corruptReads"])
++                assertEquals(JsonPrimitive(1), journal.status(owner)["unscopedCorruptReads"])
++            }
 +        }
++        assertArrayEquals(before, file.readBytes())
++    }
++
++    @Test fun tornTailBindingCannotContaminateAnotherPairingAfterReopen() {
++        ComboHistoryJournal(directory).use { journal -> Phase.entries.forEach { journal.record(binding, checkpoint(it)) } }
++        val file = directory.listFiles()!!.single { it.extension == "chr" }
++        RandomAccessFile(file, "rw").use { it.setLength(it.length() - 1) }
++        val before = file.readBytes()
++        val other = "b".repeat(64)
++        ComboHistoryJournal(directory).use { journal ->
++            Phase.entries.forEach { journal.record(other, checkpoint(it)) }
++        }
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(1), journal.status(binding)["retainedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["corruptReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["unclosedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(other)["retainedReads"])
++            assertEquals(JsonPrimitive(0), journal.status(other)["corruptReads"])
++            assertEquals(JsonPrimitive(0), journal.status(other)["unclosedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(other)["adverseReads"])
++            assertEquals(JsonPrimitive(0), journal.status(other)["unscopedCorruptReads"])
++        }
++        assertArrayEquals(before, file.readBytes())
++    }
++
++    @Test fun invalidBeginCannotSupplyAPairingBindingEvenWithValidChecksum() {
++        ComboHistoryJournal(directory).use { it.record(binding, checkpoint(Phase.BEGIN)) }
++        val file = directory.listFiles()!!.single { it.extension == "chr" }
++        val original = ComboHistoryJournal.readRecords(file).single()
++        val observation = kotlinx.serialization.json.JsonObject(original.getValue("observation").jsonObject +
++            ("state" to JsonPrimitive("RETURNED")))
++        val body = kotlinx.serialization.json.JsonObject(original + ("observation" to observation))
++            .toString().toByteArray(Charsets.UTF_8)
++        RandomAccessFile(file, "rw").use {
++            it.setLength(0)
++            it.writeInt(body.size)
++            it.write(body)
++            it.writeInt(java.util.zip.CRC32().apply { update(body) }.value.toInt())
++        }
++        val before = file.readBytes()
++        ComboHistoryJournal(directory).use { journal ->
++            assertEquals(JsonPrimitive(0), journal.status(binding)["retainedReads"])
++            assertEquals(JsonPrimitive(1), journal.status(binding)["unscopedCorruptReads"])
++        }
++        assertArrayEquals(before, file.readBytes())
 +    }
 +
 +    @Test fun byteLimitAndInvalidPhaseCannotBeSilentlyAccepted() {
