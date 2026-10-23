@@ -57,3 +57,7 @@ time and successful HTTP status cannot establish coverage. No full basal history
 known delivery start, historical clock mapping or prospective meal-time safety
 is inferred. Those remain explicit blockers to recommended meal time. No phone,
 server, APK publication, Target Manager or treatment behavior changes here.
+
+AAPS4_COMBO_HISTORY_JOURNAL.md adds a separate private bounded checkpoint journal
+and count-only status. That local evidence does not upgrade this session snapshot
+to complete delivery coverage or remove the clinical blockers above.

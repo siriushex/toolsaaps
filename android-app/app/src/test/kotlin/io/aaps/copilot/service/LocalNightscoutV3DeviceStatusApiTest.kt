@@ -99,6 +99,30 @@ class LocalNightscoutV3DeviceStatusApiTest {
         assertTrue(db.glucoseDao().since(0).isEmpty())
     }
 
+    @Test fun journalStorageStatusIsRetainedAsUnverifiedEvidenceOnly() = runBlocking {
+        val journal = buildJsonObject {
+            put("version", 1); put("coverage", "unverified"); put("state", "STORED")
+            put("retainedReads", 3); put("unclosedReads", 1); put("corruptReads", 0)
+            put("adverseReads", 2); put("failedReads", 1)
+            put("unscopedCorruptReads", 1)
+        }
+        fun status(time: Long, value: JsonObject) = buildJsonObject {
+            put("date", time); put("device", "pump-a")
+            putJsonObject("pump") { putJsonObject("extended") { put("ComboHistoryJournal", value) } }
+        }.toString()
+        assertEquals(201, call("POST", "devicestatus", status(at, journal)).status)
+        api = LocalNightscoutV3EntriesApi(db) { now + 1 }
+        assertEquals(200, call("POST", "devicestatus", status(at, journal)).status)
+        val failed = buildJsonObject { put("version", 1); put("coverage", "unverified"); put("state", "FAILED") }
+        assertEquals(201, call("POST", "devicestatus", status(at + 1000, failed)).status)
+        val retained = rows(call()).associateBy { it.getValue("date").jsonPrimitive.long }
+        for ((time, value) in listOf(at to journal, at + 1000 to failed))
+            assertEquals(value, retained.getValue(time).getValue("pump").jsonObject
+                .getValue("extended").jsonObject.getValue("ComboHistoryJournal"))
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.glucoseDao().since(0).isEmpty())
+    }
+
     @Test fun historyIsCompleteAndUsesModificationTimeRatherThanEventTime() = runBlocking {
         val first = call("POST", "devicestatus", sample())
         val late = call("POST", "devicestatus", sample(at - 86_400_000, "pump-b"))

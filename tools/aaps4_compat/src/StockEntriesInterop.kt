@@ -90,10 +90,17 @@ fun main() {
                     put("validatedBlocks", 3); put("confirmedBlocks", 2); put("parsedEvents", 7); put("unmappedEvents", 1)
                     put("gapObserved", true); put("clockChangeObserved", true); put("unmappedEventObserved", true)
                     put("interruptedReadObserved", true); put("malformedBlockObserved", false)
+                    put("journalWriteFailed", false)
+                }
+                val historyJournal = buildJsonObject {
+                    put("version", 1); put("coverage", "unverified"); put("state", "STORED")
+                    put("retainedReads", 3); put("unclosedReads", 1); put("corruptReads", 0)
+                    put("adverseReads", 2); put("failedReads", 1)
+                    put("unscopedCorruptReads", 1)
                 }
                 val status = NSDeviceStatus(date = at, device = "sdk-test-pump", uploaderBattery = 99,
                     isCharging = true, pump = NSDeviceStatus.Pump(reservoir = 60.5,
-                        extended = buildJsonObject { put("ComboHistoryRead", historyObservation) }),
+                        extended = buildJsonObject { put("ComboHistoryRead", historyObservation); put("ComboHistoryJournal", historyJournal) }),
                     openaps = NSDeviceStatus.OpenAps(iob = buildJsonObject { put("iob", -0.2) }))
                 val statusCreated = client.createDeviceStatus(status)
                 check(statusCreated.response == 201 && !statusCreated.identifier.isNullOrEmpty())
@@ -104,6 +111,7 @@ fun main() {
                 check(statuses.single().date == at && statuses.single().createdAt == java.time.Instant.ofEpochMilli(at).toString())
                 check(statuses.single().pump?.reservoir == 60.5)
                 check(statuses.single().pump?.extended?.get("ComboHistoryRead") == historyObservation)
+                check(statuses.single().pump?.extended?.get("ComboHistoryJournal") == historyJournal)
                 check(statuses.single().openaps?.iob?.get("iob") == JsonPrimitive(-0.2))
                 // SDK reconstruction inserts empty optional battery/status/uploader objects.
                 val roundTrip = client.createDeviceStatus(statuses.single())

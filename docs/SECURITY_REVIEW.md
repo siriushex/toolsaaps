@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Combo Checkpoint Journal (2026-10-24)
+
+- Journal files contain raw medical history and remain in the app-private
+  no-backup directory. No keys, raw packets, binding or address enter added logs
+  or status. The binding is a hash of pairing material, not an authentication key.
+- Exclusive writer ownership, strict frame sizes, read/file/total bounds and
+  CRC checks reject damage without truncating or repairing original evidence.
+  The private app directory is trusted; CRC is not an authenticity mechanism.
+- Failure latches unavailability but cannot issue/cancel insulin commands or
+  override native control. Incomplete journal evidence never grants therapy or
+  meal-timing authority. No credential migration, endpoint or background reader.
+- Same-address re-pairing hides cached prior-binding status. Restored settings,
+  original local-clock bytes and successful flushes do not prove continuity.
+- Incremental frame recovery retains a validated BEGIN binding across a damaged
+  tail. Invalid/unreadable BEGIN frames cannot claim a pairing; their count is
+  explicitly unscoped, not attributed to every current or future pump.
+
 ## Passive Combo Observation (2026-10-23)
 
 - Added wire data contains counts, adverse flags and raw device read times only;

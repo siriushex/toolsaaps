@@ -1,5 +1,17 @@
 # DEVOPS
 
+## Combo Journal Verification
+
+The reversible native recipe includes actual temporary-file journal tests and
+plugin callback/status tests. No real pump or medical data is used. The private
+no-backup journal is bounded and has no automatic pruning or settings migration.
+Do not delete retained evidence to hide capacity/corruption failures. Source
+rollback removes the added capture code only; preserve existing journal files.
+Run native faults, recipe cleanup, pristine SDK TLS, Room retention and full
+Android quality before exact-head CI/review. Device fsync latency and failure
+behavior are not established by JVM tests. No deployment or timer admission is
+implied. See AAPS4_COMBO_HISTORY_JOURNAL.md.
+
 ## Combo Observation Verification
 
 The same reversible compatibility recipe now runs both ComboCtl and the Combo

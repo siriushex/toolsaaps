@@ -1,5 +1,22 @@
 # PLAN
 
+## Combo Pre-Confirmation Journal (2026-10-24)
+
+- [x] Recheck mainf1a346eb and successful CI40020966910.
+- [x] Reproduce two missing checkpoint-callback assertions before implementation.
+- [x] Persist bounded raw history checkpoints before native acknowledgement,
+      retain interruption/failure evidence and keep pump control unchanged.
+- [x] Native661passed, recipe18passed; full Android6821passed/six existing skips,
+      real stock SDK TLS2.191s, zero lint errors and frozen source/APK guards.
+- [x] Follow-up failure-status regression reproduced and fixed; native662passed,
+      pristine SDK and full Android quality passed with unchanged tests up-to-date.
+- [x] PR37 pairing-isolation finding reproduced with three failures and fixed;
+      native664passed, full Android6821passed/six skips and actual SDK TLS passed.
+- [ ] Verify exact-head CI.
+- [ ] Exact-head review and main integration after all checks.
+- Clinical timeline admission, physical basal completeness, prospective safety
+  and deployment remain separate gates. See AAPS4_COMBO_HISTORY_JOURNAL.md.
+
 ## Passive Combo History Observations (2026-10-23)
 
 - [x] Recheck mainfc38715a and CI40010194951, all three jobs successful.
@@ -8,7 +25,8 @@
       diagnostics to existing native status; retain no new raw packets or doses.
 - [x] Native646passed, recipe/isolation24passed, pristine SDK TLS and full Android
       quality passed:6820passed/six existing skips, zero lint errors.
-- [ ] Review exact-head CI and integrate only the verified tree.
+- [x] PR36 exact-head review and CI passed; mainf1a346eb retains the tested tree.
+- [x] MainCI40020966910 passed all three jobs.
 - Durable pre-confirmation receipts, physical basal completeness and prospective
   meal-time validation remain open. No live recommendation or deployment here.
 
