@@ -51,6 +51,11 @@ and ignores changes that only add that ID. These counters are not in treatment
 payloads. A zero queue therefore cannot prove that a new destination received the
 old history. Similar collection-specific selectors must be considered separately.
 
+Missing historical profiles can also advance native interval-upload cursors
+without a network request. AAPS4_UPLOAD_PROFILE_RETRY.md records the minimal
+retry patch and its limits. It prevents future silent skips in the patched source;
+it cannot attest or recover already missing records or lift the completeness gate.
+
 Initial history admission needs a source/destination-bound generation and complete
 window with explicit revisions, deletions, record kinds and acknowledgements.
 Existing foreign Nightscout IDs cannot simply be assumed present in the local

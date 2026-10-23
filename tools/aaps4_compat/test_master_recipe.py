@@ -26,12 +26,14 @@ class MasterRecipeTest(unittest.TestCase):
         self.run_git("config", "user.email", "validation@example.invalid")
         (self.source / "receiver.txt").write_text("original\n")
         (self.source / "transport.txt").write_text("original transport\n")
-        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n")
+        (self.source / "upload.txt").write_text("original upload\n")
+        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n.upload-invoked\n")
         wrapper = self.source / "gradlew"
         wrapper.write_text(
             "#!/usr/bin/env bash\nset -eu\n"
             "printf '%s\\n' \"$@\" > .gradle-invoked\n"
             "cp transport.txt .transport-invoked\n"
+            "cp upload.txt .upload-invoked\n"
             "if [ -n \"${AAPS_INTEROP_CLASSPATH:-}\" ]; then\n"
             "  mkdir -p \"$(dirname \"$AAPS_INTEROP_CLASSPATH\")\"\n"
             "  printf '%s\\n' synthetic > \"$AAPS_INTEROP_CLASSPATH\"\nfi\n"
@@ -43,10 +45,12 @@ class MasterRecipeTest(unittest.TestCase):
             "  printf '%s\\n' 'other edit' >> added.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = transport-edit ]; then\n"
             "  printf '%s\\n' 'other edit' >> transport.txt\nfi\n"
+            "if [ \"${FIXTURE_MODE:-}\" = upload-edit ]; then\n"
+            "  printf '%s\\n' 'other edit' >> upload.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = failure ]; then exit 9; fi\n"
         )
         wrapper.chmod(0o755)
-        self.run_git("add", "receiver.txt", "transport.txt", "gradlew", ".gitignore")
+        self.run_git("add", "receiver.txt", "transport.txt", "upload.txt", "gradlew", ".gitignore")
         self.run_git("commit", "-qm", "Synthetic initial state")
         tools = self.root / "project" / "tools" / "aaps4_compat"
         tools.mkdir(parents=True)
@@ -64,6 +68,10 @@ class MasterRecipeTest(unittest.TestCase):
         self.transport_patch = tools / "transport-privacy.patch"
         self.transport_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "transport.txt").stdout)
         (self.source / "transport.txt").write_text("original transport\n")
+        (self.source / "upload.txt").write_text("patched upload\n")
+        self.upload_patch = tools / "upload-profile-retry.patch"
+        self.upload_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "upload.txt").stdout)
+        (self.source / "upload.txt").write_text("original upload\n")
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -102,6 +110,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertTrue((self.source / ".gradle-invoked").exists())
         self.assertFalse((self.source / "added.txt").exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
+        self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         arguments = (self.source / ".gradle-invoked").read_text().splitlines()
         self.assertIn(":plugins:sync:testAndroidHostTest", arguments)
         self.assertIn(":implementation:testAndroidHostTest", arguments)
@@ -109,6 +118,8 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertIn(":database:impl:jvmTest", arguments)
         self.assertIn("*.TargetAdmissionTransactionTest", arguments)
         self.assertIn("*.SmsCommunicatorPluginTest", arguments)
+        self.assertIn("*.NSClientV3PluginTest", arguments)
+        self.assertIn("*.DataSyncSelectorV3Test", arguments)
         self.assertIn(":core:nssdk:jvmTest", arguments)
 
     def test_missing_transport_patch_refuses_before_changing_source(self):
@@ -124,6 +135,19 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("preserving the checkout", result.stderr)
         self.assertEqual("patched transport\nother edit\n", (self.source / "transport.txt").read_text())
+
+    def test_missing_upload_patch_refuses_before_changing_source(self):
+        self.upload_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_concurrent_upload_edit_is_not_reversed(self):
+        result = self.run_recipe("upload-edit")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("preserving the checkout", result.stderr)
+        self.assertEqual("patched upload\nother edit\n", (self.source / "upload.txt").read_text())
 
     def test_prepare_rejects_untracked_sdk_source(self):
         (self.source / "unknown.txt").write_text("owner content\n")

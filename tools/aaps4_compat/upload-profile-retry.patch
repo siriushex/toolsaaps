@@ -1,0 +1,259 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3Test.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3Test.kt
+index 6883cb9a10..b60bae2130 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3Test.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3Test.kt
+@@ -2,6 +2,7 @@ package app.aaps.plugins.sync.nsclientV3
+ 
+ import app.aaps.core.data.model.BS
+ import app.aaps.core.data.model.CA
++import app.aaps.core.data.model.EB
+ import app.aaps.core.data.model.IDs
+ import app.aaps.core.interfaces.db.PersistenceLayer
+ import app.aaps.core.interfaces.nsclient.NSClientRepository
+@@ -615,6 +616,31 @@ class DataSyncSelectorV3Test : TestBaseWithProfile() {
+         verify(nsClientV3Plugin, Times(0)).nsAdd(any(), any(), any(), anyOrNull())
+     }
+ 
++    @Test
++    fun missingProfilePreservesImportedExtendedBolusSkip() = runTest {
++        val value = EB(id = 1, timestamp = 10000, amount = 2.0, duration = 3600000,
++            ids = IDs(nightscoutId = "existing-1"))
++        verifyExtendedBolusSkipWithoutProfile(value, value)
++    }
++
++    @Test
++    fun missingProfilePreservesExtendedBolusIdentifierOnlySkip() = runTest {
++        val value = EB(id = 1, timestamp = 10000, amount = 2.0, duration = 3600000,
++            ids = IDs(nightscoutId = "existing-1"))
++        verifyExtendedBolusSkipWithoutProfile(value, value.copy(id = 2, ids = IDs()))
++    }
++
++    private suspend fun verifyExtendedBolusSkipWithoutProfile(current: EB, previous: EB) {
++        whenever(profileFunction.getProfile(10000)).thenReturn(null)
++        whenever(preferences.get(NsclientLongKey.ExtendedBolusLastSyncedId)).thenReturn(0L)
++        whenever(persistenceLayer.getLastExtendedBolusId()).thenReturn(previous.id)
++        whenever(persistenceLayer.getNextSyncElementExtendedBolus(0)).thenReturn(Pair(current, previous), null)
++        sut.processChangedExtendedBoluses()
++        verify(preferences).put(NsclientLongKey.ExtendedBolusLastSyncedId, previous.id)
++        verify(nsClientV3Plugin, Times(0)).nsAdd(any(), any(), any(), anyOrNull())
++        verify(nsClientV3Plugin, Times(0)).nsUpdate(any(), any(), any(), anyOrNull())
++    }
++
+     // Tests for processChangedExtendedBoluses
+     @Test
+     fun processChangedExtendedBolusesWhenPausedTest() = runTest {
+@@ -1053,4 +1079,4 @@ class DataSyncSelectorV3Test : TestBaseWithProfile() {
+         verify(preferences, Times(1)).put(NsclientLongKey.CarbsLastSyncedId, 7L)
+         verify(preferences, Times(1)).put(NsclientLongKey.CarbsLastSyncedId, 8L)
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
+index 5905fb2fd0..8c74de2fd3 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
+@@ -21,6 +21,7 @@ import app.aaps.core.data.model.TrendArrow
+ import app.aaps.core.data.plugin.PluginType
+ import app.aaps.core.data.pump.defs.PumpType
+ import app.aaps.core.data.time.T
++import app.aaps.core.interfaces.configuration.ExternalOptions
+ import app.aaps.core.interfaces.db.PersistenceLayer
+ import app.aaps.core.interfaces.logging.L
+ import app.aaps.core.interfaces.logging.UserEntryLogger
+@@ -38,6 +39,7 @@ import app.aaps.core.nssdk.localmodel.treatment.CreateUpdateResponse
+ import app.aaps.core.nssdk.remotemodel.LastModified
+ import app.aaps.plugins.sync.SyncStringsValues
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.OrphanDetector
++import app.aaps.plugins.sync.nsclientV3.keys.NsclientLongKey
+ import app.aaps.plugins.sync.nsclientV3.keys.NsclientStringKey
+ import app.aaps.plugins.sync.nsclientV3.ws.NsConnection
+ import app.aaps.plugins.sync.nsclientV3.ws.NsLoadExecutor
+@@ -63,8 +65,12 @@ import org.mockito.ArgumentMatchers.anyLong
+ import org.mockito.Mock
+ import org.mockito.kotlin.any
+ import org.mockito.kotlin.anyOrNull
++import org.mockito.kotlin.clearInvocations
++import org.mockito.kotlin.doAnswer
++import org.mockito.kotlin.eq
+ import org.mockito.kotlin.mock
+ import org.mockito.kotlin.never
++import org.mockito.kotlin.times
+ import org.mockito.kotlin.verify
+ import org.mockito.kotlin.whenever
+ import kotlin.concurrent.atomics.ExperimentalAtomicApi
+@@ -496,6 +502,94 @@ internal class NSClientV3PluginTest : TestBaseWithProfile() {
+         assertThat(storeDataForDb.nsIdExtendedBoluses.snapshot()).hasSize(2)
+     }
+ 
++    @Test
++    fun missingProfileNeverAcknowledgesIntervalDelivery() = runTest {
++        whenever(config.isEnabled(ExternalOptions.IGNORE_NS_V3_ERRORS)).thenReturn(true)
++        val pairs = listOf(
++            DataSyncSelector.PairExtendedBolus(EB(timestamp = 10000, amount = 2.0, duration = 3600000), 1),
++            DataSyncSelector.PairTemporaryBasal(TB(timestamp = 10000, type = TB.Type.NORMAL,
++                rate = 1.0, isAbsolute = true, duration = 3600000), 1)
++        )
++        for (pair in pairs) {
++            assertThat(sut.nsAdd("treatments", pair, "0/1", null)).isFalse()
++            assertThat(sut.nsUpdate("treatments", pair, "0/1", null)).isFalse()
++        }
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++        verify(nsAndroidClient, never()).updateTreatment(anyOrNull())
++        assertThat(storeDataForDb.nsIdExtendedBoluses.snapshot()).isEmpty()
++        assertThat(storeDataForDb.nsIdTemporaryBasals.snapshot()).isEmpty()
++    }
++
++    @Test
++    fun missingProfileKeepsExtendedBolusAndDeletionPending() = runTest {
++        verifyIntervalProfileRetry(extended = true)
++    }
++
++    @Test
++    fun missingProfileKeepsTemporaryBasalAndDeletionPending() = runTest {
++        verifyIntervalProfileRetry(extended = false)
++    }
++
++    @Test
++    fun missingProfileKeepsEmulatedBasalAndDeletionPending() = runTest {
++        verifyIntervalProfileRetry(extended = true, emulated = true)
++    }
++
++    private suspend fun verifyIntervalProfileRetry(extended: Boolean, emulated: Boolean = false) {
++        val key = if (extended) NsclientLongKey.ExtendedBolusLastSyncedId else NsclientLongKey.TemporaryBasalLastSyncedId
++        var cursor = 0L
++        var revision = 1L
++        val eb = EB(id = 1, timestamp = 10000, amount = 2.0, duration = 3600000, isEmulatingTempBasal = emulated)
++        val tb = TB(id = 1, timestamp = 10000, type = TB.Type.NORMAL,
++            rate = 1.0, isAbsolute = true, duration = 3600000)
++        whenever(preferences.get(key)).thenAnswer { cursor }
++        doAnswer { cursor = it.getArgument(1); null }.whenever(preferences).put(eq(key), any())
++        whenever(persistenceLayer.getLastExtendedBolusId()).thenAnswer { revision }
++        whenever(persistenceLayer.getLastTemporaryBasalId()).thenAnswer { revision }
++        whenever(persistenceLayer.getNextSyncElementExtendedBolus(any())).thenAnswer {
++            if (cursor < revision) Pair(eb, eb.copy(id = revision)) else null
++        }
++        whenever(persistenceLayer.getNextSyncElementTemporaryBasal(any())).thenAnswer {
++            if (cursor < revision) Pair(tb, tb.copy(id = revision)) else null
++        }
++        whenever(nsAndroidClient.createTreatment(anyOrNull())).thenReturn(
++            CreateUpdateResponse(500, null), CreateUpdateResponse(201, "receipt-1"))
++        whenever(nsAndroidClient.updateTreatment(anyOrNull())).thenReturn(
++            CreateUpdateResponse(500, null), CreateUpdateResponse(200, "receipt-1"))
++        val selector = DataSyncSelectorV3(preferences, aapsLogger, dateUtil, profileFunction,
++            activePlugin, profileRepository, persistenceLayer, storeDataForDb, config, nsClientRepository) { sut }
++        suspend fun upload() {
++            if (extended) selector.processChangedExtendedBoluses() else selector.processChangedTemporaryBasals()
++        }
++
++        whenever(profileFunction.getProfile(10000)).thenReturn(null)
++        upload()
++        assertThat(cursor).isEqualTo(0L)
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++        whenever(profileFunction.getProfile(10000)).thenReturn(effectiveProfile)
++        upload()
++        assertThat(cursor).isEqualTo(0L)
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++        verify(nsAndroidClient, times(2)).createTreatment(anyOrNull())
++
++        revision = 2L
++        eb.isValid = false
++        tb.isValid = false
++        clearInvocations(nsAndroidClient)
++        whenever(profileFunction.getProfile(10000)).thenReturn(null)
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++        verify(nsAndroidClient, never()).updateTreatment(anyOrNull())
++        whenever(profileFunction.getProfile(10000)).thenReturn(effectiveProfile)
++        upload()
++        assertThat(cursor).isEqualTo(1L)
++        upload()
++        assertThat(cursor).isEqualTo(2L)
++        verify(nsAndroidClient, times(2)).updateTreatment(anyOrNull())
++        verify(nsAndroidClient, never()).createTreatment(anyOrNull())
++    }
++
+     @Test
+     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+     fun nsAddRunningModeTest() = runTest {
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt
+index e9c0b7c134..aca674e790 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/DataSyncSelectorV3.kt
+@@ -738,32 +738,31 @@ class DataSyncSelectorV3(
+             persistenceLayer.getNextSyncElementExtendedBolus(startId)?.let { eb ->
+                 lastId = eb.second.id
+                 val profile = profileFunction.getProfile(eb.first.timestamp)
+-                if (profile != null) {
+-                    when {
+-                        // new record with existing NS id => must be coming from NS => ignore
+-                        eb.first.id == eb.second.id && eb.first.ids.nightscoutId != null -> {
+-                            aapsLogger.debug(LTag.NSCLIENT_SYNC, "Ignoring ExtendedBolus. Loaded from NS: ${eb.second.id}")
+-                            ignored++
+-                        }
+-                        // only NsId changed, no need to upload
+-                        eb.first.onlyNsIdAdded(eb.second)                                -> {
+-                            aapsLogger.debug(LTag.NSCLIENT_SYNC, "Ignoring ExtendedBolus. Only NS id changed: ${eb.second.id}")
+-                            ignored++
+-                        }
+-                        // without nsId = create new
+-                        eb.first.ids.nightscoutId == null                                -> {
+-                            cont = nsClientV3Plugin().nsAdd("treatments", DataSyncSelector.PairExtendedBolus(eb.first, eb.second.id), "$startId/$lastDbId", profile) == true
+-                            if (cont) added++
+-                        }
+-                        // with nsId = update
+-                        eb.first.ids.nightscoutId != null                                -> {
+-                            cont = nsClientV3Plugin().nsUpdate("treatments", DataSyncSelector.PairExtendedBolus(eb.first, eb.second.id), "$startId/$lastDbId", profile) == true
+-                            if (cont) updated++
+-                        }
++                when {
++                    // new record with existing NS id => must be coming from NS => ignore
++                    eb.first.id == eb.second.id && eb.first.ids.nightscoutId != null -> {
++                        aapsLogger.debug(LTag.NSCLIENT_SYNC, "Ignoring ExtendedBolus. Loaded from NS: ${eb.second.id}")
++                        ignored++
++                    }
++                    // only NsId changed, no need to upload
++                    eb.first.onlyNsIdAdded(eb.second)                                -> {
++                        aapsLogger.debug(LTag.NSCLIENT_SYNC, "Ignoring ExtendedBolus. Only NS id changed: ${eb.second.id}")
++                        ignored++
++                    }
++                    profile == null                                                -> {
++                        aapsLogger.debug(LTag.NSCLIENT_SYNC, "Waiting to upload ExtendedBolus. Historical profile unavailable")
++                        cont = false
++                    }
++                    // without nsId = create new
++                    eb.first.ids.nightscoutId == null                                -> {
++                        cont = nsClientV3Plugin().nsAdd("treatments", DataSyncSelector.PairExtendedBolus(eb.first, eb.second.id), "$startId/$lastDbId", profile) == true
++                        if (cont) added++
++                    }
++                    // with nsId = update
++                    eb.first.ids.nightscoutId != null                                -> {
++                        cont = nsClientV3Plugin().nsUpdate("treatments", DataSyncSelector.PairExtendedBolus(eb.first, eb.second.id), "$startId/$lastDbId", profile) == true
++                        if (cont) updated++
+                     }
+-                } else {
+-                    aapsLogger.debug(LTag.NSCLIENT_SYNC, "Ignoring ExtendedBolus. No profile: ${eb.second.id}")
+-                    ignored++
+                 }
+                 if (cont) confirmLastExtendedBolusIdIfGreater(eb.second.id)
+             } ?: run {
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
+index 1045353ed5..f2cd089080 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
+@@ -977,12 +977,12 @@ class NSClientV3Plugin(
+             is DataSyncSelector.PairTherapyEvent           -> dataPair.value.toNSTherapyEvent()
+ 
+             is DataSyncSelector.PairTemporaryBasal         -> {
+-                profile ?: return true
++                profile ?: return false
+                 dataPair.value.toNSTemporaryBasal(profile)
+             }
+ 
+             is DataSyncSelector.PairExtendedBolus          -> {
+-                profile ?: return true
++                profile ?: return false
+                 dataPair.value.toNSExtendedBolus(profile)
+             }
+ 

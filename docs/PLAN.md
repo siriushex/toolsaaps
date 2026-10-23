@@ -1,5 +1,17 @@
 # PLAN
 
+## Native Missing-Profile Upload Retry (2026-10-23)
+
+- [x] Reproduce three native false acknowledgements/cursor-advance failures.
+- [x] Preserve missing-profile records for normal retry; no current-profile fallback.
+- [x] Verify initial uploader suites86passed and patch-recipe checks16passed.
+- [x] Combined native recipe passed485tests, including87uploader tests and all
+      six new cases; no failures or skips. Pristine source restored afterwards.
+- [x] Full recipe/JSON-isolation suite22passed; shell syntax/diff checks passed.
+- [ ] Publish reviewed source and inspect exact-head CI before integration.
+- This is an external minimal AAPS source patch, not a device migration or full
+  history receipt. The recommended meal-time gate remains closed.
+
 ## Native Insulin Form Audit (2026-10-23)
 
 - [x] Reproduce five form omissions plus one accepted-wire/native-Room omission.
