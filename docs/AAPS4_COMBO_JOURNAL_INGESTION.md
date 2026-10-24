@@ -43,10 +43,36 @@ from parsed events. Block size, error bytes and continuation/gap flags are check
 RETURNED and later BLOCK phases must agree with the native reader's existing
 continuation/remaining-event termination rule, without claiming initial coverage.
 
-Raw event bytes are retained unchanged. This decoder does not yet decode/validate
-each event's own CRC, type, local date/time or clock epoch. It never maps reader
-timestamps to delivery times. Neither CONFIRMED nor END proves physical delivery,
-initial FIFO coverage, delivery-start time or continuous basal insulin.
+Raw event bytes are retained unchanged. Before accepting a BLOCK, each 18-byte
+event must pass both little-endian CRC-16/MCRF4XX checks: bytes 0..9 for timestamp,
+detail and type; bytes 12..15 for the event counter. The seed is 0xffff, reflected
+polynomial 0x8408, with no final xor. A valid outer frame CRC cannot mask event
+damage. Calendar validation includes the packed local timestamp for every type,
+including unknown types, and the replacement local date/time for type 24.
+
+Known types match the pinned RC1 parser: 4..11, 14..19, 24. Their count and the
+separate unknown count must match the reader's exact per-block increments.
+Unknown types require the unmapped flag, and type 24 requires the clock-change
+flag. Unknown detail bytes are preserved without inventing their meaning.
+Unsigned counter and local-time order are audited within each read, including
+across confirmed block boundaries. Repetition of the first bytes observed for a
+counter marks EVENT_DUPLICATE; different bytes under that counter mark
+EVENT_COUNTER_REUSED. A smaller counter marks EVENT_COUNTER_REWIND, including
+the possible 32-bit rollover case; no automatic unwrap or reset epoch is inferred.
+A backwards local timestamp marks EVENT_TIME_REWIND. Equal timestamps are allowed.
+Counter gaps alone imply neither missing events nor complete delivery.
+
+These are adverse diagnostics, not a reason to discard or deduplicate valid
+event bytes. They apply to unknown as well as known events and remain sticky
+across later blocks or corruption. A block enters the order audit only after all
+its checksums, calendars and reader counters pass; an invalid tail cannot supply
+new order evidence. State is bounded by the existing read/frame limits, starts
+fresh for each read and is never joined across caller-supplied bindings.
+No ordering repair, deduplication, clock epoch or delivery semantics are inferred.
+Valid backwards local dates stay unchanged; they are not UTC instants.
+The reader clock is never substituted for delivery time. Neither CONFIRMED nor
+END proves physical delivery, initial FIFO coverage, delivery-start time or
+continuous basal insulin.
 
 A torn tail preserves the valid prefix, exact original scoped bytes and all
 previous hazards, but its status is invalid, never partial success. An interrupted
@@ -54,6 +80,35 @@ well-framed read remains adverse/unclosed. Unconfirmed blocks survive both paths
 A missing valid origin exposes no bytes. A mixed-owner file is rejected as a
 whole, with no decoded frames or raw bytes returned under the first owner.
 Results and payload accessors are immutable/copying and string output is redacted.
+
+## Typed Event Facts
+
+The event decoder validates once, then supplies both the order audit and an
+immutable per-frame/per-read projection. Type IDs and detail layouts follow pinned
+RC1 `ApplicationLayer.parseCMDReadHistoryBlockResponsePacket` at
+`d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0`. No native AAPS code is changed.
+
+- 4/5: quick requested/infused; manual origin is unspecified in that native detail.
+- 6/7 and 14/15: manual and automatic standard requested/infused respectively.
+- 8/9 and 16/17: manual and automatic extended started/ended respectively.
+- 10/11 and 18/19: manual and automatic multiwave started/ended respectively.
+- 24: retain the event local clock and replacement local clock independently.
+- All other types: opaque detail, original bytes, unsigned counter and local clock.
+
+Amounts remain raw integer tenths of a unit. Standard/quick/extended amounts are
+unsigned16; extended duration is unsigned16 minutes. Multiwave fields retain
+10-bit total, 10-bit immediate and 12-bit duration. Zero, maximum and internally
+surprising recorded values are not clamped or turned into a clinically usable
+dose. They require later semantic validation and reconciliation. Unknown events
+do not acquire quantities. Requested/infused records are not summed or paired.
+INFUSED is the native finished label, not an authenticated delivery-start time.
+
+Each read observation carries zero-based frame/event positions and a separate
+historyBlockAcknowledged flag. It is true only if the next validated frame is
+CONFIRMED. A failed or torn read can retain earlier acknowledged blocks; an
+unconfirmed BLOCK stays visible without that flag. Bad event tails reject their
+whole block; mixed-owner reads return no projection. No clinical UTC time, basal
+coverage, pump identity or new permission follows from typed facts.
 
 ## Verification And Next Gate
 
@@ -63,10 +118,24 @@ for the same synthetic gap/backwards-clock read. No phone data is used.
 Tests cover every truncation offset, CRC/JSON/UTF-8 corruption, mixed ownership,
 counter/clock/phase errors, unknown-event counts, unconfirmed/failed reads, limits,
 mutable output attempts, chunk retries, substitution and permanently failed assembly.
+Event tests additionally check every single-bit mutation of known/unknown events
+with a freshly valid outer CRC, malformed dates with correct event checksums,
+all calendar days in the packed 2000..2063 range, time-field boundaries, clock
+changes, wrong type counts and rejection of a whole block with a damaged last
+event. An unchanged upstream RC1 PumpIOTest event and its CRCTest checksum anchor
+the independent synthetic CRC reference. No device data is used.
+Order regressions cover identical and conflicting counter reuse, nonadjacent
+repeats, unsigned sign/rollover boundaries, counter gaps, backwards times,
+cross-block continuity, unknown events, corruption and isolation between reads.
+Typed-event tests additionally cover all known phase/origin combinations, every
+multiwave detail bit, ordinary unsigned limits, the unchanged native bolus vector,
+opaque unknowns, clock replacements, per-block acknowledgement, torn tails and
+immutable/redacted projections. Existing event corruption/calendar tests exercise
+the same decoder, not a duplicate parser.
 
 Before production use, connect paired encrypted request/response to the existing
 durable counter owner, validate recipient/revocation and current snapshot, add
 private atomic persistence/receipts and bounded inventory retention. No second
-consuming pump reader is allowed. Event semantic validation, independent binding,
+consuming pump reader is allowed. Delivery semantic validation, independent binding,
 historical clock epochs, complete delivery and prospective meal-time safety remain
 separate gates. No therapy permission follows from these source-level tests.

@@ -1,5 +1,101 @@
 # PLAN
 
+## Combo Typed Event Facts (2026-10-24)
+
+- [x] Compare protocol fields against pinned RC1, preserve request/completion semantics.
+- [x] Decode immutable source facts once for integrity, order audit and diagnostics.
+- [x] Keep per-block history ACK distinct from bolus phase and delivery proof.
+- [x] Focused 60 passed; full Android 6915 passed/six old skips, zero lint errors,
+      actual SDK TLS 1.940s, frozen Kotlin hashes and APK retention/size guard.
+- [ ] Review source diff, publish isolated feature branch and inspect exact-head CI.
+- No paired transport, persistence, UTC epochs, basal coverage, event pairing,
+  live timer activation, AAPS changes, main merge or APK release in this stage.
+
+## Release Candidate 0.1.15 (2026-10-24)
+
+- [x] Confirm public0.1.14/code15 and isolate the forward version-only stage.
+- [x] Prepare0.1.15/code16 with unlimited opt-in test mode and retained guards.
+- [x] Full Android6903passed/six old skips, zero lint errors, actual TLS3.247s;
+      frozen source, fourteen helper tests and signed39,788,656byte APK verified.
+- [x] Exactfbf04a90 PR46 and PR45 CI/review passed without findings.
+- [x] Published static update; public signature/metadata/digest, range75%, page,
+      hidden paths and unchanged service PIDs verified; old pointer/APKs retained.
+- Complete delivery, authenticated ingestion, clock epochs and prospective
+  meal-time safety remain separate gates; no clinical timer activation.
+
+## Combo Event Order (2026-10-24)
+
+- [x] Inspect PR44 exact-head CI/review: server checks passed, Android/review running.
+- [x] Reproduce nine missing adverse-diagnostic cases before implementation.
+- [x] Track first event bytes per unsigned counter and previous local time within
+      a read; flag duplicates, reuse and backwards transitions without repair.
+- [x] Focused 48 passed; full Android 6903 passed/six existing skips, zero lint
+      errors, pristine SDK TLS 2.041s, frozen source and APK retention/size passed.
+- [x] PR45 exact67f50d70: all six CI checks passed; review without findings.
+- No cross-read epochs, authenticated transport, persistence, complete delivery,
+  clinical timer permission, AAPS changes, main merge or APK release.
+
+## Combo Event Integrity (2026-10-24)
+
+- [x] Compare retained decoder with pinned RC1 event CRC/date/type handling.
+- [x] Reproduce five failures before the fix: inner corruption, impossible dates,
+      inconsistent type counts, missing/invalid clock change and damaged block tail.
+- [x] Validate every event's two CRC16 fields, packed local calendar, exact known/
+      unknown increments and required hazard flags; preserve raw evidence.
+- [x] Focused 38 passed; full Android 6893 passed/six existing skips, zero lint
+      errors, pristine SDK TLS 2.727s, frozen sources and APK size/retention passed.
+- [ ] Review and publish source, then inspect exact-head CI.
+- No AAPS changes, pump reads, persisted ingestion, timer admission, therapy,
+  deployment or APK release. Counter/clock epochs and delivery remain unverified.
+
+## Forecast Test Manual Stop (2026-10-24)
+
+- [x] Remove one-hour expiry, retain minute cadence and thermal/power/lifecycle gates.
+- [x] Replace countdown with elapsed duration and use a renewable bounded wake lease.
+- [x] Verify six-hour cadence, late overheating, manual stop, resources and UI:
+      72 focused tests passed; two regressions first failed against the old limit.
+- [x] Full Android quality:6885passed/six existing skips, zero lint errors,
+      pristine SDK TLS2.647s, frozen-source and APK retention/size guard passed.
+- [x] PR43 exact-head f8405b4f CI: six successful checks; independent review
+      completed without findings. No device activation or internet release.
+
+## Release Repair 0.1.14 (2026-10-24)
+
+- [x] Withdraw public0.1.13 after accepted PR42 P1; retain immutable APK and backup.
+- [x] Reproduce ordinary-worker starvation with two failing synthetic tests.
+- [x] Require an enabled local source before service ownership suppresses worker.
+      Preserve ordinary15-minute remote and5-minute local cadence.
+- [x] Prepare forward version0.1.14/code15 without migration or new defaults.
+- [x] Full local quality:6879passed/six skips; zero lint errors; actual TLS4.05s,
+      frozen sources and signed APK/size/class guard verified. Helpers14passed.
+- [ ] Exact-source CI and review resolution.
+- [ ] Publish static update with backup and independent public verification.
+
+## Release Candidate 0.1.13 (2026-10-24)
+
+- [x] Verify current public version0.1.12/code13 and isolate a version-only stage.
+- [x] Prepare version0.1.13/code14 with unchanged package, signer and schema.
+- [x] Full Android:6877passed/six existing skips, zero lint errors; real TLS4.263s.
+      Fourteen release-helper tests passed, frozen sources unchanged.
+- [x] Signed39,788,972byte APK: version14, unchanged signer,7224classes retained;
+      content-addressed candidate and update manifest prepared locally.
+- [ ] Exact-head CI and review, including parent PR41, before main integration.
+- [ ] Public publication and independent download verification remain separate.
+- Test mode stays off by default. No live meal-time admission or AAPS update.
+
+## Minute Forecast Test (2026-10-24)
+
+- [x] Recheck clean main b2290910 after PR40; isolate the opt-in forecast-only mode.
+- [x] Implement session/foreground lifecycle, minute full calculations, settings,
+      silent stop action, monotonic expiry and thermal/power guards.
+- [x] Initial focused run: 105 tests passed, including 15 new session/policy/notification cases.
+- [x] UI interaction tests and priority/cancellation regressions. Final full
+      Android: 6877 passed, six old skips, zero lint errors; pristine SDK TLS2.121s.
+      Source fingerprints match. The existing APK retention/size guard passes.
+- [ ] Exact-head CI/review and main integration.
+- Device CPU/battery measurement and prospective accuracy comparison remain
+  separate. No device test activation or APK publication in this stage.
+
 ## Combo Consumer Integrity (2026-10-24)
 
 - [x] Recheck maineed3f39b and successful CI40053598223 after PR39.
@@ -8,7 +104,7 @@
 - [x] Focused30passed; combined native677successful reports, recipe18passed;
       full Android6852passed/six old skips, real SDK TLS2.082s, zero lint errors,
       unchanged source fingerprint and APK retention guard passed.
-- [ ] Exact-head CI/review and verified main integration.
+- [x] PR40 exact-head CI/review passed; main b2290910 CI40059660946 passed.
 - Paired encrypted transport, persistent receipts, event semantic/time validation
   and clinical admission remain open. No deployment or therapy activation.
 

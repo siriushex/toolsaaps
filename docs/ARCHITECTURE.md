@@ -1,11 +1,33 @@
 # ARCHITECTURE
 
+## Minute Forecast Test
+
+An opt-in process-local session adds minute `FORECAST_TEST` cycles under the
+existing foreground service and shared calculation lease. Accepted forecasts
+publish through the existing atomic UI path; the intent forbids extra therapy,
+remote requests, alert publication and sensitivity activation. The normal cycle
+is unchanged. The session has no duration limit and ends on manual stop or a
+safety/lifecycle gate. Thermal/power checks, bounded attempts and a renewable
+two-minute session-only wake lease constrain resource use. See FORECAST_TEST_MODE.md.
+
 ## Combo Consumer Integrity
 
 A bounded in-memory journal assembler/decoder checks exact retained bytes before
 later ingestion. It shares strict reader-observation parsing with existing status
 diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The
-native writer and Copilot test pin the same synthetic digest. No production caller,
+native writer and Copilot test pin the same synthetic digest. Every retained event
+also passes its two CRC16 checks, local-calendar validation and separate known/
+unknown count reconciliation; clock-change events require the retained hazard.
+Within-read order diagnostics preserve repeated/reused counters and backwards
+counter/local-time transitions as adverse evidence across block boundaries.
+Neither counter gaps nor a clean order audit establish delivery coverage.
+The same CRC/calendar decoder now retains immutable typed event facts: unsigned
+counter, local clock, protocol kind/phase, integer tenth-unit amounts, optional
+immediate amount/duration and native manual flag. Unknown types remain opaque.
+Frame/event positions and validated history-block acknowledgements stay separate
+from the recorded bolus phase. No pairing, dose summation or delivery-start clock
+is inferred from requested/infused or started/ended labels.
+No UTC/delivery meaning follows from calendar validity. No production caller,
 transport permission, durable receipt or semantic delivery timeline is connected.
 See AAPS4_COMBO_JOURNAL_INGESTION.md for limits and remaining admission gates.
 
