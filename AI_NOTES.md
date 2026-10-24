@@ -1,3 +1,109 @@
+# Combo Event Order - 2026-10-24
+
+- Rechecked parent PR43 f8405b4f: all six CI checks passed and independent review
+  completed without findings. This does not publish the unlimited test mode APK.
+- Nine regression cases reproduced that valid checksums could hide repeated
+  event numbers, conflicting bytes or backwards event time within a read.
+- Audit whole validated blocks using unsigned counters, original bytes and raw
+  local time. Preserve duplicate/reused-counter and rewind hazards across block
+  boundaries and later corruption. An invalid block contributes no order evidence.
+- Keep all bytes, counts and timestamps unchanged. Counter gaps, possible rollover
+  and a clean audit are not physical-delivery coverage or a UTC clock epoch.
+  Unknown events participate in the audit without acquiring delivery semantics.
+- Focused 48 passed. Full Android test/lint/compile/assemble passed in 7m50s:
+  6903 passed, six existing skips, zero failures/errors. Lint has zero errors,
+  383 warnings and eight hints; pristine SDK TLS passed in 2.041s. Frozen source
+  hashes and APK class-retention/size guard passed.
+- Reviewed source diff; exact-head CI remains pending. No device, AAPS, therapy,
+  transport, main merge or deployment changes.
+
+# Combo Event Integrity - 2026-10-24
+
+- Continue the retained consumer boundary using the pinned RC1 ApplicationLayer
+  format; do not add a second pump reader or change native AAPS code.
+- Five regression tests failed against the prior framing-only decoder. Check both
+  inner CRC16 fields, all packed local dates, clock-change detail dates, separate
+  known/unknown count deltas and required clock/unmapped flags before accepting
+  a block. A valid outer CRC cannot disguise corrupt pump bytes.
+- Preserve the valid prefix, scoped original bytes and prior hazards on failure.
+  No clock normalization, counter ordering or actual-delivery claims are added.
+- Focused checks: 38 passed. Full Android test/lint/compile/assemble passed in
+  11m03s: 6893 passed, six existing skips, zero errors; lint has zero errors,
+  383 warnings and eight hints. Pristine SDK TLS passed in 2.727s. Frozen source
+  hashes and APK size/class-retention guard passed (7231 application classes).
+- Source diff reviewed; exact-head CI remains pending. No device/server/therapy
+  change, main merge or APK publication is included.
+
+# Forecast Test Manual Stop - 2026-10-24
+
+- User requested minute recalculation until manual stop, retaining overheat safety.
+- Remove only the session deadline. Existing power-save, monitoring and foreground
+  lifecycle gates remain; process restart does not silently resume a high-CPU test.
+- Show elapsed minutes and explicit manual-stop text. Renew a two-minute wake
+  lease only while admission succeeds, keeping a fallback timeout on a stalled owner.
+- 72 focused tests passed, covering six hours, late thermal interruption, wake
+  renewal/expiry, cancellation, OS timeout, silent stop and UI. Two new regressions
+  first failed against the old hourly cutoff.
+- Full Android quality passed in9m45s:6885passed/six existing skips, zero lint
+  errors/383warnings/eight hints. Actual pristine SDK TLS2.647s, unchanged frozen
+  sources and APK retention/size guard passed (41,756,265bytes,7231app classes).
+- Source diff reviewed; exact-head CI remains pending. No therapy policy, server,
+  AAPS, settings migration, APK version or device activation changes.
+
+# Release Repair 0.1.14 - 2026-10-24
+
+- PR42 review identified P1 ordinary-worker starvation when the foreground
+  service exists only for Forecast Test. Two regressions reproduced the defect.
+- Worker ownership now requires a running ordinary loop and an enabled local
+  source. Remote-only workers keep their original15-minute cadence; additional
+  minute forecasts stay read-only. Local-source duplicate suppression is retained.
+- 0.1.13 was briefly published after owner authorization and six green CI checks,
+  then withdrawn when the release review reported the defect. The public pointer
+  and page returned to0.1.12; immutable APKs and services/data were preserved.
+- Forward repair uses0.1.14/code15, unchanged package/signer/schema/defaults.
+- Full Android quality passed in7m29s:6879passed/six existing skips, zero lint
+  errors/383warnings/eight hints, actual pristine SDK TLS4.05s. Both new regression
+  cases passed; frozen Android/updater sources matched. Fourteen release-helper
+  tests and the APK retention/size guard passed. Signed APK39,788,968bytes.
+- Exact-source CI/review and corrected public publication remain pending.
+
+# Release Candidate 0.1.13 - 2026-10-24
+
+- Prepare version0.1.13/code14 on top of minute forecast source ccfd211f.
+  Keep package, signing identity, database schema and all runtime defaults.
+- The opt-in high-compute mode remains off; this release does not activate it
+  or admit a new meal-time recommendation, target or insulin calculation.
+- PR41 CI is green, but its independent review is still running. This candidate
+  is a separate version-only stage; no replacement of the reviewed source head.
+- Frozen full Android quality passed in9m8s:6877passed/six existing skips,
+  real stock SDK TLS4.263s, zero lint errors/383warnings/eight hints.
+- Fourteen release-helper checks passed. Signed39,788,972byte APK retains all
+  7224application classes; package, version and unchanged signer verified.
+- Exact-source CI and both reviews remain integration/publication gates.
+  No device or server change performed; the public release remains0.1.12.
+
+# Minute Forecast Test - 2026-10-24
+
+- Added explicit one-hour, process-local minute forecast session. UI confirmation,
+  status/count/duration, silent notification stop, foreground lifetime and timed
+  wake lock are connected. The existing normal interval remains five minutes.
+- The new intent recomputes the existing full local model and mature error
+  calibration under the common lease. It publishes accepted results but cannot
+  send therapy commands, request remote inference/sync, activate models or emit
+  additional alerts. Temperature, power saving, expiry and cancellation stop it.
+- Normal/reactive/settings callers register priority before lease acquisition and
+  preempt a test attempt without ending its session. This prevents phase-aligned
+  test work from starving normal calculation. Expected cancellation is not a
+  failed calculation step. The reactive entry permits only its two ordinary intents.
+- Final full Android: 6877 passed, six existing skips, zero lint errors; pristine
+  SDK TLS2.121s. Includes25new tests. A stale source-wiring assertion was updated
+  to check the stronger allowlist and priority; previous failed evidence retained.
+  Source fingerprint and APK retention/size guard pass. Exact-head CI/review pending.
+- No accuracy improvement or phone CPU measurement claimed. No AAPS/server change,
+  automatic therapy activation, device installation or APK publication.
+- Prior PR40 merged as b2290910 with successful main CI40059660946.
+- Verification and manual checklist: docs/FORECAST_TEST_MODE.md.
+
 # Combo Consumer Integrity - 2026-10-24
 
 - Rechecked maineed3f39b and successful CI40053598223. PR39 exact22bef97c

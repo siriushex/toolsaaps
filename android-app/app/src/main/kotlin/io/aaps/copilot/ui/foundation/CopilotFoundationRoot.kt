@@ -672,6 +672,8 @@ fun CopilotFoundationRoot(
                                     targetManagerStatus = overview.targetManagerLiveStatus,
                                     onTargetManagerTimingChange = viewModel::setTargetManagerTiming,
                                     onVerboseLogsToggle = viewModel::setVerboseLogsEnabled,
+                                    forecastTestState = viewModel.forecastTestState.collectAsStateWithLifecycle().value,
+                                    onForecastTestToggle = viewModel::setForecastTestEnabled,
                                     onProModeToggle = viewModel::setProModeEnabled,
                                     onNightscoutUrlSave = viewModel::setNightscoutUrl,
                                     onAiApiSettingsSave = viewModel::setAiApiSettings,

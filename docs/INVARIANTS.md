@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Forecast Test Isolation
+
+- Extra minute cycles never gain therapy writer rights, even after arming changes.
+- Shared calculation ownership, input freshness, sensor/profile provenance and
+  atomic acceptance remain mandatory. No invented CGM samples or new coefficients.
+- Normal cadence, remote request rate and alert behavior are unchanged.
+- Normal/reactive/settings callers preempt test attempts before acquiring the
+  shared lease. A test cannot run ahead of pending priority work.
+- The opt-in session has no duration limit and is process-local. Manual stop,
+  thermal/power refusal or service loss cancels its work and releases its wake
+  lock; no queued catch-up, automatic safety-stop resume or boot resume.
+- A two-minute wake lease renews only while admission is healthy. Removing session
+  expiry must not create an unbounded wake lock or bypass the 45-second attempt cap.
+- More CPU and more frequent calculation are not evidence of clinical accuracy.
+
 ## Combo Consumer Boundary
 
 - Whole-read SHA and per-frame CRC/schema/sequence checks precede interpretation.
@@ -10,6 +25,16 @@
   Mixed ownership returns no frames or raw bytes under the first owner.
 - Shared observation parsing cannot weaken existing status validation. Unknown
   events, unconfirmed blocks and adverse flags remain explicit.
+- A valid frame CRC never substitutes for both event CRC16 checks. Invalid event
+  dates, clock-change details or per-type counter increments reject the whole
+  block, retaining only the preceding validated frames and scoped original bytes.
+- Calendar validity never supplies a UTC offset, counter epoch or delivery-start
+  time. Unknown event details remain opaque; known clock changes stay adverse.
+- Order diagnostics consume only whole validated blocks, include unknown events,
+  and persist across block boundaries within one read. Counter reuse/rewind and
+  backwards local time cannot be silently deduplicated, unwrapped or repaired.
+- Event numbers are unsigned 32-bit values. Gaps alone neither prove loss nor
+  completeness, and separate reads never share an unbound order-audit state.
 - Framing, acknowledged blocks and closed reads never grant physical delivery,
   event-clock mapping, therapy permission or meal-time recommendation authority.
 
