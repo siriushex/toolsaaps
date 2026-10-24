@@ -256,6 +256,7 @@ class AutomationRepository(
     internal enum class AutomationCycleIntent {
         NORMAL,
         LOCAL_READ_ONLY,
+        FORECAST_TEST,
         SENSITIVITY_SOURCE_CHANGE
     }
 
@@ -305,6 +306,7 @@ class AutomationRepository(
     ) : IllegalStateException("accepted sensitivity forecast generation is not fresh")
 
     private val cycleMutex = Mutex()
+    private val forecastTestArbiter = ForecastTestArbiter()
     private val mealRuntimeCapture = MealRuntimeCaptureRelay()
     internal val mealRuntimeUpdates = mealRuntimeCapture.updates
     private val isfCrRealtimeDispatcher = Dispatchers.IO.limitedParallelism(1)
@@ -723,23 +725,28 @@ class AutomationRepository(
     )
 
     suspend fun runAutomationCycle(): SensitivityRuntimeSnapshot? =
-        runCycle(AutomationCycleIntent.NORMAL)
+        forecastTestArbiter.normal { runCycle(AutomationCycleIntent.NORMAL) }
 
     suspend fun runLocalReadOnlyCycle(): SensitivityRuntimeSnapshot? =
-        runCycle(AutomationCycleIntent.LOCAL_READ_ONLY)
+        forecastTestArbiter.normal { runCycle(AutomationCycleIntent.LOCAL_READ_ONLY) }
+
+    internal suspend fun runForecastTestCycle(): SensitivityRuntimeSnapshot? =
+        forecastTestArbiter.test { runCycle(AutomationCycleIntent.FORECAST_TEST) }
 
     internal suspend fun runReactiveCycle(intent: AutomationCycleIntent): SensitivityRuntimeSnapshot? {
-        require(intent != AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) {
-            "reactive work cannot start a sensitivity source-change cycle"
+        require(intent == AutomationCycleIntent.NORMAL || intent == AutomationCycleIntent.LOCAL_READ_ONLY) {
+            "reactive work requires a normal or local read-only cycle"
         }
-        return runReactiveCycleUnderLeaseStatic(cycleMutex) {
-            runCycle(intent, cycleLeaseOwned = true)
+        return forecastTestArbiter.normal {
+            runReactiveCycleUnderLeaseStatic(cycleMutex) {
+                runCycle(intent, cycleLeaseOwned = true)
+            }
         }
     }
 
     internal suspend fun applySensitivitySettings(
         updater: (AppSettings) -> AppSettings
-    ): SensitivityRuntimeSnapshot {
+    ): SensitivityRuntimeSnapshot = forecastTestArbiter.normal {
         val revisionPreparation = prepareProfileEstimatorRevision(
             settings = settingsStore.settings.first(),
             intent = AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE
@@ -747,7 +754,7 @@ class AutomationRepository(
         check(revisionPreparation.ready) {
             "profile estimator revision rebuild is not ready; sensitivity settings were not changed"
         }
-        return applySensitivitySettingsChangeUnderCycleLeaseStatic(
+        applySensitivitySettingsChangeUnderCycleLeaseStatic(
             mutex = cycleMutex,
             lockTimeoutMs = SENSITIVITY_SOURCE_CHANGE_LOCK_TIMEOUT_MS,
             mutateSettings = {
@@ -958,7 +965,7 @@ class AutomationRepository(
     ): SensitivityRuntimeSnapshot? {
         val now = System.currentTimeMillis()
         currentCycleStartedAtTs = now
-        auditLogger.info("automation_cycle_started", mapOf("startedAtTs" to now))
+        auditLogger.info("automation_cycle_started", mapOf("startedAtTs" to now, "intent" to intent.name))
         return try {
             val acceptedSnapshot = withTimeout(AUTOMATION_CYCLE_TIMEOUT_MS) {
                 try {
@@ -1011,6 +1018,7 @@ class AutomationRepository(
             if (intent == AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE) throw blocked
             null
         } catch (error: TimeoutCancellationException) {
+            if (intent == AutomationCycleIntent.FORECAST_TEST) throw error
             auditLogger.error(
                 "automation_cycle_timeout",
                 mapOf(
@@ -1020,6 +1028,7 @@ class AutomationRepository(
             )
             throw error
         } catch (error: Throwable) {
+            if (intent == AutomationCycleIntent.FORECAST_TEST && error is CancellationException) throw error
             auditLogger.warn(
                 "automation_cycle_failed",
                 mapOf(
@@ -1069,6 +1078,8 @@ class AutomationRepository(
         beforeClinicalSideEffects: (suspend () -> Unit)? = null
     ): SensitivityRuntimeSnapshot? {
         mealRuntimeCapture.invalidate()
+        // Only under the shared cycle lease. Re-read mature forecast errors each test tick.
+        if (intent == AutomationCycleIntent.FORECAST_TEST) lastCalibrationRefreshBucketTs = Long.MIN_VALUE
         var settings = settingsStore.settings.first()
         runRemoteRefreshStatic(bootstrapPolicy) {
             runCycleStep("auto_connect_bootstrap") {
@@ -1575,6 +1586,8 @@ class AutomationRepository(
         auditLogger.info(
             "automation_cycle_completed",
             mapOf(
+                "intent" to intent.name,
+                "forecastCycleId" to sensitivitySnapshot.forecastCycleId,
                 "glucosePoints" to glucose.size,
                 "therapyEvents" to therapy.size,
                 "forecasts" to mergedForecasts.size,
@@ -2360,6 +2373,8 @@ class AutomationRepository(
                 )
             }
             result
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             auditLogger.warn(
                 "automation_cycle_step_failed",
@@ -8786,6 +8801,16 @@ class AutomationRepository(
                 allowLocalSafetyEvidence = false,
                 allowAlertPublication = false,
                 publishWidgetAfterAcceptance = false
+            )
+            AutomationCycleIntent.FORECAST_TEST -> AutomationCyclePolicy(
+                runCalculations = !powerSaveActive,
+                runRemoteRefresh = false,
+                therapyWritersAllowed = false,
+                allowSensitivityMaintenance = false,
+                allowActionRepositoryAccess = false,
+                allowLocalSafetyEvidence = true,
+                allowAlertPublication = false,
+                publishWidgetAfterAcceptance = true
             )
             AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE -> AutomationCyclePolicy(
                 runCalculations = true,
