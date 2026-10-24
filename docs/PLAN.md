@@ -1,5 +1,16 @@
 # PLAN
 
+## Release Candidate 0.1.15 (2026-10-24)
+
+- [x] Confirm public0.1.14/code15 and isolate the forward version-only stage.
+- [x] Prepare0.1.15/code16 with unlimited opt-in test mode and retained guards.
+- [x] Full Android6903passed/six old skips, zero lint errors, actual TLS3.247s;
+      frozen source, fourteen helper tests and signed39,788,656byte APK verified.
+- [ ] Exact-source CI and independent review, including PR45.
+- [ ] Publish static update with previous-pointer backup and verify public bytes.
+- Complete delivery, authenticated ingestion, clock epochs and prospective
+  meal-time safety remain separate gates; no clinical timer activation.
+
 ## Combo Event Order (2026-10-24)
 
 - [x] Inspect PR44 exact-head CI/review: server checks passed, Android/review running.

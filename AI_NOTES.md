@@ -1,3 +1,21 @@
+# Release Candidate 0.1.15 - 2026-10-24
+
+- Prepare forward version0.1.15/code16 from PR45, preserving package, signer,
+  schema, runtime defaults and ordinary-worker starvation repair from0.1.14.
+- Includes the opt-in minute forecast test without an application one-hour limit.
+  Manual stop, thermal/power/lifecycle guards and Android foreground limits remain.
+  Extra calculations do not send therapy commands or activate a clinical timer.
+- Includes retained Combo event integrity/order diagnostics, not authenticated
+  history ingestion, complete physical delivery or a meal-time recommendation.
+- Public0.1.14/code15 was independently checked before preparing this candidate.
+  PR45 review completed without findings; its Android CI is still in progress.
+- Full local test/lint/compile/build passed in7m34s:6903passed/six existing skips,
+  zero failures/errors, actual pristine SDK TLS3.247s and zero lint errors.
+  Fourteen release helpers passed; frozen source matched. Freshly packaged signed
+  APK39,788,656bytes passed unchanged signer/metadata and class-retention guards.
+- Exact-source CI/review and independent public download verification remain
+  required. No phone, AAPS, AI service, authorization profile or medical data changes.
+
 # Combo Event Order - 2026-10-24
 
 - Rechecked parent PR43 f8405b4f: all six CI checks passed and independent review
