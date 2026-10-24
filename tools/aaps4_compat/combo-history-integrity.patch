@@ -838,10 +838,10 @@ index 0000000000..47430dbd64
 +}
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
 new file mode 100644
-index 0000000000..29e111a04c
+index 0000000000..738e34a636
 --- /dev/null
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,342 @@
 +package info.nightscout.pump.combov2
 +
 +import info.nightscout.comboctl.base.HistoryReadCheckpoint
@@ -849,6 +849,8 @@ index 0000000000..29e111a04c
 +import info.nightscout.comboctl.base.BluetoothAddress
 +import info.nightscout.comboctl.base.InvariantPumpData
 +import java.io.Closeable
++import java.io.ByteArrayInputStream
++import java.io.DataInputStream
 +import java.io.File
 +import java.io.IOException
 +import java.io.RandomAccessFile
@@ -858,6 +860,7 @@ index 0000000000..29e111a04c
 +import java.nio.file.LinkOption.NOFOLLOW_LINKS
 +import java.nio.file.StandardOpenOption.READ
 +import java.util.UUID
++import java.util.Collections
 +import java.util.zip.CRC32
 +import java.security.MessageDigest
 +import java.util.concurrent.ConcurrentHashMap
@@ -893,6 +896,27 @@ index 0000000000..29e111a04c
 +    private var activeRecords = 0
 +    private var failed = false
 +    private var claimedPath: String? = null
++    private var currentSnapshot: Snapshot? = null
++
++    internal class RetainedRead internal constructor(
++        val id: String, val size: Int, val sha256: String,
++        val closed: Boolean, val corrupt: Boolean, val adverse: Boolean, val readFailed: Boolean
++    ) {
++        override fun toString() = "RetainedRead(redacted)"
++    }
++
++    internal class Snapshot internal constructor(reads: List<RetainedRead>, val unscopedCorruptReads: Int, val writerFailed: Boolean) {
++        val reads: List<RetainedRead> = Collections.unmodifiableList(ArrayList(reads))
++        val coverage = "unverified"
++        override fun toString() = "HistorySnapshot(redacted)"
++    }
++
++    internal class Chunk internal constructor(val offset: Int, val totalSize: Int, val sha256: String, bytes: ByteArray) {
++        private val content = bytes.copyOf()
++        val endOfRead get() = offset + content.size == totalSize
++        fun bytes(): ByteArray = content.copyOf()
++        override fun toString() = "HistoryChunk(redacted)"
++    }
 +
 +    init {
 +        try {
@@ -927,6 +951,7 @@ index 0000000000..29e111a04c
 +
 +    @Synchronized
 +    fun record(binding: String, checkpoint: HistoryReadCheckpoint) {
++        currentSnapshot = null
 +        try {
 +            check(!failed && lock?.isValid == true)
 +            require(binding.matches(Regex("[0-9a-f]{64}")))
@@ -1001,13 +1026,64 @@ index 0000000000..29e111a04c
 +        put("unscopedCorruptReads", entries.count { it.binding == null && it.corrupt })
 +    }
 +
-+    private fun recover(file: File): Entry {
++    /** Internal readout only: a snapshot is not transport authorization or clinical coverage. */
++    @Synchronized
++    fun snapshot(binding: String): Snapshot {
++        currentSnapshot = null
++        try {
++            require(binding.matches(Regex("[0-9a-f]{64}")))
++            check(lock?.isValid == true && (activeEntry == null || failed))
++            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == claimedPath)
++            val files = checkNotNull(directory.listFiles())
++            require(files.size <= maxReads + 1)
++            var totalBytes = 0L
++            var unscoped = 0
++            val reads = mutableListOf<RetainedRead>()
++            for (file in files.sortedBy { it.name }) {
++                if (file.name == "writer.lock") continue
++                require(file.extension == "chr" && UUID.fromString(file.nameWithoutExtension).toString() == file.nameWithoutExtension)
++                val raw = readRetainedBytes(file)
++                totalBytes += raw.size
++                require(totalBytes <= maxBytes)
++                // Scope, damage flags and digest must come from the same immutable bytes.
++                val entry = recover(file, raw)
++                if (entry.binding == null && entry.corrupt) unscoped++
++                if (entry.binding == binding) reads += RetainedRead(
++                    file.nameWithoutExtension, raw.size, digest(raw), entry.closed, entry.corrupt,
++                    entry.adverse || entry.corrupt, entry.readFailed
++                )
++            }
++            return Snapshot(reads, unscoped, failed).also { currentSnapshot = it }
++        } catch (e: Exception) {
++            throw IOException("History snapshot unavailable")
++        }
++    }
++
++    @Synchronized
++    fun readChunk(snapshot: Snapshot, readId: String, offset: Int, maxChunkBytes: Int): Chunk {
++        try {
++            check(currentSnapshot === snapshot && lock?.isValid == true)
++            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == claimedPath)
++            require(maxChunkBytes in 1..65536)
++            val read = checkNotNull(snapshot.reads.singleOrNull { it.id == readId })
++            require(offset in 0..read.size)
++            val raw = readRetainedBytes(File(directory, "${read.id}.chr"))
++            require(raw.size == read.size && digest(raw) == read.sha256)
++            val end = minOf(raw.size, offset + maxChunkBytes)
++            return Chunk(offset, read.size, read.sha256, raw.copyOfRange(offset, end))
++        } catch (e: Exception) {
++            currentSnapshot = null
++            throw IOException("History chunk unavailable")
++        }
++    }
++
++    private fun recover(file: File, raw: ByteArray? = null): Entry {
 +        var binding: String? = null
 +        return try {
 +            var previous: HistoryReadCheckpoint.Phase? = null
 +            var hasAdverse = false
 +            var readFailed = false
-+            scanRecords(file) { record ->
++            scanRecords(raw ?: readRetainedBytes(file)) { record ->
 +                require(record["version"]?.jsonPrimitive?.int == 1)
 +                val owner = record.getValue("binding").jsonPrimitive.content
 +                require(owner.matches(Regex("[0-9a-f]{64}")))
@@ -1035,6 +1111,7 @@ index 0000000000..29e111a04c
 +
 +    @Synchronized
 +    override fun close() {
++        currentSnapshot = null
 +        failed = true
 +        releaseLock()
 +    }
@@ -1056,6 +1133,9 @@ index 0000000000..29e111a04c
 +
 +        private fun checksum(bytes: ByteArray) = CRC32().apply { update(bytes) }.value.toInt()
 +
++        private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
++            .joinToString("") { "%02x".format(it.toInt() and 255) }
++
 +        private fun adverse(observation: JsonObject) = listOf(
 +            "gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved", "journalWriteFailed"
 +        ).any { observation[it] == JsonPrimitive(true) }
@@ -1071,17 +1151,29 @@ index 0000000000..29e111a04c
 +        }
 +
 +        internal fun readRecords(file: File): List<JsonObject> = buildList {
-+            scanRecords(file) { add(it) }
++            scanRecords(readRetainedBytes(file)) { add(it) }
 +        }
 +
-+        private fun scanRecords(file: File, onRecord: (JsonObject) -> Unit) {
++        private fun readRetainedBytes(file: File): ByteArray {
 +            require(file.length() <= MAX_READ_BYTES && Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS))
-+            RandomAccessFile(file, "r").use { input ->
++            Files.newByteChannel(file.toPath(), setOf(READ, NOFOLLOW_LINKS)).use { input ->
++                val size = input.size()
++                require(size in 0..MAX_READ_BYTES)
++                val buffer = java.nio.ByteBuffer.allocate(size.toInt())
++                while (buffer.hasRemaining()) check(input.read(buffer) > 0)
++                check(input.size() == size && input.read(java.nio.ByteBuffer.allocate(1)) == -1)
++                return buffer.array()
++            }
++        }
++
++        private fun scanRecords(raw: ByteArray, onRecord: (JsonObject) -> Unit) {
++            require(raw.size <= MAX_READ_BYTES)
++            DataInputStream(ByteArrayInputStream(raw)).use { input ->
 +                var records = 0
-+                while (input.filePointer < input.length()) {
++                while (input.available() > 0) {
 +                    require(records < 256)
 +                    val length = input.readInt()
-+                    require(length in 1..MAX_RECORD_BYTES && input.length() - input.filePointer >= length + 4L)
++                    require(length in 1..MAX_RECORD_BYTES && input.available() >= length + 4)
 +                    val bytes = ByteArray(length)
 +                    input.readFully(bytes)
 +                    require(input.readInt() == checksum(bytes))
@@ -1385,5 +1477,272 @@ index 0000000000..1be1efc366
 +        assertEquals(JsonPrimitive(900L), json["readFinishedAt"])
 +        for (key in listOf("gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved", "malformedBlockObserved", "journalWriteFailed"))
 +            assertEquals(JsonPrimitive(true), json[key])
++    }
++}
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadoutTest.kt
+new file mode 100644
+index 0000000000..4b183667d5
+--- /dev/null
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadoutTest.kt
+@@ -0,0 +1,261 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.HistoryReadCheckpoint.Phase
++import info.nightscout.comboctl.base.HistoryReadObservation
++import java.io.ByteArrayOutputStream
++import java.io.File
++import java.io.IOException
++import java.io.RandomAccessFile
++import java.nio.file.Files
++import java.security.MessageDigest
++import kotlinx.serialization.json.JsonPrimitive
++import org.junit.jupiter.api.Assertions.*
++import org.junit.jupiter.api.Test
++import org.junit.jupiter.api.io.TempDir
++
++class ComboHistoryReadoutTest {
++    @TempDir lateinit var root: File
++    private val directory get() = File(root, "history")
++    private val binding = "a".repeat(64)
++    private val other = "b".repeat(64)
++    private fun checkpoint(phase: Phase, payload: List<Byte> = emptyList()) = HistoryReadCheckpoint(
++        phase, HistoryReadObservation(
++            state = if (phase == Phase.END) HistoryReadObservation.State.RETURNED else HistoryReadObservation.State.READING,
++            readStartedAtEpochMs = 1000, readFinishedAtEpochMs = if (phase == Phase.END) 900 else null,
++            gapObserved = true, clockChangeObserved = true, unmappedEventObserved = true
++        ), payload
++    )
++
++    private fun complete(journal: ComboHistoryJournal, owner: String = binding, blocks: Int = 1) {
++        journal.record(owner, checkpoint(Phase.BEGIN))
++        repeat(blocks) {
++            journal.record(owner, checkpoint(Phase.BLOCK, List(4096) { (it % 256).toByte() }))
++            journal.record(owner, checkpoint(Phase.CONFIRMED))
++        }
++        journal.record(owner, checkpoint(Phase.END))
++    }
++
++    private fun readAll(journal: ComboHistoryJournal, snapshot: ComboHistoryJournal.Snapshot, id: String): ByteArray {
++        val out = ByteArrayOutputStream()
++        do {
++            val chunk = journal.readChunk(snapshot, id, out.size(), 65536)
++            assertTrue(chunk.bytes().size <= 65536)
++            out.write(chunk.bytes())
++        } while (!chunk.endOfRead)
++        return out.toByteArray()
++    }
++
++    @Test fun retainedEvidenceHasBoundedReadOnlyAccessWithoutAnotherPumpReader() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal, blocks = 20)
++            val snapshot = journal.snapshot(binding)
++            val read = snapshot.reads.single()
++            val original = File(directory, "${read.id}.chr").readBytes()
++            assertTrue(original.size > 65536)
++            assertEquals("unverified", snapshot.coverage)
++            assertTrue(read.closed && read.adverse && !read.corrupt && !read.readFailed)
++            assertFalse(snapshot.writerFailed)
++            assertEquals(original.size, read.size)
++            assertEquals(MessageDigest.getInstance("SHA-256").digest(original).joinToString("") { "%02x".format(it.toInt() and 255) }, read.sha256)
++            assertArrayEquals(original, readAll(journal, snapshot, read.id))
++            assertArrayEquals(original, File(directory, "${read.id}.chr").readBytes())
++            val eof = journal.readChunk(snapshot, read.id, original.size, 1)
++            assertTrue(eof.endOfRead)
++            assertEquals(0, eof.bytes().size)
++        }
++    }
++
++    @Test fun stableReadIdentityAndRawBytesSurviveReopeningButSnapshotDoesNot() {
++        lateinit var first: ComboHistoryJournal.Snapshot
++        lateinit var bytes: ByteArray
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            first = journal.snapshot(binding)
++            bytes = readAll(journal, first, first.reads.single().id)
++        }
++        ComboHistoryJournal(directory).use { journal ->
++            assertThrows(IOException::class.java) { journal.readChunk(first, first.reads.single().id, 0, 16) }
++            val next = journal.snapshot(binding)
++            assertEquals(first.reads.single().id, next.reads.single().id)
++            assertEquals(first.reads.single().sha256, next.reads.single().sha256)
++            assertArrayEquals(bytes, readAll(journal, next, next.reads.single().id))
++        }
++    }
++
++    @Test fun pairingIsolationAndUnscopedDamageAreExplicit() {
++        lateinit var damaged: File
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            damaged = directory.listFiles()!!.single { it.extension == "chr" }
++            complete(journal, other)
++        }
++        RandomAccessFile(damaged, "rw").use { it.seek(10); it.writeByte(0) }
++        ComboHistoryJournal(directory).use { journal ->
++            val first = journal.snapshot(binding)
++            assertTrue(first.reads.isEmpty())
++            assertEquals(1, first.unscopedCorruptReads)
++            val second = journal.snapshot(other)
++            assertEquals(1, second.reads.size)
++            assertEquals(1, second.unscopedCorruptReads)
++            assertThrows(IOException::class.java) { journal.readChunk(second, damaged.nameWithoutExtension, 0, 16) }
++        }
++    }
++
++    @Test fun tornTailAndInterruptedReadAreExportedWithoutRepairOrCleanCoverage() {
++        lateinit var torn: File
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            torn = directory.listFiles()!!.single { it.extension == "chr" }
++            journal.record(binding, checkpoint(Phase.BEGIN))
++        }
++        RandomAccessFile(torn, "rw").use { it.setLength(it.length() - 1) }
++        val original = torn.readBytes()
++        ComboHistoryJournal(directory).use { journal ->
++            val snapshot = journal.snapshot(binding)
++            assertEquals(2, snapshot.reads.size)
++            assertTrue(snapshot.reads.all { !it.closed })
++            assertEquals(1, snapshot.reads.count { it.corrupt })
++            assertArrayEquals(original, readAll(journal, snapshot, torn.nameWithoutExtension))
++            assertEquals("unverified", snapshot.coverage)
++        }
++        assertArrayEquals(original, torn.readBytes())
++    }
++
++    @Test fun activeReadRefusesSnapshotAndEveryAppendInvalidatesEarlierSnapshot() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val old = journal.snapshot(binding)
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++            assertThrows(IOException::class.java) { journal.readChunk(old, old.reads.single().id, 0, 16) }
++            journal.record(binding, checkpoint(Phase.END))
++            assertEquals(2, journal.snapshot(binding).reads.size)
++        }
++    }
++
++    @Test fun replacementSnapshotAndCloseInvalidateHandles() {
++        val journal = ComboHistoryJournal(directory)
++        complete(journal)
++        val first = journal.snapshot(binding)
++        journal.snapshot(binding)
++        assertThrows(IOException::class.java) { journal.readChunk(first, first.reads.single().id, 0, 16) }
++        val last = journal.snapshot(binding)
++        journal.close()
++        assertThrows(IOException::class.java) { journal.snapshot(binding) }
++        assertThrows(IOException::class.java) { journal.readChunk(last, last.reads.single().id, 0, 16) }
++    }
++
++    @Test fun snapshotsAndChunksCannotBeMutatedByCallersOrLeakThroughToString() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val snapshot = journal.snapshot(binding)
++            val read = snapshot.reads.single()
++            assertThrows(UnsupportedOperationException::class.java) { (snapshot.reads as MutableList).clear() }
++            val chunk = journal.readChunk(snapshot, read.id, 0, 32)
++            val original = chunk.bytes()
++            chunk.bytes().fill(0)
++            assertArrayEquals(original, chunk.bytes())
++            for (value in listOf(snapshot, read, chunk)) {
++                assertFalse(value.toString().contains(binding))
++                assertFalse(value.toString().contains(read.id))
++                assertFalse(value.toString().contains(read.sha256))
++            }
++            val forged = ComboHistoryJournal.Snapshot(snapshot.reads, 0, false)
++            assertThrows(IOException::class.java) { journal.readChunk(forged, read.id, 0, 16) }
++        }
++    }
++
++    @Test fun invalidOffsetsSizesAndPathsAreRefusedWithoutLatchingWriterFailure() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val read = journal.snapshot(binding).reads.single()
++            for ((offset, size) in listOf(-1 to 1, (read.size + 1) to 1, 0 to 0, 0 to 65537, Int.MAX_VALUE to 1)) {
++                val snapshot = journal.snapshot(binding)
++                assertThrows(IOException::class.java) { journal.readChunk(snapshot, read.id, offset, size) }
++            }
++            val snapshot = journal.snapshot(binding)
++            assertThrows(IOException::class.java) { journal.readChunk(snapshot, "../writer", 0, 16) }
++            assertEquals(JsonPrimitive("STORED"), journal.status(binding)["state"])
++            complete(journal)
++            assertEquals(2, journal.snapshot(binding).reads.size)
++        }
++    }
++
++    @Test fun changedDeletedOrSymlinkedFileCannotReturnAPartialChunk() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val read = journal.snapshot(binding).reads.single()
++            val file = File(directory, "${read.id}.chr")
++            var snapshot = journal.snapshot(binding)
++            RandomAccessFile(file, "rw").use { it.seek(it.length() - 1); it.writeByte(0) }
++            assertThrows(IOException::class.java) { journal.readChunk(snapshot, read.id, 0, 16) }
++            snapshot = journal.snapshot(binding)
++            val moved = File(root, "retained-original")
++            Files.move(file.toPath(), moved.toPath())
++            assertThrows(IOException::class.java) { journal.readChunk(snapshot, read.id, 0, 16) }
++            Files.createSymbolicLink(file.toPath(), moved.toPath())
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++        }
++    }
++
++    @Test fun writerFailureRemainsVisibleWhileUnclosedEvidenceIsReadable() {
++        var writes = 0
++        ComboHistoryJournal(directory, sync = { if (++writes == 2) throw IOException("synthetic") else it.fd.sync() }).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            assertThrows(IOException::class.java) { journal.record(binding, checkpoint(Phase.BLOCK, listOf(1, 2, 3))) }
++            val snapshot = journal.snapshot(binding)
++            val read = snapshot.reads.single()
++            assertTrue(snapshot.writerFailed)
++            assertFalse(read.closed)
++            assertEquals("unverified", snapshot.coverage)
++            assertArrayEquals(File(directory, "${read.id}.chr").readBytes(), readAll(journal, snapshot, read.id))
++            assertEquals(2, writes)
++        }
++    }
++
++    @Test fun outOfBoundInventoryIsRefusedWithoutTruncation() {
++        ComboHistoryJournal(directory, maxReads = 1).use { journal ->
++            complete(journal)
++            File(directory, "unexpected.chr").writeBytes(byteArrayOf(1))
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++        }
++        File(directory, "unexpected.chr").delete()
++        ComboHistoryJournal(directory).use { journal ->
++            val file = directory.listFiles()!!.single { it.extension == "chr" }
++            RandomAccessFile(file, "rw").use { it.setLength(2L * 1024 * 1024 + 1) }
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++            assertEquals(2L * 1024 * 1024 + 1, file.length())
++        }
++    }
++
++    @Test fun totalByteLimitAndInvalidBindingDoNotDisableNativeWriter() {
++        ComboHistoryJournal(directory, maxBytes = 65536).use { journal ->
++            complete(journal)
++            assertThrows(IOException::class.java) { journal.snapshot("invalid") }
++            assertEquals(JsonPrimitive("STORED"), journal.status(binding)["state"])
++            val file = directory.listFiles()!!.single { it.extension == "chr" }
++            RandomAccessFile(file, "rw").use { it.setLength(65537) }
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++            assertEquals(65537, file.length())
++            assertEquals(JsonPrimitive("STORED"), journal.status(binding)["state"])
++        }
++    }
++
++    @Test fun failedReadAndHealthyDifferentPairingStayDistinct() {
++        ComboHistoryJournal(directory).use { journal ->
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            journal.record(binding, HistoryReadCheckpoint(Phase.END, HistoryReadObservation(
++                state = HistoryReadObservation.State.FAILED, interruptedReadObserved = true
++            )))
++            complete(journal, other)
++            val failed = journal.snapshot(binding).reads.single()
++            assertTrue(failed.closed && failed.readFailed && failed.adverse)
++            val different = journal.snapshot(other)
++            assertEquals(1, different.reads.size)
++            assertFalse(different.reads.single().readFailed)
++            assertNotEquals(failed.id, different.reads.single().id)
++            assertThrows(IOException::class.java) { journal.readChunk(different, failed.id, 0, 16) }
++        }
 +    }
 +}

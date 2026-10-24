@@ -1,3 +1,22 @@
+# Combo Journal Readout - 2026-10-24
+
+- Rechecked main d3c270e2 and CI40047759522 successful. PR38 exact9cc3a140
+  review and CI40044043320/40044210061 passed; merge retains its tested tree.
+- Reproduced missing source readout with one failing assertion. Added internal
+  bounded snapshots/chunks from the existing journal, not a second pump reader.
+  Same-byte binding/recovery/hash, stable IDs, copied output, handle invalidation,
+  explicit unscoped damage and retained writer failure prevent clean/partial claims.
+- Native Combo suites passed 180 tests, including 13 readout cases. Combined
+  recipe passed in 36s with 677 successful reports (unchanged suites up-to-date)
+  and restored pristine RC1; all 18 recipe isolation tests passed. Pristine SDK
+  preparation passed. Full Copilot test/lint/compile/assemble passed in 7s with
+  unchanged source tasks up-to-date, not a new 6835-test execution. Retained reports
+  contain 6835 passed/six previous skips and zero lint errors. Frozen sources and
+  APK retention guard passed (40,670,991 bytes, all 7184 app classes retained).
+- No production caller, endpoint, uploader, permission, credential, pump command,
+  therapy change or deployment. Paired transfer/ingestion and clinical gates remain
+  open. Exact-head CI, review and main integration remain pending.
+
 # Retained Combo History Evidence - 2026-10-24
 
 - Confirmed main63b637eb and CI40039451247 successful. PR37 exact-head61ac3f37

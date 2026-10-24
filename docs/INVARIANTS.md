@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Combo Readout Boundary
+
+- Readout never queries the pump, modifies retained bytes or changes native control.
+- Scope and digest must derive from the same immutable bytes. Preserve damaged
+  matching reads; unknown-origin corruption is explicit but cannot claim a pairing.
+- Snapshot/chunk results are immutable and redacted. Invalid/stale/forged handles,
+  changed files, invalid offsets and exceeded bounds never return partial success.
+- Every write attempt and close invalidates the current handle. A read failure
+  does not latch a writer failure; an existing writer failure stays visible.
+- No raw history in ordinary status uploads. Internal readout is not transport
+  authorization, pump binding, completeness, delivery or meal-time admission.
+
 ## Retained Combo Evidence Boundary
 
 - A stored journal summary never proves the current pairing or insulin delivery.
