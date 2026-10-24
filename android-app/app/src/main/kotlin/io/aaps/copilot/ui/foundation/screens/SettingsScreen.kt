@@ -130,6 +130,8 @@ fun SettingsScreen(
     state: SettingsUiState,
     onVerboseLogsToggle: (Boolean) -> Unit,
     onProModeToggle: (Boolean) -> Unit,
+    forecastTestState: io.aaps.copilot.service.ForecastTestState = io.aaps.copilot.service.ForecastTestState(),
+    onForecastTestToggle: (Boolean) -> Unit = {},
     onOpenSetup: () -> Unit = {},
     serverAiConnectionState: ServerAiConnectionState = ServerAiConnectionState(),
     onServerAiActivate: (String) -> Unit = {},
@@ -581,6 +583,8 @@ fun SettingsScreen(
                     }
                     item {
                         DebugSettingsCard(
+                            forecastTestState = forecastTestState,
+                            onForecastTestToggle = onForecastTestToggle,
                             proModeEnabled = state.proModeEnabled,
                             verboseLogsEnabled = state.verboseLogsEnabled,
                             onProModeToggle = onProModeToggle,
@@ -3025,6 +3029,8 @@ private fun AlertAudioClipEditor(
 
 @Composable
 private fun DebugSettingsCard(
+    forecastTestState: io.aaps.copilot.service.ForecastTestState,
+    onForecastTestToggle: (Boolean) -> Unit,
     proModeEnabled: Boolean,
     verboseLogsEnabled: Boolean,
     onProModeToggle: (Boolean) -> Unit,
@@ -3032,6 +3038,7 @@ private fun DebugSettingsCard(
 ) {
     SettingsSectionCard {
         SettingsSectionLabel(text = stringResource(id = R.string.section_settings_debug))
+        ForecastTestSettings(forecastTestState, onForecastTestToggle)
 
         SettingToggleRow(
             title = stringResource(id = R.string.settings_pro_mode),

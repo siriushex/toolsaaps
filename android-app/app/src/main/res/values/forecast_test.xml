@@ -1,0 +1,20 @@
+<resources>
+    <string name="forecast_test_title">Forecast test</string>
+    <string name="forecast_test_subtitle">Every minute, up to 60 minutes</string>
+    <string name="forecast_test_warning">High CPU use, heat and battery drain are possible. Full local forecasts use the available inputs; accuracy is not guaranteed. Extra cycles do not send therapy commands. Stops after one hour, on overheating or power saving. Navigation does not stop the test; restarting the process does.</string>
+    <string name="forecast_test_start">Start for 1 hour</string>
+    <string name="forecast_test_stop">Stop test</string>
+    <string name="forecast_test_notification">Forecast test: %1$d min left</string>
+    <string name="forecast_test_remaining">%1$d min left</string>
+    <string name="forecast_test_results">Completed: %1$d. Last attempt: %2$d ms</string>
+    <string name="forecast_test_starting">Starting</string>
+    <string name="forecast_test_calculating">Recalculating</string>
+    <string name="forecast_test_completed">Forecast recalculated</string>
+    <string name="forecast_test_skipped">Skipped: calculation busy or inputs not admitted</string>
+    <string name="forecast_test_timeout">Calculation time limit reached</string>
+    <string name="forecast_test_failed">Calculation failed</string>
+    <string name="forecast_test_expired">Test finished</string>
+    <string name="forecast_test_thermal">Stopped: device too hot</string>
+    <string name="forecast_test_power_save">Stopped: power saving</string>
+    <string name="forecast_test_unavailable">Test stopped. Check monitoring and background operation.</string>
+</resources>

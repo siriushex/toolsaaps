@@ -1,3 +1,25 @@
+# Minute Forecast Test - 2026-10-24
+
+- Added explicit one-hour, process-local minute forecast session. UI confirmation,
+  status/count/duration, silent notification stop, foreground lifetime and timed
+  wake lock are connected. The existing normal interval remains five minutes.
+- The new intent recomputes the existing full local model and mature error
+  calibration under the common lease. It publishes accepted results but cannot
+  send therapy commands, request remote inference/sync, activate models or emit
+  additional alerts. Temperature, power saving, expiry and cancellation stop it.
+- Normal/reactive/settings callers register priority before lease acquisition and
+  preempt a test attempt without ending its session. This prevents phase-aligned
+  test work from starving normal calculation. Expected cancellation is not a
+  failed calculation step. The reactive entry permits only its two ordinary intents.
+- Final full Android: 6877 passed, six existing skips, zero lint errors; pristine
+  SDK TLS2.121s. Includes25new tests. A stale source-wiring assertion was updated
+  to check the stronger allowlist and priority; previous failed evidence retained.
+  Source fingerprint and APK retention/size guard pass. Exact-head CI/review pending.
+- No accuracy improvement or phone CPU measurement claimed. No AAPS/server change,
+  automatic therapy activation, device installation or APK publication.
+- Prior PR40 merged as b2290910 with successful main CI40059660946.
+- Verification and manual checklist: docs/FORECAST_TEST_MODE.md.
+
 # Combo Consumer Integrity - 2026-10-24
 
 - Rechecked maineed3f39b and successful CI40053598223. PR39 exact22bef97c

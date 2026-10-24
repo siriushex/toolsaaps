@@ -1,5 +1,18 @@
 # PLAN
 
+## Minute Forecast Test (2026-10-24)
+
+- [x] Recheck clean main b2290910 after PR40; isolate the opt-in forecast-only mode.
+- [x] Implement session/foreground lifecycle, minute full calculations, settings,
+      silent stop action, monotonic expiry and thermal/power guards.
+- [x] Initial focused run: 105 tests passed, including 15 new session/policy/notification cases.
+- [x] UI interaction tests and priority/cancellation regressions. Final full
+      Android: 6877 passed, six old skips, zero lint errors; pristine SDK TLS2.121s.
+      Source fingerprints match. The existing APK retention/size guard passes.
+- [ ] Exact-head CI/review and main integration.
+- Device CPU/battery measurement and prospective accuracy comparison remain
+  separate. No device test activation or APK publication in this stage.
+
 ## Combo Consumer Integrity (2026-10-24)
 
 - [x] Recheck maineed3f39b and successful CI40053598223 after PR39.
@@ -8,7 +21,7 @@
 - [x] Focused30passed; combined native677successful reports, recipe18passed;
       full Android6852passed/six old skips, real SDK TLS2.082s, zero lint errors,
       unchanged source fingerprint and APK retention guard passed.
-- [ ] Exact-head CI/review and verified main integration.
+- [x] PR40 exact-head CI/review passed; main b2290910 CI40059660946 passed.
 - Paired encrypted transport, persistent receipts, event semantic/time validation
   and clinical admission remain open. No deployment or therapy activation.
 

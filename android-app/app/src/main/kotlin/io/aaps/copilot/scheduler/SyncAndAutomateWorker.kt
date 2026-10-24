@@ -744,6 +744,8 @@ class SyncAndAutomateWorker(
                                 container.automationRepository.runAutomationCycle() != null
                             AutomationRepository.AutomationCycleIntent.LOCAL_READ_ONLY ->
                                 container.automationRepository.runLocalReadOnlyCycle() != null
+                            AutomationRepository.AutomationCycleIntent.FORECAST_TEST ->
+                                error("worker cannot start a foreground forecast test")
                             AutomationRepository.AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE ->
                                 error("worker cannot start a sensitivity source-change cycle")
                         }

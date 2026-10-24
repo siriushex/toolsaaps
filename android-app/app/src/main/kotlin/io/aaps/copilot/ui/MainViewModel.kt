@@ -181,6 +181,9 @@ import io.aaps.copilot.service.LocalNightscoutSecretClipboard
 import io.aaps.copilot.service.LocalNightscoutUpgradeMigrationGate
 import io.aaps.copilot.service.LocalNightscoutTls
 import io.aaps.copilot.service.PowerSaveController
+import io.aaps.copilot.service.ForecastTestRuntime
+import io.aaps.copilot.service.ForecastTestStatus
+import io.aaps.copilot.service.localObservationRuntimeAllowed
 import io.aaps.copilot.service.PowerSaveRuntimeState
 import io.aaps.copilot.ui.foundation.screens.AnalyticsUiState
 import io.aaps.copilot.ui.foundation.screens.AlertsUiState
@@ -5441,6 +5444,33 @@ class MainViewModel(application: Application) :
             "Verbose UI logs enabled"
         } else {
             "Verbose UI logs disabled"
+        }
+    }
+
+    val forecastTestState = ForecastTestRuntime.session.state
+
+    fun setForecastTestEnabled(enabled: Boolean) {
+        val session = ForecastTestRuntime.session
+        if (!enabled) {
+            session.stop()
+            return
+        }
+        viewModelScope.launch {
+            val settings = container.settingsStore.settings.first()
+            if (!settings.localObservationRuntimeAllowed() || PowerSaveController.isActive(settings)) {
+                messageState.value = getApplication<Application>().getString(R.string.forecast_test_unavailable)
+                return@launch
+            }
+            val id = session.start()
+            try {
+                LocalNightscoutServiceController.start(getApplication())
+            } catch (_: Exception) {
+                session.stop(ForecastTestStatus.UNAVAILABLE, id)
+            }
+            delay(10_000L)
+            if (session.state.value.sessionId == id && session.state.value.status == ForecastTestStatus.STARTING) {
+                session.stop(ForecastTestStatus.UNAVAILABLE, id)
+            }
         }
     }
 
