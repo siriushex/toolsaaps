@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.MainActivity
@@ -21,6 +22,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +48,8 @@ class LocalNightscoutForegroundService : Service() {
     private var settingsMonitorJob: Job? = null
     private var runtimeStateMonitorJob: Job? = null
     private var minuteCycleJob: Job? = null
+    private var forecastTestJob: Job? = null
+    private var forecastTestNotificationJob: Job? = null
     private var debugVacuumJob: Job? = null
     private val lastPeriodicCycleBucket = AtomicLong(-1L)
     @Volatile
@@ -59,6 +65,11 @@ class LocalNightscoutForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP_FORECAST_TEST) {
+            ForecastTestRuntime.session.stop()
+            if (!foregroundStarted) stopSelf(startId)
+            return if (foregroundStarted) START_STICKY else START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             stopSelfSafely()
             return START_NOT_STICKY
@@ -167,6 +178,7 @@ class LocalNightscoutForegroundService : Service() {
                 }
             }
             ensureMinuteCycle(app)
+            ensureForecastTestCycle(app)
         }
         // Keep process alive for local loopback and high-frequency local broadcast ingest.
         return START_STICKY
@@ -175,6 +187,9 @@ class LocalNightscoutForegroundService : Service() {
     override fun onBind(intent: Intent?) = null
 
     override fun onDestroy() {
+        ForecastTestRuntime.session.stop(ForecastTestStatus.UNAVAILABLE)
+        forecastTestJob?.cancel()
+        forecastTestNotificationJob?.cancel()
         settingsMonitorJob?.cancel()
         settingsMonitorJob = null
         runtimeStateMonitorJob?.cancel()
@@ -344,7 +359,7 @@ class LocalNightscoutForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(port: Int, localNightscoutEnabled: Boolean): Notification {
+    internal fun buildNotification(port: Int, localNightscoutEnabled: Boolean): Notification {
         val launchIntent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val pendingIntent = PendingIntent.getActivity(
@@ -380,7 +395,21 @@ class LocalNightscoutForegroundService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
+            .apply {
+                val test = ForecastTestRuntime.session.state.value
+                if (test.active) {
+                    setSilent(true)
+                    setSubText(getString(R.string.forecast_test_notification, test.remainingMinutes))
+                    addAction(android.R.drawable.ic_menu_close_clear_cancel,
+                        getString(R.string.forecast_test_stop),
+                        PendingIntent.getService(this@LocalNightscoutForegroundService, 17583,
+                            Intent(this@LocalNightscoutForegroundService, LocalNightscoutForegroundService::class.java)
+                                .setAction(ACTION_STOP_FORECAST_TEST),
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+                }
+            }
             .build()
     }
 
@@ -400,7 +429,7 @@ class LocalNightscoutForegroundService : Service() {
     }
 
     private fun isRuntimeNeeded(localNightscoutEnabled: Boolean, localBroadcastIngestEnabled: Boolean): Boolean {
-        return localNightscoutEnabled || localBroadcastIngestEnabled
+        return localNightscoutEnabled || localBroadcastIngestEnabled || ForecastTestRuntime.session.state.value.active
     }
 
     private fun runtimeStopReason(settings: AppSettings?): LocalNightscoutRuntimeReason = when {
@@ -426,7 +455,7 @@ class LocalNightscoutForegroundService : Service() {
                         settings == null ||
                         !settings.localObservationRuntimeAllowed() ||
                         PowerSaveController.isActive(settings) ||
-                        !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)
+                        !(settings.localNightscoutEnabled || settings.localBroadcastIngestEnabled)
                     ) {
                         if (settings != null && PowerSaveController.isActive(settings)) {
                             app.container.stopRuntimeControllers(
@@ -477,6 +506,50 @@ class LocalNightscoutForegroundService : Service() {
         }
     }
 
+    private fun ensureForecastTestCycle(app: CopilotApp) {
+        val session = ForecastTestRuntime.session
+        if (forecastTestNotificationJob == null) {
+            forecastTestNotificationJob = serviceScope.launch {
+                session.state.collectLatest { test ->
+                    val settings = latestSettingsSnapshot ?: return@collectLatest
+                    if (foregroundStarted) ensureForeground(settings.localNightscoutPort, settings.localNightscoutEnabled)
+                    if (!test.active && !isRuntimeNeeded(settings.localNightscoutEnabled, settings.localBroadcastIngestEnabled)) {
+                        stopSelfSafely()
+                    }
+                }
+            }
+        }
+        if (forecastTestJob != null) return
+        forecastTestJob = serviceScope.launch {
+            session.state.map { state -> state.sessionId.takeIf { state.active } }.distinctUntilChanged().collectLatest { id ->
+                if (id == null) return@collectLatest
+                val power = getSystemService(PowerManager::class.java)
+                val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "copilot:forecast-test")
+                try {
+                    wakeLock.acquire(ForecastTestSession.SESSION_MS + 5_000L)
+                    withContext(Dispatchers.Default) {
+                        session.run(id, stopReason = {
+                            val settings = latestSettingsSnapshot
+                            when {
+                                settings == null || !settings.localObservationRuntimeAllowed() -> ForecastTestStatus.UNAVAILABLE
+                                PowerSaveController.isActive(settings) || power.isPowerSaveMode -> ForecastTestStatus.POWER_SAVE
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                                    power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE -> ForecastTestStatus.THERMAL
+                                else -> null
+                            }
+                        }) { app.container.automationRepository.runForecastTestCycle() != null }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    session.stop(ForecastTestStatus.UNAVAILABLE, id)
+                } finally {
+                    if (wakeLock.isHeld) wakeLock.release()
+                }
+            }
+        }
+    }
+
     private suspend fun runCurrentRuntimeCycle(app: CopilotApp) {
         val settings = app.container.settingsStore.settings.first()
         runAdmittedLocalRuntimeCycle(
@@ -491,6 +564,7 @@ class LocalNightscoutForegroundService : Service() {
     companion object {
         const val ACTION_START = "io.aaps.copilot.local_nightscout.START"
         const val ACTION_STOP = "io.aaps.copilot.local_nightscout.STOP"
+        private const val ACTION_STOP_FORECAST_TEST = "io.aaps.copilot.local_nightscout.STOP_FORECAST_TEST"
         const val ACTION_DEBUG_VACUUM = "io.aaps.copilot.local_nightscout.DEBUG_VACUUM"
         const val ACTION_DEBUG_DB_DIAGNOSTICS = "io.aaps.copilot.local_nightscout.DEBUG_DB_DIAGNOSTICS"
 

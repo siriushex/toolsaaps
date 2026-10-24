@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Minute Forecast Test
+
+An opt-in process-local session adds minute `FORECAST_TEST` cycles under the
+existing foreground service and shared calculation lease. Accepted forecasts
+publish through the existing atomic UI path; the intent forbids extra therapy,
+remote requests, alert publication and sensitivity activation. The normal cycle
+is unchanged. A monotonic deadline, thermal/power gates, bounded attempts and
+session-only wake lock constrain resource use. See FORECAST_TEST_MODE.md.
+
 ## Combo Consumer Integrity
 
 A bounded in-memory journal assembler/decoder checks exact retained bytes before

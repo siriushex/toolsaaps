@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Forecast Test Verification
+
+Run ForecastTest session/arbiter/policy/notification/UI tests, the reactive lease
+wiring regression, full Android tests/lint/compile/build, pristine SDK TLS and
+APK retention/size checks. Only source, synthetic tests and documentation belong
+in the PR. Do not activate the high-compute session on a phone as a build check.
+Rollback is stopping the explicit session and reverting this source stage; no
+schema, credential, AAPS or server migration is involved. Device thermal/CPU and
+prospective accuracy validation remain separate from JVM/CI evidence.
+
 ## Combo Consumer Verification
 
 Run AapsV3ComboJournalReadTest and existing Combo evidence/owner tests, then full
