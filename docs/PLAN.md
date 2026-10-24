@@ -1,5 +1,18 @@
 # PLAN
 
+## Release Candidate 0.1.16 (2026-10-24)
+
+- [x] PR49 exact9f6798d3 passed all six CI checks; independent review is absent.
+- [x] Recheck public0.1.15/code16, current signer contract and static host health.
+- [x] Prepare forward0.1.16/code17 with retained typed Combo events, private
+      storage and enforced receipt boundary. Preserve current clinical guards.
+- [x] Full6940passed/six existing skips; lint0errors; actual SDK TLS3.090s;
+      updater14passed; fresh signed APK39821420bytes; retention/size checks passed.
+- [ ] Exact release CI and explicit main integration after a fresh ancestry check.
+- [ ] Atomic static publication with rollback and independent public verification.
+- Raw journal transport, pump binding, clock epochs and physical basal continuity
+  are still incomplete. No meal-time permission, AAPS update or device activation.
+
 ## Combo Receipt Boundary (2026-10-24)
 
 - [x] Recheck PR48 exactce6c0b3c: all six CI checks passed; independent review absent.
@@ -7,7 +20,8 @@
 - [x] Enforce repository-owned transactions, including inherited coroutine context.
 - [x] Focused85passed; full6940passed/six old skips, zero lint errors, actual
       SDK TLS4.704s; frozen source and APK retention/size guard passed.
-- [ ] Publish verified source and inspect exact-head CI/review.
+- [x] PR49 exact9f6798d3: source published and all six CI checks passed.
+- [ ] Independent review; no result published at release preparation.
 - Authenticated raw transfer still needs an explicit read-only extension to the
   existing paired owner; upstream client-control has no raw journal request yet.
   Do not add another counter owner, generic signer, second pump reader or raw

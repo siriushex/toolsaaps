@@ -1,3 +1,22 @@
+# Release Candidate 0.1.16 - 2026-10-24
+
+- Prepare versionCode17/versionName0.1.16 from verified PR49, retaining package,
+  signer, schema, runtime defaults and all meal-time admission gates.
+- The cumulative release includes immutable typed Combo facts, bounded private
+  retention and the nested-transaction receipt repair. Existing unlimited
+  minute forecast testing and thermal/power/lifecycle guards remain unchanged.
+- PR49 exact9f6798d3 passed all six CI checks. No independent review is published;
+  this is not represented as approval. Current public0.1.15/code16 and static
+  host manifest, capacity and service states were verified before preparation.
+- Safety audit confirms recorded insulin, signed IOB, valid event CRCs, history
+  block ACKs and durable bytes do not prove physical delivery or a safe meal time.
+  Missing/late basal and missed-food paths retain their existing refusal tests.
+- Candidate verification passed: 6940 tests, six existing skips, zero lint errors,
+  actual stock SDK TLS3.090s, 14 updater tests, frozen source fingerprints and
+  APK class-retention/size guard. Fresh APK39821420bytes, signer unchanged.
+- Exact release CI, explicit main integration and static publication are pending.
+  No AAPS, therapy, server AI/model/login or device changes.
+
 # Combo Receipt Boundary - 2026-10-24
 
 - Audit before paired transfer found that the documented transaction ownership
