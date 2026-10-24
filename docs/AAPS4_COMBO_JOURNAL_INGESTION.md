@@ -43,10 +43,22 @@ from parsed events. Block size, error bytes and continuation/gap flags are check
 RETURNED and later BLOCK phases must agree with the native reader's existing
 continuation/remaining-event termination rule, without claiming initial coverage.
 
-Raw event bytes are retained unchanged. This decoder does not yet decode/validate
-each event's own CRC, type, local date/time or clock epoch. It never maps reader
-timestamps to delivery times. Neither CONFIRMED nor END proves physical delivery,
-initial FIFO coverage, delivery-start time or continuous basal insulin.
+Raw event bytes are retained unchanged. Before accepting a BLOCK, each 18-byte
+event must pass both little-endian CRC-16/MCRF4XX checks: bytes 0..9 for timestamp,
+detail and type; bytes 12..15 for the event counter. The seed is 0xffff, reflected
+polynomial 0x8408, with no final xor. A valid outer frame CRC cannot mask event
+damage. Calendar validation includes the packed local timestamp for every type,
+including unknown types, and the replacement local date/time for type 24.
+
+Known types match the pinned RC1 parser: 4..11, 14..19, 24. Their count and the
+separate unknown count must match the reader's exact per-block increments.
+Unknown types require the unmapped flag, and type 24 requires the clock-change
+flag. Unknown detail bytes are preserved without inventing their meaning.
+No event counter ordering, deduplication, clock epoch or delivery semantics are
+inferred. Valid backwards local dates stay unchanged; they are not UTC instants.
+The reader clock is never substituted for delivery time. Neither CONFIRMED nor
+END proves physical delivery, initial FIFO coverage, delivery-start time or
+continuous basal insulin.
 
 A torn tail preserves the valid prefix, exact original scoped bytes and all
 previous hazards, but its status is invalid, never partial success. An interrupted
@@ -63,10 +75,16 @@ for the same synthetic gap/backwards-clock read. No phone data is used.
 Tests cover every truncation offset, CRC/JSON/UTF-8 corruption, mixed ownership,
 counter/clock/phase errors, unknown-event counts, unconfirmed/failed reads, limits,
 mutable output attempts, chunk retries, substitution and permanently failed assembly.
+Event tests additionally check every single-bit mutation of known/unknown events
+with a freshly valid outer CRC, malformed dates with correct event checksums,
+all calendar days in the packed 2000..2063 range, time-field boundaries, clock
+changes, wrong type counts and rejection of a whole block with a damaged last
+event. An unchanged upstream RC1 PumpIOTest event and its CRCTest checksum anchor
+the independent synthetic CRC reference. No device data is used.
 
 Before production use, connect paired encrypted request/response to the existing
 durable counter owner, validate recipient/revocation and current snapshot, add
 private atomic persistence/receipts and bounded inventory retention. No second
-consuming pump reader is allowed. Event semantic validation, independent binding,
+consuming pump reader is allowed. Delivery semantic validation, independent binding,
 historical clock epochs, complete delivery and prospective meal-time safety remain
 separate gates. No therapy permission follows from these source-level tests.

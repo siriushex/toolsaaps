@@ -28,6 +28,12 @@ internal enum class StartedWorkerOutcome {
     SKIPPED_MINUTE_LOOP
 }
 
+internal fun serviceOwnsOrdinaryCycles(
+    minuteLoopActive: Boolean,
+    localNightscoutEnabled: Boolean,
+    localBroadcastIngestEnabled: Boolean
+): Boolean = minuteLoopActive && (localNightscoutEnabled || localBroadcastIngestEnabled)
+
 internal fun resolveStartedWorkerPolicy(
     therapyActionsArmed: Boolean,
     powerSaveActive: Boolean,
@@ -711,7 +717,11 @@ class SyncAndAutomateWorker(
             therapyActionsArmed = settings.therapyActionsArmed,
             localObservationEnabled = settings.localObservationEnabled,
             powerSaveActive = powerSaveActive,
-            minuteLoopActive = LocalNightscoutForegroundService.isMinuteLoopActive()
+            minuteLoopActive = serviceOwnsOrdinaryCycles(
+                minuteLoopActive = LocalNightscoutForegroundService.isMinuteLoopActive(),
+                localNightscoutEnabled = settings.localNightscoutEnabled,
+                localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled
+            )
         )
         if (executionPolicy.skipForMinuteLoop) {
             container.auditLogger.infoThrottled(
@@ -744,6 +754,8 @@ class SyncAndAutomateWorker(
                                 container.automationRepository.runAutomationCycle() != null
                             AutomationRepository.AutomationCycleIntent.LOCAL_READ_ONLY ->
                                 container.automationRepository.runLocalReadOnlyCycle() != null
+                            AutomationRepository.AutomationCycleIntent.FORECAST_TEST ->
+                                error("worker cannot start a foreground forecast test")
                             AutomationRepository.AutomationCycleIntent.SENSITIVITY_SOURCE_CHANGE ->
                                 error("worker cannot start a sensitivity source-change cycle")
                         }

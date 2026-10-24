@@ -8,6 +8,44 @@ import org.junit.Test
 class SyncAndAutomateWorkerPolicyTest {
 
     @Test
+    fun testOnlyForegroundServiceDoesNotSuppressOrdinaryRemoteWorker() = runTest {
+        for (armed in listOf(false, true)) {
+            val intents = mutableListOf<AutomationRepository.AutomationCycleIntent>()
+            val policy = resolveStartedWorkerPolicy(
+                therapyActionsArmed = armed,
+                localObservationEnabled = true,
+                powerSaveActive = false,
+                minuteLoopActive = serviceOwnsOrdinaryCycles(true, false, false)
+            )
+            val outcome = runStartedWorkerCycle(
+                policy = policy,
+                runAutomationCycle = { intents += it; true },
+                cancelFutureRuntimeWork = { error("ordinary work must remain scheduled") },
+                schedulePowerSaveResume = { error("not in power save") },
+                stopRuntimeControllers = { error("test-only owner must not stop observation") }
+            )
+            assertThat(outcome).isEqualTo(StartedWorkerOutcome.EXECUTED)
+            assertThat(intents).containsExactly(if (armed) {
+                AutomationRepository.AutomationCycleIntent.NORMAL
+            } else {
+                AutomationRepository.AutomationCycleIntent.LOCAL_READ_ONLY
+            })
+        }
+    }
+
+    @Test
+    fun serviceOwnershipRequiresBothRunningLoopAndOrdinaryLocalSource() {
+        for (running in listOf(false, true)) {
+            for (nightscout in listOf(false, true)) {
+                for (broadcast in listOf(false, true)) {
+                    assertThat(serviceOwnsOrdinaryCycles(running, nightscout, broadcast))
+                        .isEqualTo(running && (nightscout || broadcast))
+                }
+            }
+        }
+    }
+
+    @Test
     fun completedWorkerDoesNotClaimAcceptanceForRejectedCycle() = runTest {
         val policy = resolveStartedWorkerPolicy(
             therapyActionsArmed = true, powerSaveActive = false, minuteLoopActive = false
