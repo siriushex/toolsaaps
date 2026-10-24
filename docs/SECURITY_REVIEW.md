@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Combo Journal Readout (2026-10-24)
+
+- No new network/Android endpoint, permission, worker, credential or pump command.
+  Raw readout stays internal; ordinary status remains counts only.
+- Binding, flags and digest use the same bytes, not separate mutable reads.
+  Other-pairing IDs/bytes are excluded; unscoped damage is a distinct count.
+- Strict bounds, no-follow file opens, immutable copied output and current-handle
+  identity reject malformed/stale requests without latching native writer failure.
+- Checksums are not authenticity. The app-private producer is trusted; future
+  transport requires independent authorization and destination binding. No raw
+  files are approved for public diagnostics, routine uploads or clinical decisions.
+
 ## Retained Combo Evidence (2026-10-24)
 
 - Reuse bounded private Room status and the existing runtime owner. No endpoint,

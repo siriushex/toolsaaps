@@ -1,5 +1,17 @@
 # PLAN
 
+## Combo Journal Readout (2026-10-24)
+
+- [x] Confirm main d3c270e2 and successful CI40047759522 after PR38.
+- [x] Reproduce missing retained readout before implementation.
+- [x] Add bounded private snapshots/chunks with exact bytes and explicit damage.
+- [x] Native Combo 180 passed; combined reports 677 successful, recipe 18 passed,
+      pristine SDK and full unchanged Copilot quality tasks passed up-to-date;
+      frozen-source and APK class-retention guards passed.
+- [ ] Exact-head CI/review and verified main integration.
+- Paired transfer/ingestion, independent binding, complete physical delivery and
+  prospective meal-time safety remain open. No deployment or therapy activation.
+
 ## Retained Combo Evidence (2026-10-24)
 
 - [x] Recheck main63b637eb and successful CI40039451247.
@@ -7,7 +19,8 @@
 - [x] Verify malformed, delayed, in-progress and persistent adverse observations.
 - [x] Focused45passed; final full6835passed/six existing skips, zero lint errors,
       actual pristine SDK TLS2.080s and frozen-source/APK retention guards passed.
-- [ ] Exact-head CI/review and verified main integration.
+- [x] Exact9cc3a140 review and CI40044043320/40044210061 passed; PR38 merged
+      atd3c270e2 with the tested tree and successful mainCI40047759522.
 - Raw journal ingestion, pump binding, physical delivery and prospective meal-time
   safety remain separate gates; no therapy activation or deployment in this stage.
 

@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Combo Journal Readout
+
+The private native journal exposes an internal bounded snapshot/chunk reader.
+Same-byte recovery and SHA-256 preserve raw clock/payload evidence and scoped
+damage; current handles expire on write, replacement snapshot or close. This is
+the source-side readout contract only, not authenticated transfer or ingestion.
+No caller, endpoint, uploader or clinical permission is connected. See
+AAPS4_COMBO_HISTORY_READOUT.md for bounds, lifecycle and remaining gates.
+
 ## Retained Combo Evidence
 
 The existing clinical owner also projects retained Combo reader/journal status

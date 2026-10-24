@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Combo Readout Verification
+
+The existing native compatibility recipe runs synthetic readout tests alongside
+writer, parser and plugin regressions. Use only temporary synthetic journals;
+never copy actual raw history into source, CI or logs. The feature has no runtime
+caller or automatic upload. Readout rollback removes the source API only; preserve
+private journal files. Device latency, paired transport and clinical admission
+remain independent. See AAPS4_COMBO_HISTORY_READOUT.md.
+
 ## Retained Combo Evidence Verification
 
 Run the new typed-evidence, clinical-source and target-owner tests before the
