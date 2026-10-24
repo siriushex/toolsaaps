@@ -1,5 +1,15 @@
 # PLAN
 
+## Combo Private Retention (2026-10-24)
+
+- [x] Inspect existing Room patterns and isolate raw journals from clinical/AI exports.
+- [x] Add scoped immutable manifests, bounded chunks, transactional replay and validation.
+- [x] Focused80passed including20native SQLite tests; full6935passed/six old skips,
+      zero lint errors, actual SDK TLS1.929s, frozen source and APK retention guard.
+- [ ] Review/publish explicit source paths and verify exact-head CI/review.
+- No production caller, paired transport, AAPS change, main merge, device/server
+  deployment, clinical timer admission or public APK publication in this stage.
+
 ## Combo Typed Event Facts (2026-10-24)
 
 - [x] Compare protocol fields against pinned RC1, preserve request/completion semantics.
@@ -7,7 +17,7 @@
 - [x] Keep per-block history ACK distinct from bolus phase and delivery proof.
 - [x] Focused 60 passed; full Android 6915 passed/six old skips, zero lint errors,
       actual SDK TLS 1.940s, frozen Kotlin hashes and APK retention/size guard.
-- [ ] Review source diff, publish isolated feature branch and inspect exact-head CI.
+- [x] PR47 exact e7764184: all six CI checks passed; automated review without findings.
 - No paired transport, persistence, UTC epochs, basal coverage, event pairing,
   live timer activation, AAPS changes, main merge or APK release in this stage.
 

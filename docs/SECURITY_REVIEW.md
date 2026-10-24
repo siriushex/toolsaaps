@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Private Combo Retention (2026-10-24)
+
+- Isolated no-backup Room database; no endpoint, runtime caller, AI export,
+  credential or therapy write. Caller metadata is not pairing authentication.
+- Parameterized scoped keys, bounded chunks, whole-byte hashes and strict source
+  decoding reject malformed/unscoped input. Same-ID changes cannot overwrite evidence.
+- Full transaction rollback, revalidation on reopen, global logical capacity and
+  refusal of partial inventories preserve diagnostic failures instead of repairing them.
+- Pre-existing database/sidecar symlinks are refused; the app-private directory
+  and UID are trusted. No extra at-rest encryption or compromised-UID defence is claimed.
+- MUST before runtime: authenticated destination/revocation, dedicated transaction
+  ownership, device storage/latency validation and source receipt ordering. Stored
+  bytes never establish physical delivery or clinical meal-time permission.
+
 ## Combo Consumer Integrity (2026-10-24)
 
 - No new network ingress, generic signer, raw status upload, credential or therapy

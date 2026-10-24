@@ -1,3 +1,23 @@
+# Combo Private Retention - 2026-10-24
+
+- Add an isolated no-backup Room database for exact scoped Combo journal bytes;
+  no clinical schema migration, current JSON/AI export or production owner change.
+- Canonical scoped identities, SHA, the existing strict decoder and immutable
+  manifests/chunks preserve diagnostic damage without source authentication claims.
+- Manifest and bounded chunks share one transaction; verify readback before
+  receipt, exact replay after reopen, global logical capacity and scoped inventory.
+  Changed identities/bytes cannot replace earlier evidence; no automatic pruning.
+- Native SQLite tests cover reopen, abort/readback corruption, conflicting races,
+  modified/missing bytes, capacity, scope, symlinks and unsupported schema versions.
+- Initial77-test run found Room's journal choice alone left the test SQLite mode
+  at memory. Explicit TRUNCATE and FULL configuration/verification fixed that;
+  the77-test rerun passed. Final focused suite:80passed, including20storage tests.
+- Full Android quality passed in6m01s:6935passed/six old skips, no failures/errors,
+  zero lint errors; actual pristine-SDK TLS1.929s. Frozen Kotlin hashes and APK
+  retention/size guard passed at40,729,440bytes. Exact-head CI/review pending.
+- PR47 exact e7764184 previously passed all six CI checks and automated review.
+  No AAPS, phone, server, main, therapy, live timer or APK changes in this stage.
+
 # Combo Typed Event Facts - 2026-10-24
 
 - Continue from the verified0.1.15 source, without changing the published APK.

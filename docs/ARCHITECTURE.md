@@ -12,6 +12,12 @@ two-minute session-only wake lease constrain resource use. See FORECAST_TEST_MOD
 
 ## Combo Consumer Integrity
 
+The isolated private Room retention stage persists scoped exact journal bytes in
+`noBackupFilesDir`, separate from clinical/AI export databases. Manifest and bounded
+chunks share a FULL-synchronous transaction; replay, reopen and inventory recheck
+integrity without repairing damage or granting delivery authority. There is no
+runtime caller or authenticated transfer yet. See AAPS4_COMBO_PRIVATE_RETENTION.md.
+
 A bounded in-memory journal assembler/decoder checks exact retained bytes before
 later ingestion. It shares strict reader-observation parsing with existing status
 diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The

@@ -17,6 +17,15 @@
 
 ## Combo Consumer Boundary
 
+- Retained raw journals live in a separate private no-backup database, never the
+  ordinary settings/status or clinical/AI export tables. No runtime receiver is implied.
+- One retain transaction owns the manifest and every bounded chunk. Exact replay
+  verifies stored bytes; changed content cannot overwrite the same scoped identity.
+- Reopen/read/inventory revalidate bytes; a corrupted scoped inventory cannot
+  return partial success. Logical capacity applies across owners without pruning.
+- A retained receipt is only a local storage result. It cannot authenticate a
+  caller, acknowledge the pump, infer clock epochs or admit a meal-time recommendation.
+
 - Whole-read SHA and per-frame CRC/schema/sequence checks precede interpretation.
   A caller-supplied digest or pairing hash is not source authentication.
 - Missing chunks, changed duplicates, invalid EOF and exceeded bounds cannot

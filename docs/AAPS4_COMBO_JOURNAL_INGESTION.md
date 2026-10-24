@@ -139,3 +139,7 @@ private atomic persistence/receipts and bounded inventory retention. No second
 consuming pump reader is allowed. Delivery semantic validation, independent binding,
 historical clock epochs, complete delivery and prospective meal-time safety remain
 separate gates. No therapy permission follows from these source-level tests.
+
+The private persistence primitive is now implemented separately in
+AAPS4_COMBO_PRIVATE_RETENTION.md. It is not connected to a paired receiver;
+successful local retention does not close the transport or clinical admission gates.
