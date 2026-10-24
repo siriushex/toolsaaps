@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Combo Consumer Integrity
+
+A bounded in-memory journal assembler/decoder checks exact retained bytes before
+later ingestion. It shares strict reader-observation parsing with existing status
+diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The
+native writer and Copilot test pin the same synthetic digest. No production caller,
+transport permission, durable receipt or semantic delivery timeline is connected.
+See AAPS4_COMBO_JOURNAL_INGESTION.md for limits and remaining admission gates.
+
 ## Combo Journal Readout
 
 The private native journal exposes an internal bounded snapshot/chunk reader.

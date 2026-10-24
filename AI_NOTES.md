@@ -1,3 +1,26 @@
+# Combo Consumer Integrity - 2026-10-24
+
+- Rechecked maineed3f39b and successful CI40053598223. PR39 exact22bef97c
+  review and both CI runs passed; its main merge retained the tested tree.
+- Reproduced missing consumer boundary, then mixed-owner raw export in the new
+  decoder. Added bounded idempotent assembly, strict frames/observations/counters,
+  preserved damaged prefixes, backward clocks and unconfirmed blocks. Mixed owners
+  are rejected without exposing frames/raw bytes. Existing status diagnostics use
+  the same observation parser; their validation rules remain unchanged.
+- Actual native writer and independent Copilot construction agree on the pinned
+  synthetic journal SHA-256. Native production source is unchanged; only its
+  regression test gains the golden identity assertion.
+- Final focused tests passed30cases (17new), including every truncated prefix,
+  mixed ownership and contradictory native continuation/termination. Combined
+  native recipe passed in28s with677successful reports (some unchanged suites
+  up-to-date), recipe isolation18passed and pristine SDK preparation9s. Full
+  Copilot test/lint/compile/assemble passed in5m19s:6852passed/six existing skips,
+  actual stock SDK TLS2.082s, zero lint errors and unchanged source fingerprint.
+  APK guard passed:40,670,993bytes, all7192application classes retained.
+- Exact-head CI/review and integration remain pending. No running receiver,
+  durable ingestion, endpoint, new pump reader, therapy permission, deployment or
+  APK publication. Event semantic/epoch validation and meal-time safety stay open.
+
 # Combo Journal Readout - 2026-10-24
 
 - Rechecked main d3c270e2 and CI40047759522 successful. PR38 exact9cc3a140

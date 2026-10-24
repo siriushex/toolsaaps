@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Combo Consumer Integrity (2026-10-24)
+
+- No new network ingress, generic signer, raw status upload, credential or therapy
+  authority. An expected hash/binding is explicitly untrusted caller metadata.
+- Bound byte copies, chunks, frames and strict UTF-8/JSON reject malformed input.
+  Incomplete or altered transfers latch refusal; no partial completed result.
+- Mixed-owner files expose neither decoded frames nor raw bytes. Damaged tails
+  with a consistent validated origin remain diagnostic, not clinical evidence.
+- Observation rules are shared with existing status validation. Clock reversal,
+  flags and unconfirmed blocks cannot disappear through clean final metadata.
+- MUST before runtime connection: authenticated destination/revocation, private
+  durable ingestion/receipts, event CRC/semantics and independent clock/binding
+  checks. Source-level integrity alone cannot admit meal-timing recommendations.
+
 ## Combo Journal Readout (2026-10-24)
 
 - No new network/Android endpoint, permission, worker, credential or pump command.
