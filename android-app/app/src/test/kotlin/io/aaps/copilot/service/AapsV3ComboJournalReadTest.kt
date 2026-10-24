@@ -121,6 +121,171 @@ class AapsV3ComboJournalReadTest {
         return result
     }
 
+    @Test fun quickAndStandardRecordsKeepRequestedSeparateFromInfused() {
+        val types = listOf(4, 5, 6, 7, 14, 15)
+        val result = read(eventRecords(types.mapIndexed { i, type -> event(type, counter = i.toLong(),
+            detail = byteArrayOf(29, 0, 0x34, 0x12)) }))
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        for ((index, observation) in result.events.withIndex()) {
+            val event = observation.event
+            val bolus = event.detail as ComboEventDetail.Bolus
+            assertEquals(types[index], event.typeId)
+            assertEquals(index.toLong(), event.counter)
+            assertEquals(if (index < 2) ComboRecordedBolusKind.QUICK else ComboRecordedBolusKind.STANDARD, bolus.kind)
+            assertEquals(if (index % 2 == 0) ComboRecordedBolusPhase.REQUESTED else ComboRecordedBolusPhase.INFUSED, bolus.phase)
+            assertEquals(29, bolus.recordedAmountTenths)
+            assertEquals(when (index) { 0, 1 -> null; 2, 3 -> true; else -> false }, bolus.manual)
+            assertNull(bolus.recordedImmediateTenths); assertNull(bolus.recordedDurationMinutes)
+            assertEquals(1, observation.frameIndex); assertEquals(index, observation.eventIndex)
+        }
+        assertFalse(result.deliveryCompletenessVerified); assertFalse(result.pumpBindingVerified)
+    }
+
+    @Test fun extendedRecordsKeepBothAmountAndDurationWithStartEndAndOrigin() {
+        val types = listOf(8, 9, 16, 17)
+        val result = read(eventRecords(types.mapIndexed { i, type -> event(type, counter = i.toLong(),
+            detail = byteArrayOf(0xff.toByte(), 0x80.toByte(), 0x34, 0x12)) }))
+        for ((index, observation) in result.events.withIndex()) {
+            val bolus = observation.event.detail as ComboEventDetail.Bolus
+            assertEquals(ComboRecordedBolusKind.EXTENDED, bolus.kind)
+            assertEquals(if (index % 2 == 0) ComboRecordedBolusPhase.STARTED else ComboRecordedBolusPhase.ENDED, bolus.phase)
+            assertEquals(33023, bolus.recordedAmountTenths)
+            assertEquals(4660, bolus.recordedDurationMinutes)
+            assertEquals(index < 2, bolus.manual); assertNull(bolus.recordedImmediateTenths)
+        }
+        assertEquals(4, result.events.size)
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun multiwavePackedFieldsArePreservedWithoutClampingOrCombiningRecords() {
+        val types = listOf(10, 11, 18, 19)
+        val detail = byteArrayOf(0xab.toByte(), 0xcd.toByte(), 0xef.toByte(), 0x98.toByte())
+        val result = read(eventRecords(types.mapIndexed { i, type -> event(type, counter = i.toLong(), detail = detail) }))
+        for ((index, observation) in result.events.withIndex()) {
+            val bolus = observation.event.detail as ComboEventDetail.Bolus
+            assertEquals(ComboRecordedBolusKind.MULTIWAVE, bolus.kind)
+            assertEquals(if (index % 2 == 0) ComboRecordedBolusPhase.STARTED else ComboRecordedBolusPhase.ENDED, bolus.phase)
+            assertEquals(427, bolus.recordedAmountTenths)
+            assertEquals(1011, bolus.recordedImmediateTenths)
+            assertEquals(2446, bolus.recordedDurationMinutes)
+            assertEquals(index < 2, bolus.manual)
+        }
+        assertEquals(4, result.events.size)
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun everyMultiwaveDetailBitMapsToItsOwnFieldWithoutSignedByteExtension() {
+        for (bit in 0 until 32) {
+            val detail = ByteArray(4).also { it[bit / 8] = (1 shl (bit % 8)).toByte() }
+            val bolus = ComboJournalEvent.decode(event(18, detail = detail)).detail as ComboEventDetail.Bolus
+            assertEquals(if (bit < 10) 1 shl bit else 0, bolus.recordedAmountTenths)
+            assertEquals(if (bit in 10..19) 1 shl (bit - 10) else 0, bolus.recordedImmediateTenths)
+            assertEquals(if (bit >= 20) 1 shl (bit - 20) else 0, bolus.recordedDurationMinutes)
+        }
+        val max = ComboJournalEvent.decode(event(19, detail = ByteArray(4) { -1 })).detail as ComboEventDetail.Bolus
+        assertEquals(1023, max.recordedAmountTenths)
+        assertEquals(1023, max.recordedImmediateTenths)
+        assertEquals(4095, max.recordedDurationMinutes)
+    }
+
+    @Test fun ordinaryAmountAndDurationFieldsRemainUnsignedIncludingZeroAndMaximum() {
+        for (value in listOf(0, 1, 255, 256, 32767, 32768, 65535)) {
+            val detail = byteArrayOf(value.toByte(), (value ushr 8).toByte(), value.toByte(), (value ushr 8).toByte())
+            for (type in listOf(4, 5, 6, 7, 8, 9, 14, 15, 16, 17)) {
+                val bolus = ComboJournalEvent.decode(event(type, detail = detail)).detail as ComboEventDetail.Bolus
+                assertEquals(value, bolus.recordedAmountTenths)
+                assertEquals(if (type in listOf(8, 9, 16, 17)) value else null, bolus.recordedDurationMinutes)
+            }
+        }
+    }
+
+    @Test fun localClockChangeKeepsOldAndReplacementClocksWithoutUtcInference() {
+        val old = packedTime(2026, 10, 24, 14, 11, 15)
+        val replacement = packedTime(2026, 10, 24, 13, 5, 10)
+        val result = read(eventRecords(listOf(event(24, time = old, detail = replacement)), clock = true))
+        val event = result.events.single().event
+        assertEquals(LocalDateTime.of(2026, 10, 24, 14, 11, 15), event.localTime)
+        assertEquals(LocalDateTime.of(2026, 10, 24, 13, 5, 10),
+            (event.detail as ComboEventDetail.ClockChange).replacementLocalTime)
+        assertTrue(AapsV3ComboHistoryHazard.CLOCK_CHANGE in result.hazards)
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun opaqueTypesNeverBecomeInsulinAndKeepUnsignedCounterAndOriginalBytes() {
+        for (type in listOf(0, 12, 25, 0x1234, 0xffff)) {
+            val raw = event(type, counter = 0xffffffffL, detail = ByteArray(4) { -1 })
+            val result = read(eventRecords(listOf(raw), parsed = 0, unmapped = 1))
+            val projected = result.events.single().event
+            assertSame(ComboEventDetail.Unknown, projected.detail)
+            assertEquals(type, projected.typeId); assertEquals(0xffffffffL, projected.counter)
+            assertArrayEquals(raw, projected.rawBytes())
+        }
+    }
+
+    @Test fun historyAcknowledgementIsPerBlockAndNotInfusionOrClosedReadProof() {
+        val records = eventRecords(listOf(event(type = 14)))
+        val unconfirmed = read(records.take(2))
+        assertFalse(unconfirmed.events.single().historyBlockAcknowledged)
+        val confirmed = read(records.take(3))
+        assertTrue(confirmed.events.single().historyBlockAcknowledged)
+        assertFalse(confirmed.closed); assertFalse(confirmed.deliveryCompletenessVerified)
+        assertEquals(ComboRecordedBolusPhase.REQUESTED,
+            (confirmed.events.single().event.detail as ComboEventDetail.Bolus).phase)
+        val two = twoEventBlocks(listOf(event(counter = 1), event(counter = 2)), listOf(event(counter = 3)))
+        val interrupted = read(two.take(4))
+        assertEquals(listOf(true, true, false), interrupted.events.map { it.historyBlockAcknowledged })
+        assertEquals(listOf(1, 1, 3), interrupted.events.map { it.frameIndex })
+        assertEquals(listOf(0, 1, 0), interrupted.events.map { it.eventIndex })
+        assertFalse(interrupted.deliveryCompletenessVerified)
+    }
+
+    @Test fun corruptConfirmationOrTailCannotManufactureAnAcknowledgementOrErasePrefix() {
+        val records = eventRecords(listOf(event()))
+        val noAck = AapsV3ComboJournalRead.read(encode(records.take(2)) + byteArrayOf(0, 1), binding)
+        assertFalse(noAck.events.single().historyBlockAcknowledged)
+        val priorAck = AapsV3ComboJournalRead.read(encode(records.take(3)) + byteArrayOf(0, 1), binding)
+        assertTrue(priorAck.events.single().historyBlockAcknowledged)
+        assertEquals(AapsV3ComboHistoryStatus.INVALID, priorAck.status)
+        assertFalse(priorAck.closed); assertFalse(priorAck.deliveryCompletenessVerified)
+        val mixed = read(records.take(2) + record("CONFIRMED", owner = "b".repeat(64)))
+        assertTrue(mixed.events.isEmpty())
+        assertFalse(mixed.prefixMatchesExpectedBinding)
+    }
+
+    @Test fun damagedLastEventPublishesNoPartialEventProjection() {
+        val bad = event(counter = 2).also { it[16] = (it[16].toInt() xor 1).toByte() }
+        val result = read(eventRecords(listOf(event(counter = 1), bad)))
+        assertEquals(ComboJournalIssue.EVENT, result.issue)
+        assertTrue(result.events.isEmpty())
+        assertTrue(result.frames.all { it.events.isEmpty() })
+    }
+
+    @Test fun projectionsAndOriginalBytesAreImmutableAndRedacted() {
+        val raw = event()
+        val result = read(eventRecords(listOf(raw)))
+        val observation = result.events.single()
+        val projected = observation.event
+        projected.rawBytes().fill(0); result.frames[1].payloadBytes().fill(0)
+        assertArrayEquals(raw, projected.rawBytes())
+        assertThrows(UnsupportedOperationException::class.java) { (result.events as MutableList).clear() }
+        assertThrows(UnsupportedOperationException::class.java) { (result.frames[1].events as MutableList).clear() }
+        assertEquals("ComboJournalEvent(redacted)", projected.toString())
+        assertEquals("ComboJournalEventObservation(redacted)", observation.toString())
+        assertEquals("ComboEventDetail(redacted)", projected.detail.toString())
+        val decoded = ComboJournalEvent.decode(raw)
+        raw.fill(0)
+        assertArrayEquals(event(), decoded.rawBytes())
+    }
+
+    @Test fun standaloneEventDecoderRejectsWrongLengthAndChecksumBeforeDetails() {
+        for (size in listOf(0, 17, 19)) assertThrows(IllegalArgumentException::class.java) {
+            ComboJournalEvent.decode(ByteArray(size))
+        }
+        for (index in listOf(4, 10, 12, 16)) assertThrows(IllegalArgumentException::class.java) {
+            ComboJournalEvent.decode(event().also { it[index] = (it[index].toInt() xor 1).toByte() })
+        }
+    }
+
     @Test fun closedReadIsUnverifiedAndImmutable() {
         val raw = encode(records())
         val result = AapsV3ComboJournalRead.read(raw, binding)
@@ -238,6 +403,14 @@ class AapsV3ComboJournalReadTest {
             detail = byteArrayOf(29, 0, 0, 0), counter = 80655))
         val result = read(eventRecords(listOf(native)))
         assertEquals(ComboJournalIssue.NONE, result.issue)
+        val projected = result.events.single().event
+        assertEquals(LocalDateTime.of(2021, 2, 9, 16, 57, 20), projected.localTime)
+        assertEquals(80655L, projected.counter)
+        val bolus = projected.detail as ComboEventDetail.Bolus
+        assertEquals(ComboRecordedBolusKind.STANDARD, bolus.kind)
+        assertEquals(ComboRecordedBolusPhase.INFUSED, bolus.phase)
+        assertEquals(29, bolus.recordedAmountTenths)
+        assertEquals(true, bolus.manual)
         assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, result.status)
         assertFalse(result.pumpBindingVerified); assertFalse(result.deliveryCompletenessVerified)
     }

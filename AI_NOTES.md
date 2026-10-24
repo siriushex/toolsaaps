@@ -1,3 +1,28 @@
+# Combo Typed Event Facts - 2026-10-24
+
+- Continue from the verified0.1.15 source, without changing the published APK.
+- Preserve quick/standard/extended/multiwave protocol phases, unsigned raw
+  amounts/duration, native manual flags and local clocks as immutable source facts.
+- One CRC/calendar parser now feeds both typed projection and event-order audit.
+  Retain every validated event; no pairing, dose summation, clamping or UTC inference.
+- Expose validated frame/event positions and history-block ACK separately from
+  bolus phase. Corruption cannot publish a partial block or fabricate ACK; mixed
+  bindings return no event projection. String output stays redacted.
+- Focused event/evidence tests: 60 passed. Full Android: 6915 passed, six existing
+  skips, no lint errors; real pristine-SDK TLS exchange passed (1.940s).
+- Compile/assemble passed in the full 6m19s quality run. Frozen Kotlin hashes and
+  APK retention/size guard passed (40,729,443 bytes). Exact-head CI/review pending.
+- No AAPS, phone, server, transport, clinical authority or public release changes.
+
+# Release Publication 0.1.15 - 2026-10-24
+
+- PR45 and release PR46 exactfbf04a90 passed all six CI checks and independent
+  review without findings. Published0.1.15/code16 to the existing static updater.
+- Independent public download confirmed signer, metadata, SHA256, size, MIME,
+  Range at75%, hidden-path rejection and rendered page. Old APK/pointer preserved;
+  API/text/image/nginx PIDs and running states unchanged. No phone installation.
+- Meal-time recommendation remains disabled pending complete-delivery evidence.
+
 # Release Candidate 0.1.15 - 2026-10-24
 
 - Prepare forward version0.1.15/code16 from PR45, preserving package, signer,

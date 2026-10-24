@@ -81,6 +81,35 @@ A missing valid origin exposes no bytes. A mixed-owner file is rejected as a
 whole, with no decoded frames or raw bytes returned under the first owner.
 Results and payload accessors are immutable/copying and string output is redacted.
 
+## Typed Event Facts
+
+The event decoder validates once, then supplies both the order audit and an
+immutable per-frame/per-read projection. Type IDs and detail layouts follow pinned
+RC1 `ApplicationLayer.parseCMDReadHistoryBlockResponsePacket` at
+`d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0`. No native AAPS code is changed.
+
+- 4/5: quick requested/infused; manual origin is unspecified in that native detail.
+- 6/7 and 14/15: manual and automatic standard requested/infused respectively.
+- 8/9 and 16/17: manual and automatic extended started/ended respectively.
+- 10/11 and 18/19: manual and automatic multiwave started/ended respectively.
+- 24: retain the event local clock and replacement local clock independently.
+- All other types: opaque detail, original bytes, unsigned counter and local clock.
+
+Amounts remain raw integer tenths of a unit. Standard/quick/extended amounts are
+unsigned16; extended duration is unsigned16 minutes. Multiwave fields retain
+10-bit total, 10-bit immediate and 12-bit duration. Zero, maximum and internally
+surprising recorded values are not clamped or turned into a clinically usable
+dose. They require later semantic validation and reconciliation. Unknown events
+do not acquire quantities. Requested/infused records are not summed or paired.
+INFUSED is the native finished label, not an authenticated delivery-start time.
+
+Each read observation carries zero-based frame/event positions and a separate
+historyBlockAcknowledged flag. It is true only if the next validated frame is
+CONFIRMED. A failed or torn read can retain earlier acknowledged blocks; an
+unconfirmed BLOCK stays visible without that flag. Bad event tails reject their
+whole block; mixed-owner reads return no projection. No clinical UTC time, basal
+coverage, pump identity or new permission follows from typed facts.
+
 ## Verification And Next Gate
 
 The native writer and Copilot pin SHA-256
@@ -98,6 +127,11 @@ the independent synthetic CRC reference. No device data is used.
 Order regressions cover identical and conflicting counter reuse, nonadjacent
 repeats, unsigned sign/rollover boundaries, counter gaps, backwards times,
 cross-block continuity, unknown events, corruption and isolation between reads.
+Typed-event tests additionally cover all known phase/origin combinations, every
+multiwave detail bit, ordinary unsigned limits, the unchanged native bolus vector,
+opaque unknowns, clock replacements, per-block acknowledgement, torn tails and
+immutable/redacted projections. Existing event corruption/calendar tests exercise
+the same decoder, not a duplicate parser.
 
 Before production use, connect paired encrypted request/response to the existing
 durable counter owner, validate recipient/revocation and current snapshot, add

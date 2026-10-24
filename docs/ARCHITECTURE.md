@@ -21,6 +21,12 @@ unknown count reconciliation; clock-change events require the retained hazard.
 Within-read order diagnostics preserve repeated/reused counters and backwards
 counter/local-time transitions as adverse evidence across block boundaries.
 Neither counter gaps nor a clean order audit establish delivery coverage.
+The same CRC/calendar decoder now retains immutable typed event facts: unsigned
+counter, local clock, protocol kind/phase, integer tenth-unit amounts, optional
+immediate amount/duration and native manual flag. Unknown types remain opaque.
+Frame/event positions and validated history-block acknowledgements stay separate
+from the recorded bolus phase. No pairing, dose summation or delivery-start clock
+is inferred from requested/infused or started/ended labels.
 No UTC/delivery meaning follows from calendar validity. No production caller,
 transport permission, durable receipt or semantic delivery timeline is connected.
 See AAPS4_COMBO_JOURNAL_INGESTION.md for limits and remaining admission gates.

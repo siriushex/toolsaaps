@@ -1,13 +1,25 @@
 # PLAN
 
+## Combo Typed Event Facts (2026-10-24)
+
+- [x] Compare protocol fields against pinned RC1, preserve request/completion semantics.
+- [x] Decode immutable source facts once for integrity, order audit and diagnostics.
+- [x] Keep per-block history ACK distinct from bolus phase and delivery proof.
+- [x] Focused 60 passed; full Android 6915 passed/six old skips, zero lint errors,
+      actual SDK TLS 1.940s, frozen Kotlin hashes and APK retention/size guard.
+- [ ] Review source diff, publish isolated feature branch and inspect exact-head CI.
+- No paired transport, persistence, UTC epochs, basal coverage, event pairing,
+  live timer activation, AAPS changes, main merge or APK release in this stage.
+
 ## Release Candidate 0.1.15 (2026-10-24)
 
 - [x] Confirm public0.1.14/code15 and isolate the forward version-only stage.
 - [x] Prepare0.1.15/code16 with unlimited opt-in test mode and retained guards.
 - [x] Full Android6903passed/six old skips, zero lint errors, actual TLS3.247s;
       frozen source, fourteen helper tests and signed39,788,656byte APK verified.
-- [ ] Exact-source CI and independent review, including PR45.
-- [ ] Publish static update with previous-pointer backup and verify public bytes.
+- [x] Exactfbf04a90 PR46 and PR45 CI/review passed without findings.
+- [x] Published static update; public signature/metadata/digest, range75%, page,
+      hidden paths and unchanged service PIDs verified; old pointer/APKs retained.
 - Complete delivery, authenticated ingestion, clock epochs and prospective
   meal-time safety remain separate gates; no clinical timer activation.
 
@@ -19,7 +31,7 @@
       a read; flag duplicates, reuse and backwards transitions without repair.
 - [x] Focused 48 passed; full Android 6903 passed/six existing skips, zero lint
       errors, pristine SDK TLS 2.041s, frozen source and APK retention/size passed.
-- [ ] Publish reviewed source and inspect exact-head CI.
+- [x] PR45 exact67f50d70: all six CI checks passed; review without findings.
 - No cross-read epochs, authenticated transport, persistence, complete delivery,
   clinical timer permission, AAPS changes, main merge or APK release.
 

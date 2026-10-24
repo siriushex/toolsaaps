@@ -12,7 +12,11 @@ import java.util.zip.CRC32
 
 internal enum class ComboJournalIssue { NONE, LIMIT, FRAME, RECORD, BINDING, SEQUENCE, COUNTERS, BLOCK, EVENT }
 
-internal class ComboJournalFrame(val phase: String, val observation: AapsV3ComboObservation, payload: ByteArray) {
+internal class ComboJournalFrame(
+    val phase: String, val observation: AapsV3ComboObservation, payload: ByteArray,
+    events: List<ComboJournalEvent>
+) {
+    val events: List<ComboJournalEvent> = Collections.unmodifiableList(events.toList())
     private val content = payload.copyOf()
     fun payloadBytes(): ByteArray = content.copyOf()
     override fun toString() = "ComboJournalFrame(redacted)"
@@ -24,6 +28,12 @@ internal class AapsV3ComboJournalRead private constructor(
     frames: List<ComboJournalFrame>, hazards: Set<AapsV3ComboHistoryHazard>, raw: ByteArray
 ) {
     val frames: List<ComboJournalFrame> = Collections.unmodifiableList(frames.toList())
+    val events: List<ComboJournalEventObservation> = Collections.unmodifiableList(this.frames.flatMapIndexed { frameIndex, frame ->
+        frame.events.mapIndexed { eventIndex, event ->
+            ComboJournalEventObservation(frameIndex, eventIndex,
+                this.frames.getOrNull(frameIndex + 1)?.phase == "CONFIRMED", event)
+        }
+    })
     val hazards: Set<AapsV3ComboHistoryHazard> = Collections.unmodifiableSet(hazards.toSet())
     private val original = raw.copyOf()
     fun rawBytes(): ByteArray = original.copyOf()
@@ -95,7 +105,7 @@ internal class AapsV3ComboJournalRead private constructor(
                             require(previous?.phase == "CONFIRMED" && readerReachedEnd(frames))
                         issue = ComboJournalIssue.COUNTERS
                         validateCounters(phase, previous?.observation, observation)
-                        if (phase == "BLOCK") {
+                        val events = if (phase == "BLOCK") {
                             issue = ComboJournalIssue.BLOCK
                             require(payload.size >= 7)
                             val count = payload[6].toInt() and 255
@@ -107,10 +117,9 @@ internal class AapsV3ComboJournalRead private constructor(
                             require(observation.parsedEvents - before.parsedEvents + observation.unmappedEvents - before.unmappedEvents == count.toLong())
                             require(payload[5] != 0x48.toByte() || AapsV3ComboHistoryHazard.FIFO_GAP in observation.flags)
                             issue = ComboJournalIssue.EVENT
-                            validateEvents(payload, before, observation)
-                            hazards += eventOrder.observe(payload)
-                        }
-                        frames += ComboJournalFrame(phase, observation, payload)
+                            validateEvents(payload, before, observation).also { hazards += eventOrder.observe(it) }
+                        } else emptyList()
+                        frames += ComboJournalFrame(phase, observation, payload, events)
                         hazards += observation.hazards
                         scope = true
                     }
@@ -133,50 +142,28 @@ internal class AapsV3ComboJournalRead private constructor(
             return AapsV3ComboJournalRead(issue, closed, scope, frames, hazards, if (scope) raw else byteArrayOf())
         }
 
-        private fun validateEvents(payload: ByteArray, before: AapsV3ComboObservation, current: AapsV3ComboObservation) {
+        private fun validateEvents(
+            payload: ByteArray, before: AapsV3ComboObservation, current: AapsV3ComboObservation
+        ): List<ComboJournalEvent> {
+            val events = mutableListOf<ComboJournalEvent>()
             var parsed = 0L
             var unmapped = 0L
             for (offset in 7 until payload.size step 18) {
-                require(crc16(payload, offset, 10) == unsigned16(payload, offset + 10))
-                require(crc16(payload, offset + 12, 4) == unsigned16(payload, offset + 16))
-                validateLocalTime(payload, offset)
-                when (unsigned16(payload, offset + 8)) {
-                    4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19 -> parsed++
-                    24 -> {
-                        validateLocalTime(payload, offset + 4)
+                val event = ComboJournalEvent.decode(payload.copyOfRange(offset, offset + 18))
+                when (event.detail) {
+                    is ComboEventDetail.Bolus -> parsed++
+                    is ComboEventDetail.ClockChange -> {
                         require(AapsV3ComboHistoryHazard.CLOCK_CHANGE in current.flags)
                         parsed++
                     }
-                    else -> unmapped++
+                    ComboEventDetail.Unknown -> unmapped++
                 }
+                events += event
             }
             require(current.parsedEvents - before.parsedEvents == parsed)
             require(current.unmappedEvents - before.unmappedEvents == unmapped)
             require(unmapped == 0L || AapsV3ComboHistoryHazard.UNMAPPED_EVENT in current.flags)
-        }
-
-        private fun unsigned16(bytes: ByteArray, offset: Int) =
-            (bytes[offset].toInt() and 255) or ((bytes[offset + 1].toInt() and 255) shl 8)
-
-        private fun crc16(bytes: ByteArray, offset: Int, length: Int): Int {
-            // CRC-16/MCRF4XX: reflected 0x1021 polynomial, 0xffff seed, no final xor.
-            var crc = 0xffff
-            for (i in offset until offset + length) {
-                crc = crc xor (bytes[i].toInt() and 255)
-                repeat(8) { crc = (crc ushr 1) xor if (crc and 1 != 0) 0x8408 else 0 }
-            }
-            return crc
-        }
-
-        private fun validateLocalTime(bytes: ByteArray, offset: Int): LocalDateTime {
-            val a = bytes[offset].toInt() and 255
-            val b = bytes[offset + 1].toInt() and 255
-            val c = bytes[offset + 2].toInt() and 255
-            val d = bytes[offset + 3].toInt() and 255
-            // Calendar validity only. A pump-local time is not an authenticated UTC instant.
-            return LocalDateTime.of(2000 + (d ushr 2), (c ushr 6) or ((d and 3) shl 2),
-                (c ushr 1) and 31, (b ushr 4) or ((c and 1) shl 4),
-                (a ushr 6) or ((b and 15) shl 2), a and 63)
+            return events
         }
 
         /** One read, bounded by its byte/frame limits. Only fully validated blocks enter here. */
@@ -185,14 +172,12 @@ internal class AapsV3ComboJournalRead private constructor(
             private var previousCounter: Long? = null
             private var previousTime: LocalDateTime? = null
 
-            fun observe(payload: ByteArray): Set<AapsV3ComboHistoryHazard> {
+            fun observe(events: List<ComboJournalEvent>): Set<AapsV3ComboHistoryHazard> {
                 val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
-                for (offset in 7 until payload.size step 18) {
-                    val counter = (0 until 4).fold(0L) { value, i ->
-                        value or ((payload[offset + 12 + i].toLong() and 255L) shl (8 * i))
-                    }
-                    val time = validateLocalTime(payload, offset)
-                    val bytes = payload.copyOfRange(offset, offset + 18)
+                for (event in events) {
+                    val counter = event.counter
+                    val time = event.localTime
+                    val bytes = event.rawBytes()
                     val original = seen[counter]
                     if (original == null) seen[counter] = bytes
                     else hazards += if (original.contentEquals(bytes)) AapsV3ComboHistoryHazard.EVENT_DUPLICATE

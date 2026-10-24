@@ -35,6 +35,15 @@
   backwards local time cannot be silently deduplicated, unwrapped or repaired.
 - Event numbers are unsigned 32-bit values. Gaps alone neither prove loss nor
   completeness, and separate reads never share an unbound order-audit state.
+- Typed quantities retain integer tenths and original unsigned bit fields; no
+  clamp, requested/infused summation, event pairing or physical-dose interpretation.
+  Unknown types have no bolus quantity. Clock changes retain both local clocks.
+- Events enter the result only with their whole validated block. Corrupt tails
+  preserve only prior frames; mixed bindings expose no event projection. Lists
+  and raw bytes are immutable/copying and their string forms remain redacted.
+- A historyBlockAcknowledged flag requires the immediately following validated
+  CONFIRMED frame. It does not mean delivered insulin, a complete read or a
+  safe meal time; requested and finished protocol phases remain distinct.
 - Framing, acknowledged blocks and closed reads never grant physical delivery,
   event-clock mapping, therapy permission or meal-time recommendation authority.
 
