@@ -44,13 +44,12 @@ internal fun ForecastTestSettings(state: ForecastTestState, onToggle: (Boolean) 
                 ForecastTestStatus.SKIPPED -> R.string.forecast_test_skipped
                 ForecastTestStatus.TIMEOUT -> R.string.forecast_test_timeout
                 ForecastTestStatus.FAILED -> R.string.forecast_test_failed
-                ForecastTestStatus.EXPIRED -> R.string.forecast_test_expired
                 ForecastTestStatus.THERMAL -> R.string.forecast_test_thermal
                 ForecastTestStatus.POWER_SAVE -> R.string.forecast_test_power_save
                 else -> R.string.forecast_test_unavailable
             }), style = MaterialTheme.typography.bodySmall)
         }
-        if (state.active) Text(stringResource(R.string.forecast_test_remaining, state.remainingMinutes),
+        if (state.active) Text(stringResource(R.string.forecast_test_elapsed, state.elapsedMinutes),
             style = MaterialTheme.typography.bodySmall)
         state.lastDurationMs?.let {
             Text(stringResource(R.string.forecast_test_results, state.completedCycles, it),

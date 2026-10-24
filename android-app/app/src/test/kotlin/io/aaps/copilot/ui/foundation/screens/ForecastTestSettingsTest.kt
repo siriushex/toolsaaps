@@ -37,7 +37,8 @@ class ForecastTestSettingsTest {
             compose.onNodeWithText("Cancel").performClick()
             assertThat(changes).isEmpty()
             compose.onNodeWithTag("forecast_test_toggle").performClick()
-            compose.onNodeWithText("Start for 1 hour").performClick()
+            compose.onNodeWithText("Every minute, until stopped").assertExists()
+            compose.onNodeWithText("Start test").performClick()
             assertThat(changes).containsExactly(true)
         } finally { activity.pause().stop().destroy() }
     }
@@ -48,10 +49,10 @@ class ForecastTestSettingsTest {
         try {
             activity.get().setContent { MaterialTheme {
                 ForecastTestSettings(ForecastTestState(active = true, status = ForecastTestStatus.COMPLETED,
-                    remainingMinutes = 52, completedCycles = 8, lastDurationMs = 230)) { changes += it }
+                    elapsedMinutes = 125, completedCycles = 8, lastDurationMs = 230)) { changes += it }
             } }
             compose.onNodeWithText("Completed: 8. Last attempt: 230 ms").assertExists()
-            compose.onNodeWithText("52 min left").assertExists()
+            compose.onNodeWithText("Running for 125 min").assertExists()
             compose.onNodeWithTag("forecast_test_toggle").assertIsOn().performClick()
             assertThat(changes).containsExactly(false)
         } finally { activity.pause().stop().destroy() }

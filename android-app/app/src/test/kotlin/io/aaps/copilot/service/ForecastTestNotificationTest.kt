@@ -2,6 +2,7 @@ package io.aaps.copilot.service
 
 import android.app.Application
 import android.app.Notification
+import android.content.pm.ServiceInfo
 import com.google.common.truth.Truth.assertThat
 import org.junit.After
 import org.junit.Test
@@ -24,6 +25,8 @@ class ForecastTestNotificationTest {
             ForecastTestRuntime.session.start()
             val notification = service.buildNotification(17582, false)
             assertThat(notification.actions).hasLength(1)
+            assertThat(notification.extras.getString(Notification.EXTRA_SUB_TEXT))
+                .isEqualTo(service.getString(io.aaps.copilot.R.string.forecast_test_notification, 0L))
             assertThat(notification.sound).isNull()
             assertThat(notification.flags and Notification.FLAG_ONLY_ALERT_ONCE).isNotEqualTo(0)
             val stop = shadowOf(notification.actions[0].actionIntent).savedIntent
@@ -40,5 +43,16 @@ class ForecastTestNotificationTest {
         controller.destroy()
         assertThat(ForecastTestRuntime.session.state.value.status).isEqualTo(ForecastTestStatus.UNAVAILABLE)
         assertThat(ForecastTestRuntime.session.state.value.active).isFalse()
+    }
+
+    @Test fun androidServiceTimeoutStopsTestAndServiceInsteadOfCrashing() {
+        val controller = Robolectric.buildService(LocalNightscoutForegroundService::class.java).create()
+        try {
+            ForecastTestRuntime.session.start()
+            controller.get().onTimeout(1, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            assertThat(ForecastTestRuntime.session.state.value.active).isFalse()
+            assertThat(ForecastTestRuntime.session.state.value.status).isEqualTo(ForecastTestStatus.UNAVAILABLE)
+            assertThat(shadowOf(controller.get()).isStoppedBySelf).isTrue()
+        } finally { controller.destroy() }
     }
 }

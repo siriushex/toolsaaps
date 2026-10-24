@@ -6,8 +6,9 @@ An opt-in process-local session adds minute `FORECAST_TEST` cycles under the
 existing foreground service and shared calculation lease. Accepted forecasts
 publish through the existing atomic UI path; the intent forbids extra therapy,
 remote requests, alert publication and sensitivity activation. The normal cycle
-is unchanged. A monotonic deadline, thermal/power gates, bounded attempts and
-session-only wake lock constrain resource use. See FORECAST_TEST_MODE.md.
+is unchanged. The session has no duration limit and ends on manual stop or a
+safety/lifecycle gate. Thermal/power checks, bounded attempts and a renewable
+two-minute session-only wake lease constrain resource use. See FORECAST_TEST_MODE.md.
 
 ## Combo Consumer Integrity
 

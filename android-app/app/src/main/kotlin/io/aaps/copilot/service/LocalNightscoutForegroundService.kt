@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import io.aaps.copilot.CopilotApp
 import io.aaps.copilot.MainActivity
@@ -347,6 +348,12 @@ class LocalNightscoutForegroundService : Service() {
         stopSelf()
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        ForecastTestRuntime.session.stop(ForecastTestStatus.UNAVAILABLE)
+        forecastTestJob?.cancel()
+        stopSelfSafely()
+    }
+
     private fun stopForegroundIfNeeded() {
         if (foregroundStarted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -401,7 +408,7 @@ class LocalNightscoutForegroundService : Service() {
                 val test = ForecastTestRuntime.session.state.value
                 if (test.active) {
                     setSilent(true)
-                    setSubText(getString(R.string.forecast_test_notification, test.remainingMinutes))
+                    setSubText(getString(R.string.forecast_test_notification, test.elapsedMinutes))
                     addAction(android.R.drawable.ic_menu_close_clear_cancel,
                         getString(R.string.forecast_test_stop),
                         PendingIntent.getService(this@LocalNightscoutForegroundService, 17583,
@@ -524,19 +531,23 @@ class LocalNightscoutForegroundService : Service() {
             session.state.map { state -> state.sessionId.takeIf { state.active } }.distinctUntilChanged().collectLatest { id ->
                 if (id == null) return@collectLatest
                 val power = getSystemService(PowerManager::class.java)
-                val wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "copilot:forecast-test")
+                val wakeLock = ForecastTestWakeLock(
+                    power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "copilot:forecast-test"),
+                    SystemClock::elapsedRealtime
+                )
                 try {
-                    wakeLock.acquire(ForecastTestSession.SESSION_MS + 5_000L)
                     withContext(Dispatchers.Default) {
                         session.run(id, stopReason = {
                             val settings = latestSettingsSnapshot
-                            when {
+                            val reason = when {
                                 settings == null || !settings.localObservationRuntimeAllowed() -> ForecastTestStatus.UNAVAILABLE
                                 PowerSaveController.isActive(settings) || power.isPowerSaveMode -> ForecastTestStatus.POWER_SAVE
                                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                                     power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE -> ForecastTestStatus.THERMAL
                                 else -> null
                             }
+                            if (reason == null) wakeLock.renew()
+                            reason
                         }) { app.container.automationRepository.runForecastTestCycle() != null }
                     }
                 } catch (cancelled: CancellationException) {
@@ -544,7 +555,7 @@ class LocalNightscoutForegroundService : Service() {
                 } catch (_: Exception) {
                     session.stop(ForecastTestStatus.UNAVAILABLE, id)
                 } finally {
-                    if (wakeLock.isHeld) wakeLock.release()
+                    wakeLock.release()
                 }
             }
         }

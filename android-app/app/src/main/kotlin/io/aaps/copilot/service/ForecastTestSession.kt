@@ -16,14 +16,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 enum class ForecastTestStatus {
     OFF, STARTING, CALCULATING, COMPLETED, SKIPPED, TIMEOUT, FAILED,
-    EXPIRED, THERMAL, POWER_SAVE, UNAVAILABLE
+    THERMAL, POWER_SAVE, UNAVAILABLE
 }
 
 data class ForecastTestState(
     val sessionId: Long = 0,
     val active: Boolean = false,
     val status: ForecastTestStatus = ForecastTestStatus.OFF,
-    val remainingMinutes: Int = 0,
+    val elapsedMinutes: Long = 0,
     val completedCycles: Int = 0,
     val lastDurationMs: Long? = null
 )
@@ -41,14 +41,14 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
         if (state.value.active) return state.value.sessionId
         startedAt = elapsedMs()
         val id = state.value.sessionId + 1
-        mutableState.value = ForecastTestState(id, true, ForecastTestStatus.STARTING, 60)
+        mutableState.value = ForecastTestState(id, true, ForecastTestStatus.STARTING)
         return id
     }
 
     @Synchronized
     fun stop(reason: ForecastTestStatus = ForecastTestStatus.OFF, sessionId: Long = state.value.sessionId) {
         if (!state.value.active || state.value.sessionId != sessionId) return
-        mutableState.value = state.value.copy(active = false, status = reason, remainingMinutes = 0)
+        mutableState.value = state.value.copy(active = false, status = reason)
         runningJob?.cancel()
     }
 
@@ -75,10 +75,11 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
             return@coroutineScope
         }
         fun checkAdmission() {
+            if (!job.isActive) return
             val age = elapsedMs() - start
-            val reason = stopReason() ?: if (age < 0 || age >= SESSION_MS) ForecastTestStatus.EXPIRED else null
+            val reason = if (age < 0) ForecastTestStatus.UNAVAILABLE else stopReason()
             if (reason != null) stop(reason, id)
-            else update(id) { it.copy(remainingMinutes = ((SESSION_MS - age + 59_999) / 60_000).toInt()) }
+            else update(id) { it.copy(elapsedMinutes = age / INTERVAL_MS) }
         }
         val watchdog = launch {
             while (isActive) {
@@ -117,7 +118,7 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
             synchronized(this@ForecastTestSession) {
                 if (runningJob === job) runningJob = null
                 if (state.value.active && state.value.sessionId == id) {
-                    mutableState.value = state.value.copy(active = false, status = ForecastTestStatus.UNAVAILABLE, remainingMinutes = 0)
+                    mutableState.value = state.value.copy(active = false, status = ForecastTestStatus.UNAVAILABLE)
                 }
             }
             owner.unlock()
@@ -127,6 +128,5 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
     companion object {
         const val INTERVAL_MS = 60_000L
         const val CYCLE_TIMEOUT_MS = 45_000L
-        const val SESSION_MS = 60 * INTERVAL_MS
     }
 }

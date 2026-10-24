@@ -1,3 +1,19 @@
+# Forecast Test Manual Stop - 2026-10-24
+
+- User requested minute recalculation until manual stop, retaining overheat safety.
+- Remove only the session deadline. Existing power-save, monitoring and foreground
+  lifecycle gates remain; process restart does not silently resume a high-CPU test.
+- Show elapsed minutes and explicit manual-stop text. Renew a two-minute wake
+  lease only while admission succeeds, keeping a fallback timeout on a stalled owner.
+- 72 focused tests passed, covering six hours, late thermal interruption, wake
+  renewal/expiry, cancellation, OS timeout, silent stop and UI. Two new regressions
+  first failed against the old hourly cutoff.
+- Full Android quality passed in9m45s:6885passed/six existing skips, zero lint
+  errors/383warnings/eight hints. Actual pristine SDK TLS2.647s, unchanged frozen
+  sources and APK retention/size guard passed (41,756,265bytes,7231app classes).
+- Source diff reviewed; exact-head CI remains pending. No therapy policy, server,
+  AAPS, settings migration, APK version or device activation changes.
+
 # Release Repair 0.1.14 - 2026-10-24
 
 - PR42 review identified P1 ordinary-worker starvation when the foreground

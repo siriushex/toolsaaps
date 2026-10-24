@@ -87,15 +87,53 @@ class ForecastTestSessionTest {
         runner.join()
     }
 
-    @Test fun expiryUsesElapsedTimeAndNeverRunsSixtyFirstCycle() = runTest {
+    @Test fun continuesEveryMinuteForSixHoursUntilManualStop() = runTest {
         val session = ForecastTestSession { testScheduler.currentTime }
-        var calls = 0
-        val runner = launch { session.run(session.start(), { null }) { calls++; true } }
-        advanceTimeBy(ForecastTestSession.SESSION_MS + 1)
-        assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.EXPIRED)
+        val starts = mutableListOf<Long>()
+        val runner = launch { session.run(session.start(), { null }) { starts += testScheduler.currentTime; true } }
+        try {
+            advanceTimeBy(6 * 60 * 60_000L + 1)
+            assertThat(session.state.value.active).isTrue()
+            assertThat(starts).hasSize(361)
+            assertThat(starts.zipWithNext().all { (previous, next) -> next - previous == 60_000L }).isTrue()
+            assertThat(session.state.value.completedCycles).isEqualTo(361)
+            assertThat(session.state.value.elapsedMinutes).isEqualTo(360L)
+        } finally {
+            session.stop()
+            runner.join()
+        }
+        advanceTimeBy(120_001)
+        assertThat(starts).hasSize(361)
+        assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.OFF)
         assertThat(session.state.value.active).isFalse()
-        assertThat(calls).isEqualTo(60)
-        runner.join()
+    }
+
+    @Test fun thermalStopStillInterruptsAfterFormerHourLimitAndNeverAutoResumes() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        var stop: ForecastTestStatus? = null
+        var calls = 0
+        var cancelled = false
+        val runner = launch { session.run(session.start(), { stop }) {
+            calls++
+            if (calls == 62) try { awaitCancellation() } finally { cancelled = true }
+            true
+        } }
+        try {
+            advanceTimeBy(61 * 60_000L + 1)
+            assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.CALCULATING)
+            stop = ForecastTestStatus.THERMAL
+            advanceTimeBy(1_001)
+            assertThat(cancelled).isTrue()
+            assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.THERMAL)
+            assertThat(session.state.value.active).isFalse()
+            stop = null
+            advanceTimeBy(120_000)
+            assertThat(calls).isEqualTo(62)
+            assertThat(session.state.value.active).isFalse()
+        } finally {
+            session.stop()
+            runner.join()
+        }
     }
 
     @Test fun thermalStopInterruptsCalculationWithoutWaitingForNextMinute() = runTest {
@@ -117,6 +155,20 @@ class ForecastTestSessionTest {
         } }
         runner.join()
         assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.POWER_SAVE)
+    }
+
+    @Test fun backwardsMonotonicClockFailsClosedWithoutNewCalculation() = runTest {
+        var now = 10_000L
+        val session = ForecastTestSession { now }
+        var calls = 0
+        val runner = launch { session.run(session.start(), { null }) { calls++; true } }
+        runCurrent()
+        now = 9_000L
+        advanceTimeBy(1_001)
+        assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.UNAVAILABLE)
+        assertThat(session.state.value.active).isFalse()
+        assertThat(calls).isEqualTo(1)
+        runner.join()
     }
 
     @Test fun ownerExitDisablesTestAndOldCompletionCannotStopNewSession() = runTest {

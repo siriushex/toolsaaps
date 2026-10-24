@@ -1,5 +1,16 @@
 # PLAN
 
+## Forecast Test Manual Stop (2026-10-24)
+
+- [x] Remove one-hour expiry, retain minute cadence and thermal/power/lifecycle gates.
+- [x] Replace countdown with elapsed duration and use a renewable bounded wake lease.
+- [x] Verify six-hour cadence, late overheating, manual stop, resources and UI:
+      72 focused tests passed; two regressions first failed against the old limit.
+- [x] Full Android quality:6885passed/six existing skips, zero lint errors,
+      pristine SDK TLS2.647s, frozen-source and APK retention/size guard passed.
+- [ ] Exact-head CI. Source diff reviewed. No device activation or internet
+      release is included in this source stage.
+
 ## Release Repair 0.1.14 (2026-10-24)
 
 - [x] Withdraw public0.1.13 after accepted PR42 P1; retain immutable APK and backup.
