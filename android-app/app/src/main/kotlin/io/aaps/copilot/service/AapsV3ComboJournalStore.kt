@@ -1,5 +1,6 @@
 package io.aaps.copilot.service
 
+import android.annotation.SuppressLint
 import androidx.room.withTransaction
 import io.aaps.copilot.data.local.ComboChunkEntity
 import io.aaps.copilot.data.local.ComboJournalDatabase
@@ -110,10 +111,19 @@ internal class AapsV3ComboJournalStore(
         ComboRetentionReceipt(row.readId, row.sha256, row.byteCount, parsed.status, created)
 
     private suspend fun <T> transaction(block: suspend () -> T): T = try {
+        requireOwnTransaction()
         db.withTransaction { block() }
     } catch (e: CancellationException) { throw e
     } catch (e: ComboRetentionFailure) { throw e
     } catch (_: Exception) { fail(ComboRetentionError.STORAGE) }
+
+    @SuppressLint("RestrictedApi")
+    private fun requireOwnTransaction() {
+        check(!db.inTransaction())
+        // Pinned Room compatibility API also detects inherited transactions after a dispatcher switch.
+        // Without both checks, withTransaction can return before the caller's outer commit.
+        db.assertNotSuspendingTransaction()
+    }
 
     private fun scope(owner: String, binding: String) {
         identifier(owner)

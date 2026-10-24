@@ -18,6 +18,11 @@ chunks share a FULL-synchronous transaction; replay, reopen and inventory rechec
 integrity without repairing damage or granting delivery authority. There is no
 runtime caller or authenticated transfer yet. See AAPS4_COMBO_PRIVATE_RETENTION.md.
 
+The private store owns its transaction boundary at runtime, not only by caller
+convention: nested same-database transactions and inherited suspending contexts
+are refused before a read, replay or new receipt can escape an outer commit.
+Future transport must reconcile the committed receipt outside its own transaction.
+
 A bounded in-memory journal assembler/decoder checks exact retained bytes before
 later ingestion. It shares strict reader-observation parsing with existing status
 diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The

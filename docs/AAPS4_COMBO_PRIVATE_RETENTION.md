@@ -27,10 +27,22 @@ original status, never repaired or promoted to complete delivery.
 
 Manifest and all chunks commit in one Room transaction; the complete result is
 reconstructed and verified inside that transaction before returning. This is a
-dedicated repository-owned transaction boundary: callers must not wrap it in an
-external transaction and publish a receipt before that outer transaction commits.
+dedicated repository-owned transaction boundary. Retain (including exact replay),
+read and inventory refuse an already active transaction on this database with
+the fixed STORAGE error. They also refuse a suspending transaction inherited
+across a dispatcher switch. No receipt or read result can escape an external
+transaction before its commit; no uncommitted inventory may authorize a later ACK.
 SQLite errors/cancellation cannot become successful receipts. Storage failures
 have fixed redacted codes without raw exception causes or medical payloads.
+
+The guard uses Room's thread-local transaction check and the pinned 2.8.4
+compatibility-mode `assertNotSuspendingTransaction` check. The latter requires a
+local RestrictedApi suppression, confined to this boundary rather than global
+lint configuration. Native SQLite tests pin both paths. A Room upgrade or switch
+to a SQLiteDriver requires revalidation; do not remove this guard to fix integration.
+Independent concurrent calls still serialize normally. The receiver must call
+retention outside its journal/outbox transaction, then reconcile the committed
+receipt idempotently before publishing any acknowledgement.
 
 An exact replay validates the stored bytes again and returns `newlyStored=false`,
 including after reopen or at capacity. Changed content under the same
@@ -62,7 +74,8 @@ or bindings to logs, CI or public reports.
 Use native SQLite Robolectric tests for exact reopen, all chunk boundaries,
 duplicate/concurrent writes, scope isolation, mid-write abort, capacity, modified
 bytes, missing/invalid chunks, same-byte diagnostic damage, private location and
-explicit SQLite modes. Tests use synthetic fixtures only. Run full Android
+explicit SQLite modes, outer transactions and inherited coroutine contexts.
+Tests use synthetic fixtures only. Run full Android
 quality, actual pristine SDK TLS and APK retention checks before source CI/review.
 
 No synthetic test proves Android-device power-loss durability, storage latency,

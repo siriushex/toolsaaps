@@ -3,6 +3,7 @@ package io.aaps.copilot.service
 import android.content.Context
 import android.content.ContextWrapper
 import android.database.sqlite.SQLiteDatabase
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.ComboJournalDatabase
 import java.io.ByteArrayOutputStream
@@ -12,7 +13,9 @@ import java.nio.file.Files
 import java.util.zip.CRC32
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.*
@@ -110,6 +113,52 @@ class AapsV3ComboJournalStoreTest {
         assertFalse(store(1, raw.size.toLong()).retain(owner, binding, id, hash(raw), raw).newlyStored)
         assertEquals(1L, db.journalDao().totals().reads)
         assertEquals(raw.size.toLong(), db.journalDao().totals().storedBytes)
+    }
+
+    @Test fun externalTransactionCannotReceiveANewReceiptBeforeItsCommit() = runBlocking {
+        db.withTransaction {
+            rejected(ComboRetentionError.STORAGE) { retain(readBytes()) }
+            assertEquals(0L, db.journalDao().totals().reads)
+        }
+        assertTrue(store().inventory(owner, binding).isEmpty())
+        assertTrue(retain(readBytes()).newlyStored)
+    }
+
+    @Test fun externalTransactionCannotReceiveReplayReceipt() = runBlocking {
+        retain(readBytes())
+        db.withTransaction {
+            rejected(ComboRetentionError.STORAGE) { retain(readBytes()) }
+        }
+        assertFalse(retain(readBytes()).newlyStored)
+    }
+
+    @Test fun externalTransactionCannotExposeUncommittedRead() = runBlocking {
+        retain(readBytes())
+        db.withTransaction {
+            rejected(ComboRetentionError.STORAGE) { store().read(owner, binding, id) }
+        }
+        assertArrayEquals(readBytes(), store().read(owner, binding, id)!!.rawBytes())
+    }
+
+    @Test fun externalTransactionCannotExposeInventoryReceipts() = runBlocking {
+        retain(readBytes())
+        db.withTransaction {
+            rejected(ComboRetentionError.STORAGE) { store().inventory(owner, binding) }
+        }
+        assertEquals(1, store().inventory(owner, binding).size)
+    }
+
+    @Test fun changingDispatcherDoesNotEscapeExternalTransactionBoundary() = runBlocking {
+        retain(readBytes())
+        db.withTransaction {
+            withContext(Dispatchers.IO) {
+                rejected(ComboRetentionError.STORAGE) { retain(readBytes(), other) }
+                rejected(ComboRetentionError.STORAGE) { store().read(owner, binding, id) }
+                rejected(ComboRetentionError.STORAGE) { store().inventory(owner, binding) }
+            }
+        }
+        assertNull(store().read(owner, binding, other))
+        assertEquals(1, store().inventory(owner, binding).size)
     }
 
     @Test fun changedReplayCannotReplaceEvenAnUnclosedRead() = runBlocking {

@@ -14,6 +14,10 @@ prospective accuracy validation remain separate from JVM/CI evidence.
 
 Private retention also runs AapsV3ComboJournalStoreTest against native SQLite,
 including same-file reopen, multi-chunk abort and explicit journal/sync checks.
+Five nested-transaction regressions also cover new/replayed receipts, reads,
+inventory and a dispatcher switch. Keep them when upgrading Room: the narrowly
+suppressed compatibility-mode guard is pinned to Room2.8.4. It must not become a
+no-op after a SQLiteDriver migration. Independent concurrent retains must pass.
 No production instance is created by this stage. Rollback removes the unused
 source integration only; preserve any retained private database. There is no
 destructive migration or clinical database schema change. See

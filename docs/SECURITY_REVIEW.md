@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Combo Receipt Boundary (2026-10-24)
+
+- Pre-transport audit reproduced five cases where a public store result escaped
+  a caller's still-open transaction. Documentation alone did not enforce durability.
+- Retain/replay/read/inventory now refuse active or inherited same-database
+  transactions with a fixed redacted storage failure. No partial receipt or ACK.
+- The Room2.8.4 compatibility check uses one local RestrictedApi suppression;
+  upgrades must preserve native-SQLite tests, including a changed dispatcher.
+- No new endpoint, key, wire command, clinical projection or runtime caller.
+  Source authentication, revocation, complete delivery and meal-time admission
+  remain unverified. This is a storage-boundary fix, not protected transport.
+
 ## Private Combo Retention (2026-10-24)
 
 - Isolated no-backup Room database; no endpoint, runtime caller, AI export,

@@ -1,12 +1,26 @@
 # PLAN
 
+## Combo Receipt Boundary (2026-10-24)
+
+- [x] Recheck PR48 exactce6c0b3c: all six CI checks passed; independent review absent.
+- [x] Reproduce five nested-transaction receipt/read failures on native SQLite.
+- [x] Enforce repository-owned transactions, including inherited coroutine context.
+- [x] Focused85passed; full6940passed/six old skips, zero lint errors, actual
+      SDK TLS4.704s; frozen source and APK retention/size guard passed.
+- [ ] Publish verified source and inspect exact-head CI/review.
+- Authenticated raw transfer still needs an explicit read-only extension to the
+  existing paired owner; upstream client-control has no raw journal request yet.
+  Do not add another counter owner, generic signer, second pump reader or raw
+  plaintext settings upload. No main merge, runtime admission or APK publication.
+
 ## Combo Private Retention (2026-10-24)
 
 - [x] Inspect existing Room patterns and isolate raw journals from clinical/AI exports.
 - [x] Add scoped immutable manifests, bounded chunks, transactional replay and validation.
 - [x] Focused80passed including20native SQLite tests; full6935passed/six old skips,
       zero lint errors, actual SDK TLS1.929s, frozen source and APK retention guard.
-- [ ] Review/publish explicit source paths and verify exact-head CI/review.
+- [x] PR48 exactce6c0b3c: explicit source published, all six CI checks passed.
+- [ ] Independent review; no result published at the next-stage audit.
 - No production caller, paired transport, AAPS change, main merge, device/server
   deployment, clinical timer admission or public APK publication in this stage.
 

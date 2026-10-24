@@ -1,3 +1,20 @@
+# Combo Receipt Boundary - 2026-10-24
+
+- Audit before paired transfer found that the documented transaction ownership
+  was unenforced. All five new native SQLite regressions failed on the old code:
+  new and replayed receipts, individual reads, inventories and a dispatcher switch.
+- Reject external same-database transactions at the common store boundary;
+  preserve fixed errors, cancellation and independent concurrent serialization.
+- Use Room2.8.4's inherited-context check only at this boundary with a local lint
+  suppression and explicit upgrade tests. No reflection or coroutine detachment.
+- Parent PR48 ce6c0b3c has six green CI checks; no independent review is published.
+  Source transport, runtime connection and clinical admission remain separate.
+- Focused85passed, including25native SQLite storage tests. Full Android quality
+  passed in7m40s:6940passed/six old skips, zero failures/errors and lint errors;
+  actual pristine-SDK TLS4.704s. Frozen source and APK retention/size guard passed
+  at40,729,443bytes. Exact-head CI/review pending. No AAPS, phone, server, main,
+  clinical timer or public APK change.
+
 # Combo Private Retention - 2026-10-24
 
 - Add an isolated no-backup Room database for exact scoped Combo journal bytes;

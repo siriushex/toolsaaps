@@ -21,6 +21,9 @@
   ordinary settings/status or clinical/AI export tables. No runtime receiver is implied.
 - One retain transaction owns the manifest and every bounded chunk. Exact replay
   verifies stored bytes; changed content cannot overwrite the same scoped identity.
+- Retain, replay, read and inventory refuse an external same-database transaction,
+  including inherited coroutine contexts. No result or receipt before its commit.
+  Transport cannot wrap retention in an outbox transaction to bypass this boundary.
 - Reopen/read/inventory revalidate bytes; a corrupted scoped inventory cannot
   return partial success. Logical capacity applies across owners without pruning.
 - A retained receipt is only a local storage result. It cannot authenticate a
