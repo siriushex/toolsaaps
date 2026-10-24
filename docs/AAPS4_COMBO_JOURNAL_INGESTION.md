@@ -54,8 +54,22 @@ Known types match the pinned RC1 parser: 4..11, 14..19, 24. Their count and the
 separate unknown count must match the reader's exact per-block increments.
 Unknown types require the unmapped flag, and type 24 requires the clock-change
 flag. Unknown detail bytes are preserved without inventing their meaning.
-No event counter ordering, deduplication, clock epoch or delivery semantics are
-inferred. Valid backwards local dates stay unchanged; they are not UTC instants.
+Unsigned counter and local-time order are audited within each read, including
+across confirmed block boundaries. Repetition of the first bytes observed for a
+counter marks EVENT_DUPLICATE; different bytes under that counter mark
+EVENT_COUNTER_REUSED. A smaller counter marks EVENT_COUNTER_REWIND, including
+the possible 32-bit rollover case; no automatic unwrap or reset epoch is inferred.
+A backwards local timestamp marks EVENT_TIME_REWIND. Equal timestamps are allowed.
+Counter gaps alone imply neither missing events nor complete delivery.
+
+These are adverse diagnostics, not a reason to discard or deduplicate valid
+event bytes. They apply to unknown as well as known events and remain sticky
+across later blocks or corruption. A block enters the order audit only after all
+its checksums, calendars and reader counters pass; an invalid tail cannot supply
+new order evidence. State is bounded by the existing read/frame limits, starts
+fresh for each read and is never joined across caller-supplied bindings.
+No ordering repair, deduplication, clock epoch or delivery semantics are inferred.
+Valid backwards local dates stay unchanged; they are not UTC instants.
 The reader clock is never substituted for delivery time. Neither CONFIRMED nor
 END proves physical delivery, initial FIFO coverage, delivery-start time or
 continuous basal insulin.
@@ -81,6 +95,9 @@ all calendar days in the packed 2000..2063 range, time-field boundaries, clock
 changes, wrong type counts and rejection of a whole block with a damaged last
 event. An unchanged upstream RC1 PumpIOTest event and its CRCTest checksum anchor
 the independent synthetic CRC reference. No device data is used.
+Order regressions cover identical and conflicting counter reuse, nonadjacent
+repeats, unsigned sign/rollover boundaries, counter gaps, backwards times,
+cross-block continuity, unknown events, corruption and isolation between reads.
 
 Before production use, connect paired encrypted request/response to the existing
 durable counter owner, validate recipient/revocation and current snapshot, add

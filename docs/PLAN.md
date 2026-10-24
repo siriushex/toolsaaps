@@ -1,5 +1,17 @@
 # PLAN
 
+## Combo Event Order (2026-10-24)
+
+- [x] Inspect PR44 exact-head CI/review: server checks passed, Android/review running.
+- [x] Reproduce nine missing adverse-diagnostic cases before implementation.
+- [x] Track first event bytes per unsigned counter and previous local time within
+      a read; flag duplicates, reuse and backwards transitions without repair.
+- [x] Focused 48 passed; full Android 6903 passed/six existing skips, zero lint
+      errors, pristine SDK TLS 2.041s, frozen source and APK retention/size passed.
+- [ ] Publish reviewed source and inspect exact-head CI.
+- No cross-read epochs, authenticated transport, persistence, complete delivery,
+  clinical timer permission, AAPS changes, main merge or APK release.
+
 ## Combo Event Integrity (2026-10-24)
 
 - [x] Compare retained decoder with pinned RC1 event CRC/date/type handling.
@@ -21,8 +33,8 @@
       72 focused tests passed; two regressions first failed against the old limit.
 - [x] Full Android quality:6885passed/six existing skips, zero lint errors,
       pristine SDK TLS2.647s, frozen-source and APK retention/size guard passed.
-- [ ] Exact-head CI. Source diff reviewed. No device activation or internet
-      release is included in this source stage.
+- [x] PR43 exact-head f8405b4f CI: six successful checks; independent review
+      completed without findings. No device activation or internet release.
 
 ## Release Repair 0.1.14 (2026-10-24)
 

@@ -1,3 +1,22 @@
+# Combo Event Order - 2026-10-24
+
+- Rechecked parent PR43 f8405b4f: all six CI checks passed and independent review
+  completed without findings. This does not publish the unlimited test mode APK.
+- Nine regression cases reproduced that valid checksums could hide repeated
+  event numbers, conflicting bytes or backwards event time within a read.
+- Audit whole validated blocks using unsigned counters, original bytes and raw
+  local time. Preserve duplicate/reused-counter and rewind hazards across block
+  boundaries and later corruption. An invalid block contributes no order evidence.
+- Keep all bytes, counts and timestamps unchanged. Counter gaps, possible rollover
+  and a clean audit are not physical-delivery coverage or a UTC clock epoch.
+  Unknown events participate in the audit without acquiring delivery semantics.
+- Focused 48 passed. Full Android test/lint/compile/assemble passed in 7m50s:
+  6903 passed, six existing skips, zero failures/errors. Lint has zero errors,
+  383 warnings and eight hints; pristine SDK TLS passed in 2.041s. Frozen source
+  hashes and APK class-retention/size guard passed.
+- Reviewed source diff; exact-head CI remains pending. No device, AAPS, therapy,
+  transport, main merge or deployment changes.
+
 # Combo Event Integrity - 2026-10-24
 
 - Continue the retained consumer boundary using the pinned RC1 ApplicationLayer

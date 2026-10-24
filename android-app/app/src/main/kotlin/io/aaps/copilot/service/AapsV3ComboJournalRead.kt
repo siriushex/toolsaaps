@@ -47,6 +47,7 @@ internal class AapsV3ComboJournalRead private constructor(
         fun read(bytes: ByteArray, expectedBinding: String): AapsV3ComboJournalRead {
             val frames = mutableListOf<ComboJournalFrame>()
             val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
+            val eventOrder = EventOrderAudit()
             var scope = false
             var issue = ComboJournalIssue.BINDING
             // Bound before copying. All subsequent checks consume the same immutable bytes.
@@ -107,6 +108,7 @@ internal class AapsV3ComboJournalRead private constructor(
                             require(payload[5] != 0x48.toByte() || AapsV3ComboHistoryHazard.FIFO_GAP in observation.flags)
                             issue = ComboJournalIssue.EVENT
                             validateEvents(payload, before, observation)
+                            hazards += eventOrder.observe(payload)
                         }
                         frames += ComboJournalFrame(phase, observation, payload)
                         hazards += observation.hazards
@@ -166,15 +168,44 @@ internal class AapsV3ComboJournalRead private constructor(
             return crc
         }
 
-        private fun validateLocalTime(bytes: ByteArray, offset: Int) {
+        private fun validateLocalTime(bytes: ByteArray, offset: Int): LocalDateTime {
             val a = bytes[offset].toInt() and 255
             val b = bytes[offset + 1].toInt() and 255
             val c = bytes[offset + 2].toInt() and 255
             val d = bytes[offset + 3].toInt() and 255
             // Calendar validity only. A pump-local time is not an authenticated UTC instant.
-            LocalDateTime.of(2000 + (d ushr 2), (c ushr 6) or ((d and 3) shl 2),
+            return LocalDateTime.of(2000 + (d ushr 2), (c ushr 6) or ((d and 3) shl 2),
                 (c ushr 1) and 31, (b ushr 4) or ((c and 1) shl 4),
                 (a ushr 6) or ((b and 15) shl 2), a and 63)
+        }
+
+        /** One read, bounded by its byte/frame limits. Only fully validated blocks enter here. */
+        private class EventOrderAudit {
+            private val seen = mutableMapOf<Long, ByteArray>()
+            private var previousCounter: Long? = null
+            private var previousTime: LocalDateTime? = null
+
+            fun observe(payload: ByteArray): Set<AapsV3ComboHistoryHazard> {
+                val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
+                for (offset in 7 until payload.size step 18) {
+                    val counter = (0 until 4).fold(0L) { value, i ->
+                        value or ((payload[offset + 12 + i].toLong() and 255L) shl (8 * i))
+                    }
+                    val time = validateLocalTime(payload, offset)
+                    val bytes = payload.copyOfRange(offset, offset + 18)
+                    val original = seen[counter]
+                    if (original == null) seen[counter] = bytes
+                    else hazards += if (original.contentEquals(bytes)) AapsV3ComboHistoryHazard.EVENT_DUPLICATE
+                        else AapsV3ComboHistoryHazard.EVENT_COUNTER_REUSED
+                    if (previousCounter?.let { counter < it } == true)
+                        hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_REWIND
+                    if (previousTime?.let(time::isBefore) == true)
+                        hazards += AapsV3ComboHistoryHazard.EVENT_TIME_REWIND
+                    previousCounter = counter
+                    previousTime = time
+                }
+                return hazards
+            }
         }
 
         private fun readerReachedEnd(frames: List<ComboJournalFrame>): Boolean {

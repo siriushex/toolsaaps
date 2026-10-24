@@ -30,6 +30,11 @@
   block, retaining only the preceding validated frames and scoped original bytes.
 - Calendar validity never supplies a UTC offset, counter epoch or delivery-start
   time. Unknown event details remain opaque; known clock changes stay adverse.
+- Order diagnostics consume only whole validated blocks, include unknown events,
+  and persist across block boundaries within one read. Counter reuse/rewind and
+  backwards local time cannot be silently deduplicated, unwrapped or repaired.
+- Event numbers are unsigned 32-bit values. Gaps alone neither prove loss nor
+  completeness, and separate reads never share an unbound order-audit state.
 - Framing, acknowledged blocks and closed reads never grant physical delivery,
   event-clock mapping, therapy permission or meal-time recommendation authority.
 

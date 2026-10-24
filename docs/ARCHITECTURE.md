@@ -18,6 +18,9 @@ diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The
 native writer and Copilot test pin the same synthetic digest. Every retained event
 also passes its two CRC16 checks, local-calendar validation and separate known/
 unknown count reconciliation; clock-change events require the retained hazard.
+Within-read order diagnostics preserve repeated/reused counters and backwards
+counter/local-time transitions as adverse evidence across block boundaries.
+Neither counter gaps nor a clean order audit establish delivery coverage.
 No UTC/delivery meaning follows from calendar validity. No production caller,
 transport permission, durable receipt or semantic delivery timeline is connected.
 See AAPS4_COMBO_JOURNAL_INGESTION.md for limits and remaining admission gates.
