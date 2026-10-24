@@ -15,7 +15,10 @@ two-minute session-only wake lease constrain resource use. See FORECAST_TEST_MOD
 A bounded in-memory journal assembler/decoder checks exact retained bytes before
 later ingestion. It shares strict reader-observation parsing with existing status
 diagnostics, preserves scoped damaged evidence and rejects mixed ownership. The
-native writer and Copilot test pin the same synthetic digest. No production caller,
+native writer and Copilot test pin the same synthetic digest. Every retained event
+also passes its two CRC16 checks, local-calendar validation and separate known/
+unknown count reconciliation; clock-change events require the retained hazard.
+No UTC/delivery meaning follows from calendar validity. No production caller,
 transport permission, durable receipt or semantic delivery timeline is connected.
 See AAPS4_COMBO_JOURNAL_INGESTION.md for limits and remaining admission gates.
 

@@ -1,5 +1,18 @@
 # PLAN
 
+## Combo Event Integrity (2026-10-24)
+
+- [x] Compare retained decoder with pinned RC1 event CRC/date/type handling.
+- [x] Reproduce five failures before the fix: inner corruption, impossible dates,
+      inconsistent type counts, missing/invalid clock change and damaged block tail.
+- [x] Validate every event's two CRC16 fields, packed local calendar, exact known/
+      unknown increments and required hazard flags; preserve raw evidence.
+- [x] Focused 38 passed; full Android 6893 passed/six existing skips, zero lint
+      errors, pristine SDK TLS 2.727s, frozen sources and APK size/retention passed.
+- [ ] Review and publish source, then inspect exact-head CI.
+- No AAPS changes, pump reads, persisted ingestion, timer admission, therapy,
+  deployment or APK release. Counter/clock epochs and delivery remain unverified.
+
 ## Forecast Test Manual Stop (2026-10-24)
 
 - [x] Remove one-hour expiry, retain minute cadence and thermal/power/lifecycle gates.

@@ -25,6 +25,11 @@
   Mixed ownership returns no frames or raw bytes under the first owner.
 - Shared observation parsing cannot weaken existing status validation. Unknown
   events, unconfirmed blocks and adverse flags remain explicit.
+- A valid frame CRC never substitutes for both event CRC16 checks. Invalid event
+  dates, clock-change details or per-type counter increments reject the whole
+  block, retaining only the preceding validated frames and scoped original bytes.
+- Calendar validity never supplies a UTC offset, counter epoch or delivery-start
+  time. Unknown event details remain opaque; known clock changes stay adverse.
 - Framing, acknowledged blocks and closed reads never grant physical delivery,
   event-clock mapping, therapy permission or meal-time recommendation authority.
 

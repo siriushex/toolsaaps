@@ -6,10 +6,11 @@ import java.io.Closeable
 import java.io.DataInputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.time.LocalDateTime
 import java.util.Collections
 import java.util.zip.CRC32
 
-internal enum class ComboJournalIssue { NONE, LIMIT, FRAME, RECORD, BINDING, SEQUENCE, COUNTERS, BLOCK }
+internal enum class ComboJournalIssue { NONE, LIMIT, FRAME, RECORD, BINDING, SEQUENCE, COUNTERS, BLOCK, EVENT }
 
 internal class ComboJournalFrame(val phase: String, val observation: AapsV3ComboObservation, payload: ByteArray) {
     private val content = payload.copyOf()
@@ -17,7 +18,7 @@ internal class ComboJournalFrame(val phase: String, val observation: AapsV3Combo
     override fun toString() = "ComboJournalFrame(redacted)"
 }
 
-/** Validates retained framing and reader observations, not the semantic pump event stream. */
+/** Validates retained event integrity, not clock epochs, pump identity or physical delivery. */
 internal class AapsV3ComboJournalRead private constructor(
     val issue: ComboJournalIssue, val closed: Boolean, val prefixMatchesExpectedBinding: Boolean,
     frames: List<ComboJournalFrame>, hazards: Set<AapsV3ComboHistoryHazard>, raw: ByteArray
@@ -104,6 +105,8 @@ internal class AapsV3ComboJournalRead private constructor(
                             val before = checkNotNull(previous).observation
                             require(observation.parsedEvents - before.parsedEvents + observation.unmappedEvents - before.unmappedEvents == count.toLong())
                             require(payload[5] != 0x48.toByte() || AapsV3ComboHistoryHazard.FIFO_GAP in observation.flags)
+                            issue = ComboJournalIssue.EVENT
+                            validateEvents(payload, before, observation)
                         }
                         frames += ComboJournalFrame(phase, observation, payload)
                         hazards += observation.hazards
@@ -126,6 +129,52 @@ internal class AapsV3ComboJournalRead private constructor(
             }
             // A validated prefix scopes a damaged tail. It is not independent pairing authentication.
             return AapsV3ComboJournalRead(issue, closed, scope, frames, hazards, if (scope) raw else byteArrayOf())
+        }
+
+        private fun validateEvents(payload: ByteArray, before: AapsV3ComboObservation, current: AapsV3ComboObservation) {
+            var parsed = 0L
+            var unmapped = 0L
+            for (offset in 7 until payload.size step 18) {
+                require(crc16(payload, offset, 10) == unsigned16(payload, offset + 10))
+                require(crc16(payload, offset + 12, 4) == unsigned16(payload, offset + 16))
+                validateLocalTime(payload, offset)
+                when (unsigned16(payload, offset + 8)) {
+                    4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19 -> parsed++
+                    24 -> {
+                        validateLocalTime(payload, offset + 4)
+                        require(AapsV3ComboHistoryHazard.CLOCK_CHANGE in current.flags)
+                        parsed++
+                    }
+                    else -> unmapped++
+                }
+            }
+            require(current.parsedEvents - before.parsedEvents == parsed)
+            require(current.unmappedEvents - before.unmappedEvents == unmapped)
+            require(unmapped == 0L || AapsV3ComboHistoryHazard.UNMAPPED_EVENT in current.flags)
+        }
+
+        private fun unsigned16(bytes: ByteArray, offset: Int) =
+            (bytes[offset].toInt() and 255) or ((bytes[offset + 1].toInt() and 255) shl 8)
+
+        private fun crc16(bytes: ByteArray, offset: Int, length: Int): Int {
+            // CRC-16/MCRF4XX: reflected 0x1021 polynomial, 0xffff seed, no final xor.
+            var crc = 0xffff
+            for (i in offset until offset + length) {
+                crc = crc xor (bytes[i].toInt() and 255)
+                repeat(8) { crc = (crc ushr 1) xor if (crc and 1 != 0) 0x8408 else 0 }
+            }
+            return crc
+        }
+
+        private fun validateLocalTime(bytes: ByteArray, offset: Int) {
+            val a = bytes[offset].toInt() and 255
+            val b = bytes[offset + 1].toInt() and 255
+            val c = bytes[offset + 2].toInt() and 255
+            val d = bytes[offset + 3].toInt() and 255
+            // Calendar validity only. A pump-local time is not an authenticated UTC instant.
+            LocalDateTime.of(2000 + (d ushr 2), (c ushr 6) or ((d and 3) shl 2),
+                (c ushr 1) and 31, (b ushr 4) or ((c and 1) shl 4),
+                (a ushr 6) or ((b and 15) shl 2), a and 63)
         }
 
         private fun readerReachedEnd(frames: List<ComboJournalFrame>): Boolean {

@@ -1,3 +1,20 @@
+# Combo Event Integrity - 2026-10-24
+
+- Continue the retained consumer boundary using the pinned RC1 ApplicationLayer
+  format; do not add a second pump reader or change native AAPS code.
+- Five regression tests failed against the prior framing-only decoder. Check both
+  inner CRC16 fields, all packed local dates, clock-change detail dates, separate
+  known/unknown count deltas and required clock/unmapped flags before accepting
+  a block. A valid outer CRC cannot disguise corrupt pump bytes.
+- Preserve the valid prefix, scoped original bytes and prior hazards on failure.
+  No clock normalization, counter ordering or actual-delivery claims are added.
+- Focused checks: 38 passed. Full Android test/lint/compile/assemble passed in
+  11m03s: 6893 passed, six existing skips, zero errors; lint has zero errors,
+  383 warnings and eight hints. Pristine SDK TLS passed in 2.727s. Frozen source
+  hashes and APK size/class-retention guard passed (7231 application classes).
+- Source diff reviewed; exact-head CI remains pending. No device/server/therapy
+  change, main merge or APK publication is included.
+
 # Forecast Test Manual Stop - 2026-10-24
 
 - User requested minute recalculation until manual stop, retaining overheat safety.
