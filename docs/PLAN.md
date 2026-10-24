@@ -1,5 +1,17 @@
 # PLAN
 
+## Release Repair 0.1.14 (2026-10-24)
+
+- [x] Withdraw public0.1.13 after accepted PR42 P1; retain immutable APK and backup.
+- [x] Reproduce ordinary-worker starvation with two failing synthetic tests.
+- [x] Require an enabled local source before service ownership suppresses worker.
+      Preserve ordinary15-minute remote and5-minute local cadence.
+- [x] Prepare forward version0.1.14/code15 without migration or new defaults.
+- [x] Full local quality:6879passed/six skips; zero lint errors; actual TLS4.05s,
+      frozen sources and signed APK/size/class guard verified. Helpers14passed.
+- [ ] Exact-source CI and review resolution.
+- [ ] Publish static update with backup and independent public verification.
+
 ## Release Candidate 0.1.13 (2026-10-24)
 
 - [x] Verify current public version0.1.12/code13 and isolate a version-only stage.

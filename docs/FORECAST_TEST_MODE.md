@@ -8,8 +8,11 @@ restart. The switch or the silent foreground notification stops only this test.
 There is no settings migration, new permission, server request or AAPS change.
 
 The existing foreground owner runs a complete local `FORECAST_TEST` cycle every
-60 seconds. The ordinary five-minute cycle and input-driven recalculation remain
-unchanged. A minute attempt skips if the shared calculation lease is busy; missed
+60 seconds. The ordinary five-minute local-service cycle, fifteen-minute remote
+worker and input-driven recalculation retain their existing cadence. A test-only
+service is not an ordinary-cycle owner: when both local sources are disabled,
+the worker must continue normal sync, evaluation and alerts. A minute attempt
+skips if the shared calculation lease is busy; missed
 slots do not queue or catch up in a burst. Each attempt has a cooperative 45-second
 timeout. Status distinguishes accepted recalculation, busy/rejected input,
 failure, timeout and termination. Completed count and last attempt duration are

@@ -1,3 +1,20 @@
+# Release Repair 0.1.14 - 2026-10-24
+
+- PR42 review identified P1 ordinary-worker starvation when the foreground
+  service exists only for Forecast Test. Two regressions reproduced the defect.
+- Worker ownership now requires a running ordinary loop and an enabled local
+  source. Remote-only workers keep their original15-minute cadence; additional
+  minute forecasts stay read-only. Local-source duplicate suppression is retained.
+- 0.1.13 was briefly published after owner authorization and six green CI checks,
+  then withdrawn when the release review reported the defect. The public pointer
+  and page returned to0.1.12; immutable APKs and services/data were preserved.
+- Forward repair uses0.1.14/code15, unchanged package/signer/schema/defaults.
+- Full Android quality passed in7m29s:6879passed/six existing skips, zero lint
+  errors/383warnings/eight hints, actual pristine SDK TLS4.05s. Both new regression
+  cases passed; frozen Android/updater sources matched. Fourteen release-helper
+  tests and the APK retention/size guard passed. Signed APK39,788,968bytes.
+- Exact-source CI/review and corrected public publication remain pending.
+
 # Release Candidate 0.1.13 - 2026-10-24
 
 - Prepare version0.1.13/code14 on top of minute forecast source ccfd211f.

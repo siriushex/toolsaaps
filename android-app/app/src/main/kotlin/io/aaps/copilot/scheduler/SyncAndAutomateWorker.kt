@@ -28,6 +28,12 @@ internal enum class StartedWorkerOutcome {
     SKIPPED_MINUTE_LOOP
 }
 
+internal fun serviceOwnsOrdinaryCycles(
+    minuteLoopActive: Boolean,
+    localNightscoutEnabled: Boolean,
+    localBroadcastIngestEnabled: Boolean
+): Boolean = minuteLoopActive && (localNightscoutEnabled || localBroadcastIngestEnabled)
+
 internal fun resolveStartedWorkerPolicy(
     therapyActionsArmed: Boolean,
     powerSaveActive: Boolean,
@@ -711,7 +717,11 @@ class SyncAndAutomateWorker(
             therapyActionsArmed = settings.therapyActionsArmed,
             localObservationEnabled = settings.localObservationEnabled,
             powerSaveActive = powerSaveActive,
-            minuteLoopActive = LocalNightscoutForegroundService.isMinuteLoopActive()
+            minuteLoopActive = serviceOwnsOrdinaryCycles(
+                minuteLoopActive = LocalNightscoutForegroundService.isMinuteLoopActive(),
+                localNightscoutEnabled = settings.localNightscoutEnabled,
+                localBroadcastIngestEnabled = settings.localBroadcastIngestEnabled
+            )
         )
         if (executionPolicy.skipForMinuteLoop) {
             container.auditLogger.infoThrottled(
