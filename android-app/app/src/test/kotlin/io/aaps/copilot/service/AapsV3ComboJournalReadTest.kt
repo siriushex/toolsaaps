@@ -3,6 +3,7 @@ package io.aaps.copilot.service
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.time.LocalDateTime
 import java.util.zip.CRC32
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
@@ -42,6 +43,82 @@ class AapsV3ComboJournalReadTest {
             add(changed("CONFIRMED", "validatedBlocks" to JsonPrimitive(i), "confirmedBlocks" to JsonPrimitive(i)))
         }
         add(changed("END", "validatedBlocks" to JsonPrimitive(count), "confirmedBlocks" to JsonPrimitive(count)))
+    }
+
+    private fun packedTime(year: Int = 2026, month: Int = 10, day: Int = 24,
+                           hour: Int = 12, minute: Int = 30, second: Int = 15) = byteArrayOf(
+        (second or ((minute and 3) shl 6)).toByte(),
+        ((minute ushr 2) or ((hour and 15) shl 4)).toByte(),
+        ((hour ushr 4) or (day shl 1) or ((month and 3) shl 6)).toByte(),
+        ((month ushr 2) or ((year - 2000) shl 2)).toByte()
+    )
+
+    // Independent forward-polynomial reference, with reflected input and output.
+    private fun referenceCrc(bytes: ByteArray): Int {
+        var crc = 0xffff
+        bytes.forEach { byte ->
+            crc = crc xor ((Integer.reverse(byte.toInt() and 255) ushr 24) shl 8)
+            repeat(8) { crc = ((crc shl 1) xor if (crc and 0x8000 != 0) 0x1021 else 0) and 0xffff }
+        }
+        return Integer.reverse(crc) ushr 16
+    }
+
+    private fun event(type: Int = 7, time: ByteArray = packedTime(), detail: ByteArray = byteArrayOf(22, 0, 0, 0),
+                      counter: Long = 123): ByteArray = ByteArray(18).also { bytes ->
+        time.copyInto(bytes); detail.copyInto(bytes, 4)
+        bytes[8] = type.toByte(); bytes[9] = (type ushr 8).toByte()
+        repeat(4) { bytes[12 + it] = (counter ushr (8 * it)).toByte() }
+        for ((start, end, dest) in listOf(Triple(0, 10, 10), Triple(12, 16, 16))) {
+            val crc = referenceCrc(bytes.copyOfRange(start, end))
+            bytes[dest] = crc.toByte(); bytes[dest + 1] = (crc ushr 8).toByte()
+        }
+    }
+
+    private fun eventRecords(events: List<ByteArray>, parsed: Int = events.size, unmapped: Int = 0,
+                             clock: Boolean = false, unknown: Boolean = unmapped > 0): List<JsonObject> {
+        val payload = byteArrayOf(0, 0, 0, 0, 0xb7.toByte(), 0xb7.toByte(), events.size.toByte()) +
+            events.fold(byteArrayOf()) { bytes, event -> bytes + event }
+        val hex = payload.joinToString("") { "%02x".format(it.toInt() and 255) }
+        return listOf("BEGIN", "BLOCK", "CONFIRMED", "END").map { phase ->
+            if (phase == "BEGIN") record(phase) else record(phase, hex = hex, obs = observation(phase, changes = arrayOf(
+                "parsedEvents" to JsonPrimitive(parsed), "unmappedEvents" to JsonPrimitive(unmapped),
+                "clockChangeObserved" to JsonPrimitive(clock), "unmappedEventObserved" to JsonPrimitive(unknown))))
+        }
+    }
+
+    private fun assertEventsRejected(records: List<JsonObject>) {
+        val raw = encode(records)
+        val result = AapsV3ComboJournalRead.read(raw, binding)
+        assertEquals(AapsV3ComboHistoryStatus.INVALID, result.status)
+        assertFalse(result.closed); assertFalse(result.deliveryCompletenessVerified)
+        assertEquals(listOf("BEGIN"), result.frames.map { it.phase })
+        assertArrayEquals(raw, result.rawBytes())
+        assertTrue(AapsV3ComboHistoryHazard.CORRUPT_READ in result.hazards)
+    }
+
+    private fun twoEventBlocks(first: List<ByteArray>, second: List<ByteArray>): List<JsonObject> {
+        val start = eventRecords(first).dropLast(1).toMutableList()
+        val payload = start[1].getValue("payloadHex").jsonPrimitive.content.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        payload[2] = (first.size + second.size).toByte(); payload[4] = 0x48
+        start[1] = JsonObject(start[1] + ("payloadHex" to JsonPrimitive(payload.joinToString("") { "%02x".format(it.toInt() and 255) })))
+        return start + eventRecords(second).drop(1).map { frame ->
+            val block = frame.getValue("phase").jsonPrimitive.content == "BLOCK"
+            val obs = JsonObject(frame.getValue("observation").jsonObject + mapOf(
+                "validatedBlocks" to JsonPrimitive(2), "confirmedBlocks" to JsonPrimitive(if (block) 1 else 2),
+                "parsedEvents" to JsonPrimitive(first.size + second.size)))
+            JsonObject(frame + ("observation" to obs))
+        }
+    }
+
+    private fun assertOrderHazards(records: List<JsonObject>, vararg expected: String): AapsV3ComboJournalRead {
+        val result = read(records)
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertTrue(result.closed)
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, result.status)
+        assertTrue(result.hazards.map { it.name }.containsAll(expected.toList()))
+        assertArrayEquals(encode(records), result.rawBytes())
+        assertFalse(result.pumpBindingVerified); assertFalse(result.deliveryCompletenessVerified)
+        return result
     }
 
     @Test fun closedReadIsUnverifiedAndImmutable() {
@@ -144,19 +221,181 @@ class AapsV3ComboJournalReadTest {
     }
 
     @Test fun unknownEventCountsAreNotMistakenForParsedEvents() {
-        val event = "00".repeat(18)
-        val records = records().map { frame ->
-            val phase = frame.getValue("phase").jsonPrimitive.content
-            if (phase == "BEGIN") frame else record(phase, obs = observation(phase, changes = arrayOf(
-                "unmappedEvents" to JsonPrimitive(1), "unmappedEventObserved" to JsonPrimitive(true))), hex = "00000000b7b701$event")
-        }
+        val records = eventRecords(listOf(event(type = 0x1234)), parsed = 0, unmapped = 1)
         val result = read(records)
         assertEquals(ComboJournalIssue.NONE, result.issue)
         assertEquals(0L, result.frames.last().observation.parsedEvents)
         assertEquals(1L, result.frames.last().observation.unmappedEvents)
         assertTrue(AapsV3ComboHistoryHazard.UNMAPPED_EVENT in result.hazards)
-        // Event semantic/date/CRC decoding is a separate gate; this verifier retains exact bytes only.
         assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun eventChecksumsMatchPinnedNativeReaderVectors() {
+        assertEquals(0x02a2, referenceCrc("0123456789abcdef".toByteArray()))
+        // AAPS RC1 PumpIOTest history event, unchanged from the upstream protocol test.
+        val native = "540e93541d000000070073490f3b01000807".chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        assertArrayEquals(native, event(time = packedTime(2021, 2, 9, 16, 57, 20),
+            detail = byteArrayOf(29, 0, 0, 0), counter = 80655))
+        val result = read(eventRecords(listOf(native)))
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, result.status)
+        assertFalse(result.pumpBindingVerified); assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun everySingleBitEventCorruptionIsRejectedEvenWithValidOuterFrameCrc() {
+        for (type in listOf(7, 0x1234)) for (index in 0 until 18) for (bit in 0..7) {
+            val damaged = event(type).also { it[index] = (it[index].toInt() xor (1 shl bit)).toByte() }
+            assertEventsRejected(eventRecords(listOf(damaged), parsed = if (type == 7) 1 else 0,
+                unmapped = if (type == 7) 0 else 1))
+        }
+    }
+
+    @Test fun invalidLocalDatesAreRejectedWithCorrectChecksumsIncludingUnknownEvents() {
+        val invalid = listOf(packedTime(month = 0), packedTime(month = 13), packedTime(day = 0),
+            packedTime(month = 4, day = 31), packedTime(month = 2, day = 30), packedTime(year = 2025, month = 2, day = 29),
+            packedTime(hour = 24), packedTime(hour = 31), packedTime(minute = 60), packedTime(minute = 63),
+            packedTime(second = 60), packedTime(second = 63))
+        for (type in listOf(7, 0xffff)) for (time in invalid)
+            assertEventsRejected(eventRecords(listOf(event(type, time)), parsed = if (type == 7) 1 else 0,
+                unmapped = if (type == 7) 0 else 1))
+    }
+
+    @Test fun validLocalDatesIncludeLeapDayYearLimitsAndBackwardsOrderWithoutUtcInference() {
+        val times = listOf(packedTime(2063, 12, 31, 23, 59, 59), packedTime(2000, 1, 1, 0, 0, 0),
+            packedTime(2000, 2, 29), packedTime(2024, 2, 29))
+        val records = eventRecords(times.mapIndexed { i, time -> event(time = time, counter = i.toLong()) })
+        val result = read(records)
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertArrayEquals(encode(records), result.rawBytes())
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun everyCalendarDateInWireRangeAndEveryTimeFieldBoundaryIsAccepted() {
+        var date = LocalDateTime.of(2000, 1, 1, 0, 0)
+        // Exercise the date decoder across month, leap-year and year-bit boundaries in bounded blocks.
+        while (date.year <= 2063) {
+            val events = buildList {
+                repeat(64) {
+                    if (date.year <= 2063) {
+                        add(event(time = packedTime(date.year, date.monthValue, date.dayOfMonth, 23, 59, 59)))
+                        date = date.plusDays(1)
+                    }
+                }
+            }
+            assertEquals(ComboJournalIssue.NONE, read(eventRecords(events)).issue)
+        }
+        for (value in 0..59) {
+            assertEquals(ComboJournalIssue.NONE, read(eventRecords(listOf(
+                event(time = packedTime(hour = value % 24, minute = value, second = value))))).issue)
+        }
+    }
+
+    @Test fun knownTypesAndUnmappedTypesMustMatchSeparateReaderCounters() {
+        val known = listOf(4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 24)
+        val events = known.map { event(it, detail = if (it == 24) packedTime() else byteArrayOf(22, 0, 0, 0)) } +
+            listOf(event(0), event(12), event(25), event(0x1234), event(0xffff))
+        val result = read(eventRecords(events, parsed = known.size, unmapped = 5, clock = true))
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertTrue(result.hazards.containsAll(setOf(AapsV3ComboHistoryHazard.CLOCK_CHANGE, AapsV3ComboHistoryHazard.UNMAPPED_EVENT)))
+        assertEventsRejected(eventRecords(listOf(event(7)), parsed = 0, unmapped = 1))
+        assertEventsRejected(eventRecords(listOf(event(25)), parsed = 1, unmapped = 0))
+        assertEventsRejected(eventRecords(listOf(event(25)), parsed = 0, unmapped = 1, unknown = false))
+    }
+
+    @Test fun clockChangeDetailRequiresValidDateAndStickyClockFlag() {
+        assertEventsRejected(eventRecords(listOf(event(24, detail = packedTime(month = 2, day = 30))), clock = true))
+        assertEventsRejected(eventRecords(listOf(event(24, detail = packedTime())), clock = false))
+        val records = eventRecords(listOf(event(24, detail = packedTime(2020, 1, 1))), clock = true)
+        val result = read(records)
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertTrue(AapsV3ComboHistoryHazard.CLOCK_CHANGE in result.hazards)
+        assertArrayEquals(encode(records), result.rawBytes())
+    }
+
+    @Test fun lastDamagedEventRejectsEntireBlockNotOnlyItsTail() {
+        val damaged = event().also { it[16] = (it[16].toInt() xor 1).toByte() }
+        assertEventsRejected(eventRecords(List(24) { event(counter = it.toLong()) } + damaged))
+    }
+
+    @Test fun identicalRepeatedEventIsAdverseButRetainedWithoutDeduplication() {
+        val repeated = event(counter = 12)
+        val result = assertOrderHazards(eventRecords(listOf(repeated, repeated)), "EVENT_DUPLICATE")
+        assertEquals(2L, result.frames.last().observation.parsedEvents)
+        assertEquals(7 + 2 * 18, result.frames[1].payloadBytes().size)
+        assertEquals(setOf("EVENT_DUPLICATE"), result.hazards.map { it.name }.toSet())
+    }
+
+    @Test fun reusedCounterWithDifferentTimestampTypeOrAmountRemainsAmbiguous() {
+        val first = event(counter = 12)
+        listOf(event(counter = 12, time = packedTime(minute = 31)), event(type = 15, counter = 12),
+            event(counter = 12, detail = byteArrayOf(23, 0, 0, 0))).forEach { changed ->
+            val result = assertOrderHazards(eventRecords(listOf(first, changed)), "EVENT_COUNTER_REUSED")
+            assertFalse(result.hazards.any { it.name == "EVENT_DUPLICATE" })
+        }
+    }
+
+    @Test fun unsignedCounterBoundariesAndGapsDoNotInventLossOrCompleteness() {
+        val records = eventRecords(listOf(0L, 9L, 0x7fffffffL, 0x80000000L, 0xffffffffL).map { event(counter = it) })
+        val result = read(records)
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, result.status)
+        assertTrue(result.hazards.isEmpty())
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun decreasingCounterIncludingPossibleRolloverIsNeverSilentlyUnwrapped() {
+        for (counters in listOf(listOf(100L, 99L), listOf(0xffffffffL, 0L)))
+            assertOrderHazards(eventRecords(counters.map { event(counter = it) }), "EVENT_COUNTER_REWIND")
+    }
+
+    @Test fun backwardsPumpTimeIsAdverseEvenWhenCountersAdvanceAndReaderClockIsNormal() {
+        val result = assertOrderHazards(eventRecords(listOf(
+            event(counter = 1, time = packedTime(hour = 13)), event(counter = 2, time = packedTime(hour = 12)))),
+            "EVENT_TIME_REWIND")
+        assertEquals(setOf("EVENT_TIME_REWIND"), result.hazards.map { it.name }.toSet())
+        assertEquals(2000L, result.frames.last().observation.finishedAtMs)
+    }
+
+    @Test fun orderAuditContinuesAcrossConfirmedBlockBoundary() {
+        assertOrderHazards(twoEventBlocks(listOf(event(counter = 5)), listOf(event(counter = 5))), "EVENT_DUPLICATE")
+        assertOrderHazards(twoEventBlocks(listOf(event(counter = 5, time = packedTime(hour = 13))),
+            listOf(event(counter = 4, time = packedTime(hour = 12)))), "EVENT_COUNTER_REWIND", "EVENT_TIME_REWIND")
+    }
+
+    @Test fun nonAdjacentCounterReuseIsNotHiddenByAnInterveningEvent() {
+        val first = event(counter = 5)
+        assertOrderHazards(twoEventBlocks(listOf(first, event(counter = 6)), listOf(first)),
+            "EVENT_DUPLICATE", "EVENT_COUNTER_REWIND")
+        assertOrderHazards(twoEventBlocks(listOf(first, event(counter = 6)), listOf(event(type = 15, counter = 5))),
+            "EVENT_COUNTER_REUSED", "EVENT_COUNTER_REWIND")
+    }
+
+    @Test fun unknownEventsParticipateInOrderAuditWithoutBecomingKnownDelivery() {
+        val unknown = event(type = 0x1234, counter = 12)
+        val result = assertOrderHazards(eventRecords(listOf(unknown, unknown), parsed = 0, unmapped = 2),
+            "EVENT_DUPLICATE", "UNMAPPED_EVENT")
+        assertEquals(0L, result.frames.last().observation.parsedEvents)
+        assertEquals(2L, result.frames.last().observation.unmappedEvents)
+    }
+
+    @Test fun earlierOrderHazardsSurviveLaterCorruptionButInvalidBlockCannotAddOrderEvidence() {
+        val first = event(counter = 5)
+        val damaged = event(counter = 6).also { it[17] = (it[17].toInt() xor 1).toByte() }
+        val afterDuplicate = read(twoEventBlocks(listOf(first, first), listOf(damaged)))
+        assertEquals(ComboJournalIssue.EVENT, afterDuplicate.issue)
+        assertTrue(afterDuplicate.hazards.any { it.name == "EVENT_DUPLICATE" })
+        assertEquals(3, afterDuplicate.frames.size)
+        val partial = read(twoEventBlocks(listOf(first), listOf(first, damaged)))
+        assertEquals(ComboJournalIssue.EVENT, partial.issue)
+        assertFalse(partial.hazards.any { it.name == "EVENT_DUPLICATE" })
+        assertEquals(3, partial.frames.size)
+    }
+
+    @Test fun orderStateIsScopedToOneReadAndDoesNotLeakIntoAnother() {
+        val one = event(counter = 5)
+        assertOrderHazards(eventRecords(listOf(one, one)), "EVENT_DUPLICATE")
+        val next = read(eventRecords(listOf(one)))
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, next.status)
+        assertTrue(next.hazards.isEmpty())
     }
 
     @Test fun malformedBlockHeadersAndPayloadPlacementAreRejected() {
