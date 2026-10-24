@@ -1216,10 +1216,10 @@ index 0000000000..b8203605c6
 +}
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
 new file mode 100644
-index 0000000000..ddbcc7fece
+index 0000000000..ae32296aa7
 --- /dev/null
 +++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryJournalTest.kt
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,218 @@
 +package info.nightscout.pump.combov2
 +
 +import info.nightscout.comboctl.base.HistoryReadCheckpoint
@@ -1257,6 +1257,10 @@ index 0000000000..ddbcc7fece
 +            Phase.entries.forEach { journal.record(binding, checkpoint(it)) }
 +        }
 +        assertEquals(4, syncs)
++        // Shared golden identity with Copilot's receiver tests; production bytes must not be re-encoded.
++        val golden = directory.listFiles()!!.single { it.extension == "chr" }.readBytes()
++        assertEquals("905c31d3a78a019f31c3da1963e259e70cd519ab02f44c5b040d21d08b128e2c", java.security.MessageDigest.getInstance("SHA-256").digest(golden)
++            .joinToString("") { "%02x".format(it.toInt() and 255) })
 +        val records = ComboHistoryJournal.readRecords(directory.listFiles()!!.single { it.extension == "chr" })
 +        assertEquals(JsonPrimitive("00000000b74800"), records[1]["payloadHex"])
 +        assertEquals(JsonPrimitive(900), records.last().getValue("observation").jsonObject["readFinishedAt"])

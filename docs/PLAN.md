@@ -1,5 +1,17 @@
 # PLAN
 
+## Combo Consumer Integrity (2026-10-24)
+
+- [x] Recheck maineed3f39b and successful CI40053598223 after PR39.
+- [x] Reproduce absent receiver boundary and mixed-owner export regression.
+- [x] Implement bounded assembly/strict journal validation and shared observations.
+- [x] Focused30passed; combined native677successful reports, recipe18passed;
+      full Android6852passed/six old skips, real SDK TLS2.082s, zero lint errors,
+      unchanged source fingerprint and APK retention guard passed.
+- [ ] Exact-head CI/review and verified main integration.
+- Paired encrypted transport, persistent receipts, event semantic/time validation
+  and clinical admission remain open. No deployment or therapy activation.
+
 ## Combo Journal Readout (2026-10-24)
 
 - [x] Confirm main d3c270e2 and successful CI40047759522 after PR38.
@@ -8,7 +20,8 @@
 - [x] Native Combo 180 passed; combined reports 677 successful, recipe 18 passed,
       pristine SDK and full unchanged Copilot quality tasks passed up-to-date;
       frozen-source and APK class-retention guards passed.
-- [ ] Exact-head CI/review and verified main integration.
+- [x] Exact22bef97c review and CI40051041567/40051079143 passed; PR39 merged
+      ateed3f39b with identical tree and successful mainCI40053598223.
 - Paired transfer/ingestion, independent binding, complete physical delivery and
   prospective meal-time safety remain open. No deployment or therapy activation.
 

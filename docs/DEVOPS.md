@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Combo Consumer Verification
+
+Run AapsV3ComboJournalReadTest and existing Combo evidence/owner tests, then full
+Android test/lint/compile/assemble and pristine SDK TLS. The native compatibility
+recipe pins the same synthetic writer digest as Copilot; it changes no production
+native behavior. Never generate golden fixtures from a phone. A successful
+in-memory assembly is not a persistent receipt or deployment. See
+AAPS4_COMBO_JOURNAL_INGESTION.md; paired encrypted transport remains disconnected.
+
 ## Combo Readout Verification
 
 The existing native compatibility recipe runs synthetic readout tests alongside

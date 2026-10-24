@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Combo Consumer Boundary
+
+- Whole-read SHA and per-frame CRC/schema/sequence checks precede interpretation.
+  A caller-supplied digest or pairing hash is not source authentication.
+- Missing chunks, changed duplicates, invalid EOF and exceeded bounds cannot
+  return completed assembly. Refusal is latched for that assembly instance.
+- Preserve validated-prefix damage and raw reader clocks without normalization.
+  Mixed ownership returns no frames or raw bytes under the first owner.
+- Shared observation parsing cannot weaken existing status validation. Unknown
+  events, unconfirmed blocks and adverse flags remain explicit.
+- Framing, acknowledged blocks and closed reads never grant physical delivery,
+  event-clock mapping, therapy permission or meal-time recommendation authority.
+
 ## Combo Readout Boundary
 
 - Readout never queries the pump, modifies retained bytes or changes native control.

@@ -56,7 +56,7 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
                 val journal = extended["ComboHistoryJournal"]
                 if (read == null && journal == null) return@mapNotNull null
                 val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
-                read?.let { readStatus(HistoryJson.obj(it), hazards) }
+                read?.let { hazards += AapsV3ComboObservation.parse(HistoryJson.obj(it)).hazards }
                 journal?.let { journalStatus(HistoryJson.obj(it), hazards) }
                 Entry(at, hazards.toSet())
             } catch (_: Exception) {
@@ -112,29 +112,6 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
         if (unscoped > 0) hazards += AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION
     }
 
-    private fun readStatus(body: JsonObject, hazards: MutableSet<AapsV3ComboHistoryHazard>) {
-        require(body.keys.all { it in READ_FIELDS })
-        version(body)
-        require(HistoryJson.string(body.getValue("scope")) == "reader_session")
-        val state = HistoryJson.string(body.getValue("state"))
-        require(state in setOf("NOT_READ", "READING", "RETURNED", "FAILED"))
-        fun time(key: String) = body[key]?.let(HistoryJson::long)?.also { require(it in 1..LocalNightscoutV3Store.MAX_TIME) }
-        val start = time("readStartedAt")
-        val end = time("readFinishedAt")
-        require(if (state == "NOT_READ") start == null && end == null else start != null)
-        require(if (state in setOf("RETURNED", "FAILED")) end != null else end == null)
-        val validated = count(body, "validatedBlocks")
-        val confirmed = count(body, "confirmedBlocks", validated)
-        val parsed = count(body, "parsedEvents")
-        val unmapped = count(body, "unmappedEvents")
-        if (state == "NOT_READ") require(validated == 0L && confirmed == 0L && parsed == 0L && unmapped == 0L)
-        if (state == "FAILED") hazards += AapsV3ComboHistoryHazard.FAILED_READ
-        if (state in setOf("RETURNED", "FAILED") && validated != confirmed) hazards += AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK
-        if (unmapped > 0) hazards += AapsV3ComboHistoryHazard.UNMAPPED_EVENT
-        if (start != null && end != null && end < start) hazards += AapsV3ComboHistoryHazard.CLOCK_CHANGE
-        for ((key, hazard) in FLAGS) if (HistoryJson.bool(body.getValue(key))) hazards += hazard
-    }
-
     private fun version(body: JsonObject) {
         require(HistoryJson.long(body.getValue("version")) == 1L)
         require(HistoryJson.string(body.getValue("coverage")) == "unverified")
@@ -143,16 +120,6 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
         HistoryJson.long(body.getValue(key)).also { require(it in 0..max) }
 
     companion object {
-        private val FLAGS = mapOf(
-            "gapObserved" to AapsV3ComboHistoryHazard.FIFO_GAP,
-            "clockChangeObserved" to AapsV3ComboHistoryHazard.CLOCK_CHANGE,
-            "unmappedEventObserved" to AapsV3ComboHistoryHazard.UNMAPPED_EVENT,
-            "interruptedReadObserved" to AapsV3ComboHistoryHazard.INTERRUPTED_READ,
-            "malformedBlockObserved" to AapsV3ComboHistoryHazard.MALFORMED_BLOCK,
-            "journalWriteFailed" to AapsV3ComboHistoryHazard.STORAGE_FAILED
-        )
-        private val READ_FIELDS = FLAGS.keys + setOf("version", "coverage", "scope", "state", "readStartedAt", "readFinishedAt",
-            "validatedBlocks", "confirmedBlocks", "parsedEvents", "unmappedEvents")
         private val JOURNAL_FIELDS = setOf("version", "coverage", "state", "retainedReads", "unclosedReads", "corruptReads",
             "adverseReads", "failedReads", "unscopedCorruptReads")
     }
