@@ -198,6 +198,32 @@ class AapsV3TargetChannelTest {
         assertTrue(db.actionCommandDao().latest(10).isEmpty())
     }
 
+    @Test fun retainedComboHazardsRefreshAndClearWithoutClinicalDispatch() = runBlocking {
+        connected()
+        assertEquals(AapsV3ComboHistoryStatus.NOT_OBSERVED, channel.state.value.retainedComboHistory)
+        val body = buildJsonObject {
+            put("date", at); put("device", "fixture-device")
+            putJsonObject("pump") { putJsonObject("extended") { putJsonObject("ComboHistoryJournal") {
+                put("version", 1); put("coverage", "unverified"); put("state", "FAILED")
+            } } }
+        }
+        val result = LocalNightscoutV3EntriesApi(db, now::get).handle("POST", "/api/v3/devicestatus", emptyMap()) {
+            body.toString().toByteArray()
+        }
+        assertEquals(201, result.status)
+        now.addAndGet(100); channel.checkConnection()
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, channel.state.value.retainedComboHistory)
+        assertEquals(1, channel.state.value.retainedComboHazardKindCount)
+        baseline = { "native_clinical_projection_unavailable" }
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        channel.stop()
+        assertEquals(AapsV3ComboHistoryStatus.UNCHECKED, channel.state.value.retainedComboHistory)
+        assertEquals(0, channel.state.value.retainedComboHazardKindCount)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(10).isEmpty())
+    }
+
     @Test fun profileHistoryDiagnosticsRefreshAndClearWithOwnerWithoutAdmittingTherapy() = runBlocking {
         connected()
         assertEquals(AapsV3ObservedProfileStatus.NOT_OBSERVED, channel.state.value.observedProfileHistory)

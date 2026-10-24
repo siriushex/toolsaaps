@@ -21,7 +21,8 @@ internal data class AapsV3EffectiveProfileRead(
 }
 
 internal data class AapsV3ObservedClinicalRead(val profile: AapsV3EffectiveProfileRead, val insulin: AapsV3InsulinRead,
-    val profileHistory: AapsV3ProfileHistoryRead, val reportedBasal: AapsV3ReportedBasalRead) {
+    val profileHistory: AapsV3ProfileHistoryRead, val reportedBasal: AapsV3ReportedBasalRead,
+    val comboHistory: AapsV3ComboHistoryRead) {
     override fun toString() = "AapsV3ObservedClinicalRead(redacted)"
 }
 
@@ -37,32 +38,41 @@ internal class AapsV3EffectiveProfileSource(
         val insulin = AapsV3InsulinInventoryTimeline(snapshot)
     }
     private var cached: Index? = null
+    private var cachedCombo: AapsV3ComboHistoryTimeline? = null
 
     /** Latest retained projection at event time; this compatibility view is not an as-of archive. */
     suspend fun read(atMs: Long): AapsV3EffectiveProfileRead = readEvidence(1, atMs, LocalNightscoutV3Store.MAX_TIME).profile
 
     suspend fun readEvidence(fromMs: Long, atMs: Long, knownAtMs: Long): AapsV3ObservedClinicalRead = mutex.withLock {
         currentCoroutineContext().ensureActive()
-        fun unavailable(profile: AapsV3ObservedProfileStatus, insulin: AapsV3ObservedInsulinStatus) =
+        fun unavailable(profile: AapsV3ObservedProfileStatus, insulin: AapsV3ObservedInsulinStatus,
+                        combo: AapsV3ComboHistoryStatus) =
             AapsV3ObservedClinicalRead(AapsV3EffectiveProfileRead(profile, null), AapsV3InsulinRead(insulin, null),
-                AapsV3ProfileHistoryRead(profile, null), AapsV3ReportedBasalRead(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, null))
+                AapsV3ProfileHistoryRead(profile, null), AapsV3ReportedBasalRead(AapsV3ReportedBasalStatus.INPUT_UNAVAILABLE, null),
+                AapsV3ComboHistoryRead(combo, null))
         if (fromMs !in 1..atMs || atMs > knownAtMs || knownAtMs > LocalNightscoutV3Store.MAX_TIME) {
-            return@withLock unavailable(AapsV3ObservedProfileStatus.INVALID, AapsV3ObservedInsulinStatus.INVALID)
+            return@withLock unavailable(AapsV3ObservedProfileStatus.INVALID, AapsV3ObservedInsulinStatus.INVALID, AapsV3ComboHistoryStatus.INVALID)
         }
         try {
-            val head = store.lastModified().getValue(LocalV3Collection.TREATMENTS)
+            val heads = store.lastModified()
+            val head = heads.getValue(LocalV3Collection.TREATMENTS)
             val index = cached?.takeIf { it.revision == head } ?: Index(
                 store.retainedSnapshot(LocalV3Collection.TREATMENTS, maxRows, maxPayloadBytes)
             ).also { cached = it }
+            val comboHead = heads.getValue(LocalV3Collection.DEVICE_STATUS)
+            val combo = cachedCombo?.takeIf { it.revision == comboHead } ?: AapsV3ComboHistoryTimeline(
+                store.retainedSnapshot(LocalV3Collection.DEVICE_STATUS, maxRows, maxPayloadBytes)
+            ).also { cachedCombo = it }
             currentCoroutineContext().ensureActive()
             val insulin = index.insulin.read(fromMs, atMs, knownAtMs)
             val history = index.profile.readWindow(fromMs, atMs, knownAtMs)
             AapsV3ObservedClinicalRead(index.profile.read(atMs, knownAtMs), insulin, history,
-                AapsV3ReportedBasalProjector.read(fromMs, atMs, knownAtMs, history, insulin))
+                AapsV3ReportedBasalProjector.read(fromMs, atMs, knownAtMs, history, insulin), combo.read(atMs, knownAtMs))
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
             cached = null
-            unavailable(AapsV3ObservedProfileStatus.ERROR, AapsV3ObservedInsulinStatus.ERROR)
+            cachedCombo = null
+            unavailable(AapsV3ObservedProfileStatus.ERROR, AapsV3ObservedInsulinStatus.ERROR, AapsV3ComboHistoryStatus.ERROR)
         }
     }
 }

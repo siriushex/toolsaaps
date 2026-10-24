@@ -1,5 +1,14 @@
 # ARCHITECTURE
 
+## Retained Combo Evidence
+
+The existing clinical owner also projects retained Combo reader/journal status
+through a separate bounded, revision-cached device-status index. Known historical
+hazards survive later clean snapshots; ordinary in-flight reads are not failures.
+Typed status remains unbound uploader evidence, not a physical delivery timeline
+or positive admission. Treatment and status revisions stay distinct. See
+AAPS4_COMBO_HISTORY_EVIDENCE.md. Native source and therapy behavior are unchanged.
+
 ## Combo Pre-Confirmation Journal
 
 Recovery retains the pairing from a validated BEGIN prefix even when a later

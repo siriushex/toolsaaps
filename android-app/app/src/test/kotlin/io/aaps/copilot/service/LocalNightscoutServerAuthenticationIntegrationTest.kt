@@ -698,6 +698,21 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(emulated.units).isEqualTo(0.25)
             assertThat(emulated.emulatingTempBasal).isTrue()
             assertThat(insulinRead.upstreamCompletenessVerified).isFalse()
+            val retainedStatuses = store.retainedSnapshot(io.aaps.copilot.data.repository.LocalV3Collection.DEVICE_STATUS,
+                100, 65_536)
+            val statusAt = (retainedStatuses as io.aaps.copilot.data.repository.LocalV3RetainedSnapshot.Complete)
+                .documents.maxOf { checkNotNull(it.eventAtMs) }
+            val combo = profileSource.readEvidence(1, statusAt,
+                maxOf(statusAt, retainedStatuses.collectionRevision)).comboHistory
+            assertThat(combo.status).isEqualTo(AapsV3ComboHistoryStatus.ADVERSE)
+            assertThat(combo.observedSnapshots).isEqualTo(2)
+            assertThat(combo.hazards).containsExactly(AapsV3ComboHistoryHazard.FIFO_GAP,
+                AapsV3ComboHistoryHazard.CLOCK_CHANGE, AapsV3ComboHistoryHazard.UNMAPPED_EVENT,
+                AapsV3ComboHistoryHazard.INTERRUPTED_READ, AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK,
+                AapsV3ComboHistoryHazard.UNCLOSED_READ, AapsV3ComboHistoryHazard.ADVERSE_READ,
+                AapsV3ComboHistoryHazard.FAILED_READ, AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION)
+            assertThat(combo.deliveryCompletenessVerified).isFalse()
+            assertThat(combo.pumpBindingVerified).isFalse()
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.SETUP)

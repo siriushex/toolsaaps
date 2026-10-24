@@ -1,5 +1,16 @@
 # PLAN
 
+## Retained Combo Evidence (2026-10-24)
+
+- [x] Recheck main63b637eb and successful CI40039451247.
+- [x] Connect strict retained reader/journal diagnostics to the existing owner.
+- [x] Verify malformed, delayed, in-progress and persistent adverse observations.
+- [x] Focused45passed; final full6835passed/six existing skips, zero lint errors,
+      actual pristine SDK TLS2.080s and frozen-source/APK retention guards passed.
+- [ ] Exact-head CI/review and verified main integration.
+- Raw journal ingestion, pump binding, physical delivery and prospective meal-time
+  safety remain separate gates; no therapy activation or deployment in this stage.
+
 ## Combo Pre-Confirmation Journal (2026-10-24)
 
 - [x] Recheck mainf1a346eb and successful CI40020966910.
@@ -12,8 +23,8 @@
       pristine SDK and full Android quality passed with unchanged tests up-to-date.
 - [x] PR37 pairing-isolation finding reproduced with three failures and fixed;
       native664passed, full Android6821passed/six skips and actual SDK TLS passed.
-- [ ] Verify exact-head CI.
-- [ ] Exact-head review and main integration after all checks.
+- [x] Exact61ac3f37 CI40035397952/40035403426 and review passed.
+- [x] PR37 merged at63b637eb with the tested tree; mainCI40039451247 passed.
 - Clinical timeline admission, physical basal completeness, prospective safety
   and deployment remain separate gates. See AAPS4_COMBO_HISTORY_JOURNAL.md.
 
