@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Forecast Test Isolation
+
+- Extra minute cycles never gain therapy writer rights, even after arming changes.
+- Shared calculation ownership, input freshness, sensor/profile provenance and
+  atomic acceptance remain mandatory. No invented CGM samples or new coefficients.
+- Normal cadence, remote request rate and alert behavior are unchanged.
+- Normal/reactive/settings callers preempt test attempts before acquiring the
+  shared lease. A test cannot run ahead of pending priority work.
+- The opt-in session is bounded and process-local. Stop/expiry/service loss cancels
+  its work and releases its wake lock; no queued catch-up or boot resume.
+- More CPU and more frequent calculation are not evidence of clinical accuracy.
+
 ## Combo Consumer Boundary
 
 - Whole-read SHA and per-frame CRC/schema/sequence checks precede interpretation.
