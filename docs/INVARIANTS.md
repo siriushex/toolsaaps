@@ -1,6 +1,30 @@
 # INVARIANTS
 
+## Forecast Test Isolation
+
+- Extra minute cycles never gain therapy writer rights, even after arming changes.
+- Shared calculation ownership, input freshness, sensor/profile provenance and
+  atomic acceptance remain mandatory. No invented CGM samples or new coefficients.
+- Normal cadence, remote request rate and alert behavior are unchanged.
+- Normal/reactive/settings callers preempt test attempts before acquiring the
+  shared lease. A test cannot run ahead of pending priority work.
+- The opt-in session has no duration limit and is process-local. Manual stop,
+  thermal/power refusal or service loss cancels its work and releases its wake
+  lock; no queued catch-up, automatic safety-stop resume or boot resume.
+- A two-minute wake lease renews only while admission is healthy. Removing session
+  expiry must not create an unbounded wake lock or bypass the 45-second attempt cap.
+- More CPU and more frequent calculation are not evidence of clinical accuracy.
+
 ## Combo Consumer Boundary
+
+- Retained raw journals live in a separate private no-backup database, never the
+  ordinary settings/status or clinical/AI export tables. No runtime receiver is implied.
+- One retain transaction owns the manifest and every bounded chunk. Exact replay
+  verifies stored bytes; changed content cannot overwrite the same scoped identity.
+- Reopen/read/inventory revalidate bytes; a corrupted scoped inventory cannot
+  return partial success. Logical capacity applies across owners without pruning.
+- A retained receipt is only a local storage result. It cannot authenticate a
+  caller, acknowledge the pump, infer clock epochs or admit a meal-time recommendation.
 
 - Whole-read SHA and per-frame CRC/schema/sequence checks precede interpretation.
   A caller-supplied digest or pairing hash is not source authentication.
@@ -10,6 +34,25 @@
   Mixed ownership returns no frames or raw bytes under the first owner.
 - Shared observation parsing cannot weaken existing status validation. Unknown
   events, unconfirmed blocks and adverse flags remain explicit.
+- A valid frame CRC never substitutes for both event CRC16 checks. Invalid event
+  dates, clock-change details or per-type counter increments reject the whole
+  block, retaining only the preceding validated frames and scoped original bytes.
+- Calendar validity never supplies a UTC offset, counter epoch or delivery-start
+  time. Unknown event details remain opaque; known clock changes stay adverse.
+- Order diagnostics consume only whole validated blocks, include unknown events,
+  and persist across block boundaries within one read. Counter reuse/rewind and
+  backwards local time cannot be silently deduplicated, unwrapped or repaired.
+- Event numbers are unsigned 32-bit values. Gaps alone neither prove loss nor
+  completeness, and separate reads never share an unbound order-audit state.
+- Typed quantities retain integer tenths and original unsigned bit fields; no
+  clamp, requested/infused summation, event pairing or physical-dose interpretation.
+  Unknown types have no bolus quantity. Clock changes retain both local clocks.
+- Events enter the result only with their whole validated block. Corrupt tails
+  preserve only prior frames; mixed bindings expose no event projection. Lists
+  and raw bytes are immutable/copying and their string forms remain redacted.
+- A historyBlockAcknowledged flag requires the immediately following validated
+  CONFIRMED frame. It does not mean delivered insulin, a complete read or a
+  safe meal time; requested and finished protocol phases remain distinct.
 - Framing, acknowledged blocks and closed reads never grant physical delivery,
   event-clock mapping, therapy permission or meal-time recommendation authority.
 

@@ -1,6 +1,23 @@
 # DEVOPS
 
+## Forecast Test Verification
+
+Run ForecastTest session/arbiter/policy/notification/UI tests, the reactive lease
+wiring regression, full Android tests/lint/compile/build, pristine SDK TLS and
+APK retention/size checks. Only source, synthetic tests and documentation belong
+in the PR. Do not activate the high-compute session on a phone as a build check.
+Rollback is stopping the explicit session and reverting this source stage; no
+schema, credential, AAPS or server migration is involved. Device thermal/CPU and
+prospective accuracy validation remain separate from JVM/CI evidence.
+
 ## Combo Consumer Verification
+
+Private retention also runs AapsV3ComboJournalStoreTest against native SQLite,
+including same-file reopen, multi-chunk abort and explicit journal/sync checks.
+No production instance is created by this stage. Rollback removes the unused
+source integration only; preserve any retained private database. There is no
+destructive migration or clinical database schema change. See
+AAPS4_COMBO_PRIVATE_RETENTION.md for ownership, bounds and device-validation gates.
 
 Run AapsV3ComboJournalReadTest and existing Combo evidence/owner tests, then full
 Android test/lint/compile/assemble and pristine SDK TLS. The native compatibility

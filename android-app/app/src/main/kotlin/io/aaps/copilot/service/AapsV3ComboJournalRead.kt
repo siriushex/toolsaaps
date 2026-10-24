@@ -6,23 +6,34 @@ import java.io.Closeable
 import java.io.DataInputStream
 import java.io.IOException
 import java.security.MessageDigest
+import java.time.LocalDateTime
 import java.util.Collections
 import java.util.zip.CRC32
 
-internal enum class ComboJournalIssue { NONE, LIMIT, FRAME, RECORD, BINDING, SEQUENCE, COUNTERS, BLOCK }
+internal enum class ComboJournalIssue { NONE, LIMIT, FRAME, RECORD, BINDING, SEQUENCE, COUNTERS, BLOCK, EVENT }
 
-internal class ComboJournalFrame(val phase: String, val observation: AapsV3ComboObservation, payload: ByteArray) {
+internal class ComboJournalFrame(
+    val phase: String, val observation: AapsV3ComboObservation, payload: ByteArray,
+    events: List<ComboJournalEvent>
+) {
+    val events: List<ComboJournalEvent> = Collections.unmodifiableList(events.toList())
     private val content = payload.copyOf()
     fun payloadBytes(): ByteArray = content.copyOf()
     override fun toString() = "ComboJournalFrame(redacted)"
 }
 
-/** Validates retained framing and reader observations, not the semantic pump event stream. */
+/** Validates retained event integrity, not clock epochs, pump identity or physical delivery. */
 internal class AapsV3ComboJournalRead private constructor(
     val issue: ComboJournalIssue, val closed: Boolean, val prefixMatchesExpectedBinding: Boolean,
     frames: List<ComboJournalFrame>, hazards: Set<AapsV3ComboHistoryHazard>, raw: ByteArray
 ) {
     val frames: List<ComboJournalFrame> = Collections.unmodifiableList(frames.toList())
+    val events: List<ComboJournalEventObservation> = Collections.unmodifiableList(this.frames.flatMapIndexed { frameIndex, frame ->
+        frame.events.mapIndexed { eventIndex, event ->
+            ComboJournalEventObservation(frameIndex, eventIndex,
+                this.frames.getOrNull(frameIndex + 1)?.phase == "CONFIRMED", event)
+        }
+    })
     val hazards: Set<AapsV3ComboHistoryHazard> = Collections.unmodifiableSet(hazards.toSet())
     private val original = raw.copyOf()
     fun rawBytes(): ByteArray = original.copyOf()
@@ -46,6 +57,7 @@ internal class AapsV3ComboJournalRead private constructor(
         fun read(bytes: ByteArray, expectedBinding: String): AapsV3ComboJournalRead {
             val frames = mutableListOf<ComboJournalFrame>()
             val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
+            val eventOrder = EventOrderAudit()
             var scope = false
             var issue = ComboJournalIssue.BINDING
             // Bound before copying. All subsequent checks consume the same immutable bytes.
@@ -93,7 +105,7 @@ internal class AapsV3ComboJournalRead private constructor(
                             require(previous?.phase == "CONFIRMED" && readerReachedEnd(frames))
                         issue = ComboJournalIssue.COUNTERS
                         validateCounters(phase, previous?.observation, observation)
-                        if (phase == "BLOCK") {
+                        val events = if (phase == "BLOCK") {
                             issue = ComboJournalIssue.BLOCK
                             require(payload.size >= 7)
                             val count = payload[6].toInt() and 255
@@ -104,8 +116,10 @@ internal class AapsV3ComboJournalRead private constructor(
                             val before = checkNotNull(previous).observation
                             require(observation.parsedEvents - before.parsedEvents + observation.unmappedEvents - before.unmappedEvents == count.toLong())
                             require(payload[5] != 0x48.toByte() || AapsV3ComboHistoryHazard.FIFO_GAP in observation.flags)
-                        }
-                        frames += ComboJournalFrame(phase, observation, payload)
+                            issue = ComboJournalIssue.EVENT
+                            validateEvents(payload, before, observation).also { hazards += eventOrder.observe(it) }
+                        } else emptyList()
+                        frames += ComboJournalFrame(phase, observation, payload, events)
                         hazards += observation.hazards
                         scope = true
                     }
@@ -126,6 +140,57 @@ internal class AapsV3ComboJournalRead private constructor(
             }
             // A validated prefix scopes a damaged tail. It is not independent pairing authentication.
             return AapsV3ComboJournalRead(issue, closed, scope, frames, hazards, if (scope) raw else byteArrayOf())
+        }
+
+        private fun validateEvents(
+            payload: ByteArray, before: AapsV3ComboObservation, current: AapsV3ComboObservation
+        ): List<ComboJournalEvent> {
+            val events = mutableListOf<ComboJournalEvent>()
+            var parsed = 0L
+            var unmapped = 0L
+            for (offset in 7 until payload.size step 18) {
+                val event = ComboJournalEvent.decode(payload.copyOfRange(offset, offset + 18))
+                when (event.detail) {
+                    is ComboEventDetail.Bolus -> parsed++
+                    is ComboEventDetail.ClockChange -> {
+                        require(AapsV3ComboHistoryHazard.CLOCK_CHANGE in current.flags)
+                        parsed++
+                    }
+                    ComboEventDetail.Unknown -> unmapped++
+                }
+                events += event
+            }
+            require(current.parsedEvents - before.parsedEvents == parsed)
+            require(current.unmappedEvents - before.unmappedEvents == unmapped)
+            require(unmapped == 0L || AapsV3ComboHistoryHazard.UNMAPPED_EVENT in current.flags)
+            return events
+        }
+
+        /** One read, bounded by its byte/frame limits. Only fully validated blocks enter here. */
+        private class EventOrderAudit {
+            private val seen = mutableMapOf<Long, ByteArray>()
+            private var previousCounter: Long? = null
+            private var previousTime: LocalDateTime? = null
+
+            fun observe(events: List<ComboJournalEvent>): Set<AapsV3ComboHistoryHazard> {
+                val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
+                for (event in events) {
+                    val counter = event.counter
+                    val time = event.localTime
+                    val bytes = event.rawBytes()
+                    val original = seen[counter]
+                    if (original == null) seen[counter] = bytes
+                    else hazards += if (original.contentEquals(bytes)) AapsV3ComboHistoryHazard.EVENT_DUPLICATE
+                        else AapsV3ComboHistoryHazard.EVENT_COUNTER_REUSED
+                    if (previousCounter?.let { counter < it } == true)
+                        hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_REWIND
+                    if (previousTime?.let(time::isBefore) == true)
+                        hazards += AapsV3ComboHistoryHazard.EVENT_TIME_REWIND
+                    previousCounter = counter
+                    previousTime = time
+                }
+                return hazards
+            }
         }
 
         private fun readerReachedEnd(frames: List<ComboJournalFrame>): Boolean {
