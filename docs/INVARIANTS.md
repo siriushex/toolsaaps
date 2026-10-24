@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Retained Combo Evidence Boundary
+
+- A stored journal summary never proves the current pairing or insulin delivery.
+  No positive clinical permission follows from clean, missing or in-flight status.
+- Known adverse history cannot be replaced by a newer clean status. Cumulative
+  counters are not summed into clinical episode counts or assigned to a new pump.
+- Malformed, late, over-limit or failed reads cannot return partial evidence.
+  Device-status and treatment collection revisions remain independently visible.
+- One active read is not a latched fault; unknown-event counts are independent of
+  parsed-event counts. Unscoped corruption and raw backwards clocks stay explicit.
+- The existing owner refreshes and clears these diagnostics; no extra worker,
+  pump reader, treatment write, target dispatch or meal-time admission is added.
+
 ## Combo Journal Boundary
 
 - Capture validated block bytes before native confirmation; a confirmation

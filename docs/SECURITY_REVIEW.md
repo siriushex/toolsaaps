@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Retained Combo Evidence (2026-10-24)
+
+- Reuse bounded private Room status and the existing runtime owner. No endpoint,
+  credential, raw packet export, pump reader, schema or therapy writer is added.
+- Strict parsing cannot upgrade claimed coverage or ignore damaged future data.
+  Status results expose only enum/count diagnostics; renderings stay redacted.
+- Wire summaries lack the private pairing binding. Never attribute them to a
+  newly paired pump or infer physical delivery from persistence or clean counts.
+- Historical adverse observations survive newer clean rows; pending native reads
+  are distinguished from failures. No learned delay or meal advice is enabled.
+
 ## Combo Checkpoint Journal (2026-10-24)
 
 - Journal files contain raw medical history and remain in the app-private

@@ -1,3 +1,27 @@
+# Retained Combo History Evidence - 2026-10-24
+
+- Confirmed main63b637eb and CI40039451247 successful. PR37 exact-head61ac3f37
+  review and both CI runs passed; its merge retains the tested tree.
+- Added strict typed projection of already retained Combo reader/journal status.
+  Preserve known gaps, storage/read failures, corruption, unknown events and raw
+  backwards clocks across later clean snapshots. Do not sum cumulative counters
+  or assign unbound uploader diagnostics to the currently paired pump.
+- Normal in-flight reads are not latched failures. Minimal native FAILED status
+  remains a storage failure; unknown-event counts are independent of parsed events.
+- The new integration regression initially failed because the existing clinical
+  owner had no Combo evidence. Added independent device-status revision caching
+  and count/status propagation through the existing owner, cleared on shutdown.
+- Focused source/owner/evidence suites passed45tests, zero failures/errors/skips.
+  First full Android quality passed6835tests/six existing skips in4m50s. Added
+  end-to-end assertions from the unchanged stock SDK through TLS and Room into
+  the new typed diagnostic; final full test/lint/compile/assemble passed in2m31s,
+  again6835passed/six skips, actual SDK TLS2.080s and zero lint errors.
+  Frozen sources matched;40,670,991byte APK retains all7184application classes.
+  Exact-head CI/review and main integration are pending.
+- No native patch, pump command, backend, credential, schema, background worker,
+  phone or therapy change. Raw journal transfer, independent binding, complete
+  physical delivery and prospective meal-time safety still remain open.
+
 # Combo Pre-Confirmation History Journal - 2026-10-24
 
 - PR37 review of7ada4f30 found that whole-file recovery discarded an intact BEGIN

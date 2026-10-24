@@ -1,5 +1,13 @@
 # DEVOPS
 
+## Retained Combo Evidence Verification
+
+Run the new typed-evidence, clinical-source and target-owner tests before the
+full Android suite, lint, build, pristine SDK TLS and APK class-retention guard.
+The native patch is unchanged. No production migration, server deployment or
+phone update is part of this source stage; all diagnostic inputs are synthetic.
+See AAPS4_COMBO_HISTORY_EVIDENCE.md for capacity and unsupported-identity limits.
+
 ## Combo Journal Verification
 
 The reversible native recipe includes actual temporary-file journal tests and
