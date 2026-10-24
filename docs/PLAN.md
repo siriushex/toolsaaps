@@ -1,5 +1,17 @@
 # PLAN
 
+## Release Candidate 0.1.13 (2026-10-24)
+
+- [x] Verify current public version0.1.12/code13 and isolate a version-only stage.
+- [x] Prepare version0.1.13/code14 with unchanged package, signer and schema.
+- [x] Full Android:6877passed/six existing skips, zero lint errors; real TLS4.263s.
+      Fourteen release-helper tests passed, frozen sources unchanged.
+- [x] Signed39,788,972byte APK: version14, unchanged signer,7224classes retained;
+      content-addressed candidate and update manifest prepared locally.
+- [ ] Exact-head CI and review, including parent PR41, before main integration.
+- [ ] Public publication and independent download verification remain separate.
+- Test mode stays off by default. No live meal-time admission or AAPS update.
+
 ## Minute Forecast Test (2026-10-24)
 
 - [x] Recheck clean main b2290910 after PR40; isolate the opt-in forecast-only mode.

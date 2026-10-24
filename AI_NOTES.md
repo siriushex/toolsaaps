@@ -1,3 +1,18 @@
+# Release Candidate 0.1.13 - 2026-10-24
+
+- Prepare version0.1.13/code14 on top of minute forecast source ccfd211f.
+  Keep package, signing identity, database schema and all runtime defaults.
+- The opt-in high-compute mode remains off; this release does not activate it
+  or admit a new meal-time recommendation, target or insulin calculation.
+- PR41 CI is green, but its independent review is still running. This candidate
+  is a separate version-only stage; no replacement of the reviewed source head.
+- Frozen full Android quality passed in9m8s:6877passed/six existing skips,
+  real stock SDK TLS4.263s, zero lint errors/383warnings/eight hints.
+- Fourteen release-helper checks passed. Signed39,788,972byte APK retains all
+  7224application classes; package, version and unchanged signer verified.
+- Exact-source CI and both reviews remain integration/publication gates.
+  No device or server change performed; the public release remains0.1.12.
+
 # Minute Forecast Test - 2026-10-24
 
 - Added explicit one-hour, process-local minute forecast session. UI confirmation,
