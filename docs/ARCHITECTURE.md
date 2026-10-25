@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Combo Inventory Candidate
+
+Bounded encrypted inventory pages now reuse the chunk codec's private AEAD
+implementation with domain-separated expected request context. A defensive
+in-memory assembler admits only an exact complete catalog with matching count,
+bytes and whole-inventory digest; adverse flags are included in that digest.
+It never grants delivery completeness or source/clock authority. No native
+runtime wiring, new database/counter or therapy path is introduced. See
+[inventory contract](AAPS4_COMBO_INVENTORY.md) for framing and remaining gates.
+
 ## Combo Read Outbox Candidate
 
 The existing `AapsV3TargetJournal` now has an internal, disconnected read-only

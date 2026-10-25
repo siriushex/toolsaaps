@@ -55,19 +55,59 @@ internal data class AapsV3ComboChunkBinding(
 
 /** Pure response codec. No network, counter allocation, replay admission or therapy permission. */
 internal class AapsV3ComboChunkEnvelope(secret: ByteArray) : Closeable {
-    private var ownedSecret: ByteArray? = chunkOperation {
-        require(secret.size == 32)
-        secret.copyOf()
+    private val payload = chunkOperation { ComboPayloadCipher(secret) }
+
+    fun seal(binding: AapsV3ComboChunkBinding, raw: ByteArray, now: Long): ByteArray = chunkOperation {
+        binding.requireCurrent(now)
+        payload.seal(binding.authenticatedContext(), raw, binding.chunkBytes..binding.chunkBytes)
     }
 
-    @Synchronized
-    fun seal(binding: AapsV3ComboChunkBinding, raw: ByteArray, now: Long): ByteArray = chunkOperation {
-        val secret = checkNotNull(ownedSecret)
+    /** Caller owns the returned bytes and must clear them after private assembly/retention. */
+    fun open(binding: AapsV3ComboChunkBinding, wire: ByteArray, now: Long): ByteArray = chunkOperation {
         binding.requireCurrent(now)
-        require(raw.size == binding.chunkBytes)
+        payload.open(binding.authenticatedContext(), wire, binding.chunkBytes..binding.chunkBytes)
+    }
+
+    override fun close() = payload.close()
+    override fun toString() = "ComboChunkEnvelope(redacted)"
+
+    companion object {
+        // Leaves 16 KiB for the outer settings envelope and transport metadata.
+        const val MAX_ENVELOPE_BYTES = 48 * 1024
+        internal fun deriveKey(input: ByteArray, salt: ByteArray, context: ByteArray): ByteArray =
+            ComboPayloadCipher.deriveKey(input, salt, context)
+    }
+}
+
+/** Same paired secret, distinct authenticated context: pages cannot be reused as chunks. */
+internal class AapsV3ComboInventoryEnvelope(secret: ByteArray) : Closeable {
+    private val payload = inventoryOperation { ComboPayloadCipher(secret) }
+    fun seal(binding: AapsV3ComboInventoryBinding, page: AapsV3ComboInventoryPage, now: Long): ByteArray = inventoryOperation {
+        binding.requireCurrent(now)
+        page.requireFor(binding.query)
+        val plain = HistoryJson.bytes(page.toJson())
+        try { payload.seal(binding.authenticatedContext(), plain, 1..AapsV3ComboInventoryPage.MAX_PAGE_BYTES) }
+        finally { plain.fill(0) }
+    }
+    fun open(binding: AapsV3ComboInventoryBinding, wire: ByteArray, now: Long): AapsV3ComboInventoryPage = inventoryOperation {
+        binding.requireCurrent(now)
+        val plain = payload.open(binding.authenticatedContext(), wire, 1..AapsV3ComboInventoryPage.MAX_PAGE_BYTES)
+        try { AapsV3ComboInventoryPage.parse(plain, binding.query) }
+        finally { plain.fill(0) }
+    }
+    override fun close() = payload.close()
+    override fun toString() = "ComboInventoryEnvelope(redacted)"
+}
+
+private class ComboPayloadCipher(secret: ByteArray) : Closeable {
+    private var ownedSecret: ByteArray? = secret.let { require(it.size == 32); it.copyOf() }
+
+    @Synchronized
+    fun seal(context: ByteArray, raw: ByteArray, size: IntRange): ByteArray {
+        val secret = checkNotNull(ownedSecret)
+        require(raw.size in size && size.first >= 1 && size.last <= AapsV3ComboChunkBinding.MAX_CHUNK_BYTES)
         val plain = raw.copyOf()
-        try {
-            val context = binding.authenticatedContext()
+        return try {
             // A fresh salt gives each response its own key, including retries after a restart.
             val salt = ByteArray(32).also(random::nextBytes)
             val iv = ByteArray(12).also(random::nextBytes)
@@ -80,46 +120,41 @@ internal class AapsV3ComboChunkEnvelope(secret: ByteArray) : Closeable {
                 put("saltB64", encoder.encodeToString(salt))
                 put("ivB64", encoder.encodeToString(iv))
                 put("ciphertextB64", encoder.encodeToString(encrypted))
-            }).also { require(it.size <= MAX_ENVELOPE_BYTES) }
+            }).also { require(it.size <= AapsV3ComboChunkEnvelope.MAX_ENVELOPE_BYTES) }
         } finally { plain.fill(0) }
     }
 
-    /** Caller owns the returned bytes and must clear them after private assembly/retention. */
     @Synchronized
-    fun open(binding: AapsV3ComboChunkBinding, wire: ByteArray, now: Long): ByteArray = chunkOperation {
+    fun open(context: ByteArray, wire: ByteArray, size: IntRange): ByteArray {
         val secret = checkNotNull(ownedSecret)
-        binding.requireCurrent(now)
-        require(wire.size in 1..MAX_ENVELOPE_BYTES)
-        val document = HistoryJson.parse(wire.copyOf(), MAX_ENVELOPE_BYTES)
+        require(size.first >= 1 && size.last <= AapsV3ComboChunkBinding.MAX_CHUNK_BYTES)
+        require(wire.size in 1..AapsV3ComboChunkEnvelope.MAX_ENVELOPE_BYTES)
+        val document = HistoryJson.parse(wire.copyOf(), AapsV3ComboChunkEnvelope.MAX_ENVELOPE_BYTES)
         HistoryJson.fields(document, setOf("version", "saltB64", "ivB64", "ciphertextB64"))
         require(HistoryJson.long(document.getValue("version")) == 1L)
-        fun decode(name: String, size: Int): ByteArray {
+        fun decode(name: String, lengths: IntRange): ByteArray {
             val text = HistoryJson.string(document.getValue(name))
-            require(text.length == ((size + 2) / 3) * 4)
-            return decoder.decode(text).also { require(it.size == size && encoder.encodeToString(it) == text) }
+            require(text.length in ((lengths.first + 2) / 3) * 4..((lengths.last + 2) / 3) * 4)
+            return decoder.decode(text).also { require(it.size in lengths && encoder.encodeToString(it) == text) }
         }
-        val salt = decode("saltB64", 32)
-        val iv = decode("ivB64", 12)
-        val encrypted = decode("ciphertextB64", binding.chunkBytes + 16)
-        val context = binding.authenticatedContext()
+        val salt = decode("saltB64", 32..32)
+        val iv = decode("ivB64", 12..12)
+        val encrypted = decode("ciphertextB64", size.first + 16..size.last + 16)
         val key = deriveKey(secret, salt, context)
-        try {
+        return try {
             cipher(Cipher.DECRYPT_MODE, key, iv, context).doFinal(encrypted)
         } finally { key.fill(0) }
     }
 
     @Synchronized override fun close() { ownedSecret?.fill(0); ownedSecret = null }
-    override fun toString() = "ComboChunkEnvelope(redacted)"
 
     companion object {
-        // Leaves 16 KiB for the outer settings envelope and transport metadata.
-        const val MAX_ENVELOPE_BYTES = 48 * 1024
         private val random = SecureRandom()
         private val encoder = Base64.getEncoder()
         private val decoder = Base64.getDecoder()
 
         /** RFC 5869 SHA-256 extract + the single expand block required for a 32-byte key. */
-        internal fun deriveKey(input: ByteArray, salt: ByteArray, context: ByteArray): ByteArray {
+        fun deriveKey(input: ByteArray, salt: ByteArray, context: ByteArray): ByteArray {
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(SecretKeySpec(salt, "HmacSHA256"))
             val extracted = mac.doFinal(input)

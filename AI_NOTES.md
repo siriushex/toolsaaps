@@ -1,3 +1,25 @@
+# Combo Inventory And Release Candidate - 2026-10-25
+
+- Revalidated PR53 exact4bcf7b20 and merged as5f3aa17c under explicit current
+  authorization; tested tree and main tree are identical. Main CI is separate.
+- Added immutable bounded catalog pages, whole-catalog digest and latched
+  assembly failures. No partial inventory becomes complete delivery evidence.
+- Reuse the chunk codec's private HKDF/AES primitives with distinct page context;
+  added synthetic native RC1 cross-provider oracle without editing AAPS sources.
+- Initial RED compile lacked new types. First focused run found a test scope
+  mutation exceeding the30s TTL before decryption; fixed the fixture lifetime,
+  not the validation. Expanded adversarial and all-digest-field tests.
+- Focused22passed/no skips; full Android6991passed/six prior skips, zero failures.
+  Lint zero errors/379 prior warnings/eight hints; compile/build successful5m42s.
+  Native inventory crypto0.277s and unchanged chunk crypto0.359s passed.
+  Release helper14tests passed; all7309 compiled app classes retained in APK.
+- Public manifest rechecked:0.1.16/code17 and its downloaded signer/digest verified.
+  Forward0.1.17/code18 APK39870608bytes, SHA256
+  a840418ff5bf68a933d76ab619c9f4da9fcae962c556f17c3b08f7688cbaf6b6.
+  Same signing certificate; exact-head CI, integration and publication pending.
+- No phone operations, treatment commands or live meal-time recommendation;
+  remaining native dispatch, receipt, clock and physical delivery gates explicit.
+
 # Combo Read Outbox - 2026-10-25
 
 - First PR53 head0febea34 passed all six CI checks, but automated review found an
