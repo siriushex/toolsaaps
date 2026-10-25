@@ -59,11 +59,13 @@ class AapsV3ComboReadJournalTest {
         assertTrue("Expected journal failure", failure is AapsV3TargetJournalFailure)
         assertNull(failure!!.cause)
     }
-    private suspend fun roster(enabled: Boolean = true) {
+    private suspend fun roster(enabled: Boolean = true, extraClient: String? = null) {
         val store = LocalNightscoutV3Store(db, { now })
         val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, "aaps", "local-v3-owner", 946_684_800_001,
             buildJsonObject { put("schemaVersion", 1); put("runningConfig", buildJsonObject {
-                put("authorizedClients", buildJsonObject { put("clientIds", buildJsonArray { add(client) }) })
+                put("authorizedClients", buildJsonObject { put("clientIds", buildJsonArray {
+                    add(client); extraClient?.let { add(it) }
+                }) })
                 put("syncedPrefs", buildJsonObject { put("ns_allow_client_control", enabled.toString()) })
             }) }.toString())
         val old = store.get(LocalV3Collection.SETTINGS, "aaps")
@@ -167,6 +169,47 @@ class AapsV3ComboReadJournalTest {
         now = at + 61_000
         owner().probe(now)!!
         assertNull(issue())
+    }
+
+    @Test fun disableThenEnableWithoutReadObservationCannotResurrectPublicationAfterReopen() = runBlocking {
+        active(); issue()
+        roster(false); roster(true)
+        db.close(); db = openDb()
+        assertEquals(AapsV3ComboReadPhase.REVOKED, snapshot()!!.phase)
+        assertNull(issue()!!.publication)
+        assertEquals(4L, issue(secondId)!!.counter)
+    }
+
+    @Test fun anyNewRosterRequiresFreshReadAdmissionButDoesNotBlockTarget() = runBlocking {
+        active(); issue(); roster(extraClient = secondId)
+        assertEquals(AapsV3ComboReadPhase.REVOKED, snapshot()!!.phase)
+        owner().withTargetProtocol { p ->
+            assertEquals(4L, owner().prepare("meal-request", target, p, now + 1) {}.counter)
+        }
+    }
+
+    @Test fun identicalRosterObservationDoesNotInvalidateRead() = runBlocking {
+        active()
+        val first = issue()!!
+        roster()
+        assertEquals(AapsV3ComboReadPhase.ISSUED, snapshot()!!.phase)
+        assertEquals(first.publication!!.document, snapshot()!!.publication!!.document)
+    }
+
+    @Test fun legacyReadWithoutRosterBindingCannotReturnSendablePublication() = runBlocking {
+        active(); issue()
+        val dao = db.aapsV3TargetJournalDao()
+        val row = dao.get("combo-read")!!
+        val plain = cipher.open(row.row, row.revision, row.sealed)
+        val oldBody = Json.parseToJsonElement(plain.decodeToString()).jsonObject
+        plain.fill(0)
+        val legacy = JsonObject(oldBody - "rosterRevision").toString().toByteArray()
+        dao.put(row.copy(revision = row.revision + 1,
+            sealed = cipher.seal(row.row, row.revision + 1, legacy)))
+        legacy.fill(0)
+        assertEquals(AapsV3ComboReadPhase.REVOKED, snapshot()!!.phase)
+        assertNull(snapshot()!!.publication)
+        assertEquals(4L, issue(secondId)!!.counter)
     }
 
     @Test fun externalAndInheritedTransactionsCannotLeakReadRequestsOrReceipts() = runBlocking {

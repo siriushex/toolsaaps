@@ -1,5 +1,16 @@
 # Combo Read Outbox - 2026-10-25
 
+- First PR53 head0febea34 passed all six CI checks, but automated review found an
+  unobserved control OFF/ON recovery gap. Reproduced it and the missing legacy
+  revision binding. Pin the issue-time roster revision; any replacement revokes
+  the read without coupling roster/target writers to history parsing. An unchanged
+  roster remains valid. The first changed-roster fixture was a no-op update; use
+  a real roster content change and separately test unchanged observations.
+- Correction: focused 71 passed; full Android 6981 passed/six prior skips, zero
+  failures, lint zero errors/379 warnings/eight hints, compile/build successful.
+  Actual SDK TLS 2.076s, crypto 0.263s, read oracle 0.610s. Frozen Kotlin hashes
+  and APK guard passed (39854211 bytes, 7296 retained app classes). Corrected-head
+  CI is pending; earlier green CI applies only to the initial head.
 - PR52 exact head0d386c34 remains green; no main/device/server deployment.
 - Added a cold typed read lane to the existing paired journal. It shares the
   counter but never occupies the target slot; pending targets/probes defer reads.

@@ -20,6 +20,13 @@
   master-side arbitration/revocation, response interpretation, retained receipts,
   bandwidth/device cost and independent protocol review remain required.
   Successful read admission is neither a response ACK nor physical delivery proof.
+- PR53 review found that an OFF/ON roster transition between read snapshots could
+  revive the old publication. Retain the issue-time roster revision and revoke on
+  any replacement (or missing legacy pin). This uses the already durable pairing
+  revision; roster/target writers do not parse potentially corrupt read records.
+  File-reopen, unobserved OFF/ON, changed/identical roster and legacy-pin regressions
+  cover this correction. Local focused/full checks passed; corrected exact-head
+  CI remains required. This is not independent clinical or protocol approval.
 
 ## Combo Chunk Envelope Candidate (2026-10-25)
 

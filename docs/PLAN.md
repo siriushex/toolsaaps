@@ -9,7 +9,12 @@
       expiry/revocation and same-file reopen regressions.
 - [x] Focused 67 tests and full Android 6977 passed/six prior skips; actual SDK
       interoperability, lint/build, frozen source and APK retention passed.
-- [ ] Publish reviewed source paths and verify exact-head CI.
+- [x] Publish initial source head0febea34 in PR53; all six CI checks passed.
+- [x] Reproduce PR53 review's unobserved OFF/ON recovery defect; bind read to the
+      original roster revision without changing pairing/target writers.
+- [x] Correction focused 71/full 6981 passed, six prior skips; native SDK,
+      lint/build, source hashes and APK retention/size checks passed.
+- [ ] Verify corrected exact-head CI; initial green CI is not reused as proof.
 - Still disconnected: native extension/capability and authenticated manifest,
   master arbitration, response/private-retention reconciliation and clinical gates.
 

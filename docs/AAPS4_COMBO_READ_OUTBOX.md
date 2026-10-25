@@ -23,7 +23,7 @@ The candidate uses native SignedEnvelope framing/MAC and the explicit new type
 ## Local State
 
 One encrypted `combo-read` row retains client/master identity, typed query,
-request ID, counter, issue time, publication revision and phase. The request,
+request ID, counter, issue time, publication revision, roster revision and phase. The request,
 outbox document and root counter commit together in one owned transaction.
 No nested/external transaction may expose an uncommitted request or receipt.
 
@@ -51,6 +51,12 @@ again after storage work, before the transaction returns.
   SUPERSEDED. Recovery returns no sendable document.
 - Expiry marks EXPIRED. Lost/disabled pairing marks REVOKED. These states remain
   terminal for the retained request ID even if control is later restored.
+- The request pins its original roster revision. Any later accepted roster
+  revision revokes it, even if control was disabled and restored without an
+  intervening read snapshot. Identical roster observations retain the revision
+  and do not cancel reads. Legacy read rows with no revision pin are revoked.
+  This deliberately conservative rule does not change pairing/target writers or
+  require them to decode low-priority history state.
 - A new request ID may replace the singleton after terminal state; it must pass
   fresh admission. This is bounded state, not a full historical retry ledger.
 - A changed/missing/deleted/revision-mismatched committed document fails closed;

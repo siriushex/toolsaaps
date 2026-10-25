@@ -13,6 +13,9 @@
   a single encrypted read row. No arbitrary action/payload signer or read-as-target
   conversion. Inventory limits 1..32 and chunk geometry follow the envelope contract.
 - Terminal read states do not reactivate on same-ID retry or restored control.
+  Pin the issue-time roster revision; any accepted replacement invalidates the
+  request, including control OFF/ON without intermediate observation. A missing
+  legacy pin cannot be upgraded into authorization during recovery.
   A new request identity may replace the singleton; all responses still need exact
   counter/scope matching. This is not an unbounded historical idempotency ledger.
 - No live call site until native capability/manifest, master-side priority and

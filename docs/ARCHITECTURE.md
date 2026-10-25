@@ -13,8 +13,11 @@ One encrypted `combo-read` row and one request document per paired client bound
 the lane. A queued action target, pending target operation or outstanding liveness
 probe defers new history. A target/probe may advance the shared counter without
 reading or waiting on history; recovery then marks the old read SUPERSEDED.
-Expiry/revocation are terminal for the retained request identity. Recovery verifies
-the committed document, identity, signature context and revision but returns the
+Expiry/revocation are terminal for the retained request identity. The original
+roster revision is pinned; any accepted replacement revokes the read,
+including disable/re-enable cycles not observed by the read API. Identical roster
+observations do not change the revision. Legacy reads without a pin are revoked.
+Recovery verifies the committed document, identity, signature context and revision but returns the
 stored bytes without republishing or allocating a counter. The source may already
 have received old bytes; native-side priority/revocation checks are still required.
 

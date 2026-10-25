@@ -330,7 +330,7 @@ internal class AapsV3TargetJournal(
         } finally { secret.fill(0) }
         val publication = publish(request)
         val record = ComboRead(root.clientId, pair.masterInstallId, requestId, counter, issuedAt,
-            spec, publication.document.modifiedRevision)
+            spec, publication.document.modifiedRevision, rosterRevision = pair.rosterRevision)
         put(COMBO_READ, json.encodeToString(record))
         put(ROOT, json.encodeToString(root.copy(counter = counter, lastIssuedAt = issuedAt)))
         val completedAt = clock()
@@ -347,7 +347,7 @@ internal class AapsV3TargetJournal(
 
     private suspend fun comboReadOrNull(): ComboRead? = read(COMBO_READ)?.let {
         json.decodeFromJsonElement<ComboRead>(it).also { record ->
-            check(record.version == 1 && record.counter > 1 && record.publicationRevision > 0)
+            check(record.version == 1 && record.counter > 1 && record.publicationRevision > 0 && record.rosterRevision >= 0)
             listOf(record.clientId, record.masterInstallId, record.requestId).forEach(HistoryJson::uuid)
             check(record.issuedAt in 1..LocalNightscoutV3Store.MAX_TIME - AapsV3ComboReadProtocol.TTL_MS)
         }
@@ -359,6 +359,7 @@ internal class AapsV3TargetJournal(
         val root = root(); val pair = pairing()
         val phase = when {
             record.clientId != root.clientId || record.masterInstallId != pair.masterInstallId ||
+                record.rosterRevision <= 0 || record.rosterRevision != pair.rosterRevision ||
                 pair.phase != AapsV3PairingPhase.ACTIVE || !pair.controlEnabled -> AapsV3ComboReadPhase.REVOKED
             root.pending != null || root.counter > record.counter || db.actionCommandDao().hasPendingTempTarget() ->
                 AapsV3ComboReadPhase.SUPERSEDED
@@ -483,7 +484,7 @@ internal class AapsV3TargetJournal(
     @Serializable private data class ComboRead(val clientId: String, val masterInstallId: String,
         val requestId: String, val counter: Long, val issuedAt: Long, val spec: AapsV3ComboReadSpec,
         val publicationRevision: Long, val phase: AapsV3ComboReadPhase = AapsV3ComboReadPhase.ISSUED,
-        val version: Int = 1) {
+        val version: Int = 1, val rosterRevision: Long = 0) {
         fun snapshot(publication: LocalV3Write? = null) = AapsV3ComboReadSnapshot(requestId, counter, phase, publication)
         override fun toString() = "ComboReadRecord(redacted)"
     }
