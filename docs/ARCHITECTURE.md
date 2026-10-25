@@ -1,5 +1,29 @@
 # ARCHITECTURE
 
+## Combo Chunk Envelope Candidate
+
+The internal `AapsV3ComboChunkEnvelope` is a response codec, not a network owner.
+Exact field/framing and ownership contract: [chunk envelope](AAPS4_COMBO_CHUNK_ENVELOPE.md).
+It seals exact 32 KiB aligned read fragments (short final fragment) using JCE
+AES-256-GCM with a 128-bit tag and a fresh random 256-bit HKDF salt and 96-bit IV.
+RFC5869 SHA-256 extract/one-block expand derives a separate response key from the
+32-byte pairing secret. No PIN-derived enrollment key or direct command MAC key
+is used for encryption. The context is both HKDF info and GCM associated data.
+
+The context binds version, direction, cipher, paired client and master installation,
+request, snapshot, read, pump binding, full-read SHA-256, existing shared counter,
+issue/expiry, total size, offset and exact length. All fields have closed ASCII
+alphabets and fixed ordering. The wire contains only version, salt, IV and ciphertext;
+it cannot supply the expected context. The caller must obtain that context through
+the authenticated paired manifest/outbox, never trust a response to identify itself.
+
+This stage has no runtime call site, sender, new counter, manifest endpoint or
+therapy path. `open` authenticates bytes, not freshness of pairing/revocation or
+clinical coverage. The existing assembly still verifies full-read digest, frame
+integrity and adverse evidence. Replays are left to the paired transaction owner.
+Transport admission, inventory paging, durable ciphertext retries, aggregate budgets,
+target priority and receipt reconciliation remain separate required work.
+
 ## Paired Journal Commit Boundary
 
 The existing native paired journal owns commits for enrollment, probes, target

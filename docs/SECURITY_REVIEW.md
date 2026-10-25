@@ -1,5 +1,27 @@
 # SECURITY REVIEW
 
+## Combo Chunk Envelope Candidate (2026-10-25)
+
+- No production entry point or device access. Strict bounded pure codec under
+  the existing secret lifecycle; no generic signer or new authentication owner.
+- Key separation follows [RFC5869](https://www.rfc-editor.org/rfc/rfc5869.html):
+  full extract and one expand block via platform HMAC-SHA256. Platform AES-GCM
+  supplies encryption and authentication. A fresh random salt isolates response
+  keys across retries/restarts; a fresh IV is also generated. Protocol context
+  includes direction and algorithm. PIN wrapping remains untouched.
+- Tampering with any scope field, salt, IV, ciphertext or tag must fail without
+  plaintext or raw provider exceptions. Strict parser rejects duplicate fields,
+  oversized content and noncanonical Base64 before crypto work.
+- Returned plaintext belongs to the caller; it must be cleared after private
+  assembly/retention. Logging models and failures are redacted. No zeroization
+  guarantee for immutable strings or provider-owned key schedules.
+- The fixed-lifetime context prevents use outside its interval, but does not
+  independently establish clock trust, pairing validity, replay protection,
+  snapshot provenance or delivery completeness. Those remain owner-layer gates.
+- This is an implementation/self-review, not an independent cryptographic review.
+  Do not wire it live until protocol/nonce review and authenticated manifest,
+  outbox/counter, admission/revocation, storage/work budget and device cost tests.
+
 ## Paired Journal Boundary (2026-10-25)
 
 - Pre-transfer audit reproduced eleven regression failures: the existing native

@@ -1,3 +1,20 @@
+# Combo Chunk Envelope - 2026-10-25
+
+- PR51 all six checks successful at exact head3fb806f2; main not merged here.
+- Added a pure bounded encrypted response codec with a strict expected context,
+  per-message HKDF-derived key, AES-GCM, exact 32 KiB geometry and fixed failures.
+- No new dependencies; native cross-provider oracle uses the existing pinned
+  RC1 cryptography library, not a second copy of the JCE implementation.
+- Initial test compilation failed on missing codec types as expected. Nine
+  focused tests passed, then full Android6960passed/six prior skips, actual
+  SDK TLS3.683s and final independently framed crypto interoperability0.409s.
+- Lint zero errors/379 prior warnings/eight hints; compile/build, frozen source
+  hashes and APK retention passed (40,762,208 bytes,7276 retained app classes).
+  Exact-head CI remains pending source publication; local artifact is not a release.
+- This stage does not connect raw transfer, allocate counters, alter therapy,
+  activate meal-time advice, merge main or publish APK. Pending owner/manifest,
+  recovery, independent protocol review and clinical evidence gates remain explicit.
+
 # Paired Journal Boundary - 2026-10-25
 
 - Read-only main CI check: exact b29c42fb Verify has all three jobs successful.

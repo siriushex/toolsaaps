@@ -1,5 +1,19 @@
 # PLAN
 
+## Combo Chunk Envelope (2026-10-25)
+
+- [x] Revalidate PR51 exact head3fb806f2: all six checks successful, PR still open.
+- [x] Implement a bounded, typed response envelope with domain-separated key,
+      strict expected request context, expiry and exact chunk geometry.
+- [x] Add RFC vector, tampering, lifecycle, parser/size and assembly-boundary tests.
+- [x] Native RC1 crypto in both directions; Android6960passed/six prior skips;
+      actual TLS3.683s, lint zero errors, compile/build and APK retention passed.
+- [ ] Review/publish explicit source paths and verify exact-head CI.
+- [ ] Independently review protocol/key/nonce lifecycle before runtime use.
+- No live raw transfer, new counter owner, device update or clinical timer activation.
+  Next: authenticated paged manifest/capability and read-only dispatch through the
+  existing paired owner, target-first outbox, durable receipt/replay reconciliation.
+
 ## Paired Journal Boundary (2026-10-25)
 
 - [x] Recheck main b29c42fb: all three Verify jobs succeeded.
@@ -9,7 +23,7 @@
       private pending ACK settlement. No schema or protocol change.
 - [x] Focused74passed; full Android6951passed/six prior skips; actual TLS19.153s.
 - [x] Lint zero errors; compile/build, frozen source and APK retention/size passed.
-- [ ] Reviewed explicit source publication and exact-head CI.
+- [x] Reviewed explicit source publication and exact-head PR51 CI3fb806f2.
 - Raw Combo transfer, source binding, UTC mapping, basal continuity and prospective
   meal-time safety remain incomplete. No clinical admission or deployment here.
 

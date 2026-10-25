@@ -1,5 +1,20 @@
 # DEVOPS
 
+## Combo Chunk Envelope Verification
+
+Run `tools/aaps4_compat/prepare.sh` against the clean pinned RC1 checkout with
+Java21. It compiles the external synthetic `ComboChunkCryptoInteropKt` driver
+without modifying native sources. Run `AapsV3ComboChunkEnvelopeTest` with the
+same `AAPS_INTEROP_CLASSPATH` and `AAPS_INTEROP_JAVA_HOME` as the existing TLS
+suite; CI requires the native crypto test rather than accepting a missing fixture.
+The driver uses RC1's real cryptography-kotlin HKDF and AES-GCM in both directions,
+only synthetic fixed-key bytes, bounded stdin and a fixed error code. It opens
+no network connection or pump/application credential and creates no AAPS extension.
+
+Then run full Android test/lint/compile/build, actual SDK TLS and APK retention
+checks. No schema, deployment or configuration migration is required; rollback
+is source revert. A green run does not authorize transport or meal-time activation.
+
 ## Paired Journal Verification
 
 Run AapsV3TargetJournalTest and AapsV3PairingJournalTest on native SQLite with
