@@ -1,5 +1,6 @@
 package io.aaps.copilot.service
 
+import android.annotation.SuppressLint
 import androidx.room.withTransaction
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.AapsV3TargetJournalEntity
@@ -55,8 +56,10 @@ internal class AapsV3TargetJournal(
         put(ATTEMPTS, json.encodeToString(Attempts(if (count == 1) nowMs else previous!!.startedAt, nowMs, count)))
     }
 
-    suspend fun hasNativeState(): Boolean = dao.get(ROOT) != null || dao.get(PAIRING) != null ||
-        dao.count() > (if (dao.get(ATTEMPTS) == null) 0 else 1) || db.localNightscoutV3Dao().hasNativeControlOutbox()
+    suspend fun hasNativeState(): Boolean = transaction {
+        dao.get(ROOT) != null || dao.get(PAIRING) != null ||
+            dao.count() > (if (dao.get(ATTEMPTS) == null) 0 else 1) || db.localNightscoutV3Dao().hasNativeControlOutbox()
+    }
 
     suspend fun enroll(credential: AapsV3PairingCredential, nowMs: Long): AapsV3PairingSnapshot = transaction {
         val oldRoot = rootOrNull()
@@ -158,14 +161,16 @@ internal class AapsV3TargetJournal(
         valid
     }
 
-    suspend fun requireLivePairing(nowMs: Long, sessionStartedAt: Long, minimumProbeCounter: Long = 0) = transaction {
+    // Read-only assertion used by the guard inside prepare/commit; no state or receipt escapes.
+    suspend fun requireLivePairing(nowMs: Long, sessionStartedAt: Long, minimumProbeCounter: Long = 0): Unit = try { db.withTransaction {
         val pair = pairing()
         check(pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled && pair.lastPongAt >= sessionStartedAt)
         check(pair.pongCounter >= minimumProbeCounter)
         check(nowMs - pair.lastPongAt in 0..90_000)
         val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps")
         check(row != null && !row.deleted && row.source == "local-v3-owner" && row.modifiedRevision == pair.rosterRevision)
-    }
+    } } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { throw AapsV3TargetJournalFailure() }
 
     suspend fun <T> withTargetProtocol(block: suspend (AapsV3TargetProtocol) -> T): T {
         val secret = transaction { secretBytes(pairing().also { check(root().clientId == it.clientId) }) }
@@ -233,8 +238,13 @@ internal class AapsV3TargetJournal(
 
     suspend fun acknowledge(operationId: String, protocol: AapsV3TargetProtocol, ack: JsonObject,
                             nowMs: Long): AapsV3TargetJournalSnapshot = transaction {
+        acknowledgeInTransaction(operationId, protocol, ack, nowMs)
+    }
+
+    private suspend fun acknowledgeInTransaction(operationId: String, protocol: AapsV3TargetProtocol,
+                                                 ack: JsonObject, nowMs: Long): AapsV3TargetJournalSnapshot {
         val root = root(); val id = commandKey(operationId); val previous = record(id)
-        if (previous.phase in TERMINAL) return@transaction previous.snapshot()
+        if (previous.phase in TERMINAL) return previous.snapshot()
         check(root.pending == id)
         val isCommit = previous.commit != null
         val request = AapsV3TargetRequest(checkNotNull(previous.commit ?: previous.prepare))
@@ -245,7 +255,7 @@ internal class AapsV3TargetJournal(
             AapsV3TargetAck.EXPIRED -> if (isCommit) AapsV3TargetPhase.EXPIRED else AapsV3TargetPhase.EXPIRED_NO_COMMIT
             else -> previous.phase
         }
-        if (phase == previous.phase) return@transaction previous.snapshot()
+        if (phase == previous.phase) return previous.snapshot()
         val updated = previous.copy(phase = phase, preview = if (phase == AapsV3TargetPhase.PREVIEW) ack else previous.preview)
             .compactIfTerminal()
         put(id, json.encodeToString(updated))
@@ -255,7 +265,7 @@ internal class AapsV3TargetJournal(
             if (action?.type == "temp_target") db.actionCommandDao().updateStatusByIds(
                 listOf(action.id), "PENDING", "SENT")
         }
-        updated.snapshot()
+        return updated.snapshot()
     }
 
     /** A prepare cannot apply anything; a published commit with no result must continue holding ownership. */
@@ -285,7 +295,7 @@ internal class AapsV3TargetJournal(
     suspend fun acknowledgePending(protocol: AapsV3TargetProtocol, ack: JsonObject, nowMs: Long): AapsV3TargetJournalSnapshot? = transaction {
         val pending = root().pending ?: return@transaction null
         val operation = record(pending).operationId ?: return@transaction record(pending).snapshot()
-        acknowledge(operation, protocol, ack, nowMs)
+        acknowledgeInTransaction(operation, protocol, ack, nowMs)
     }
 
     private suspend fun publish(request: AapsV3TargetRequest): LocalV3Write {
@@ -353,7 +363,13 @@ internal class AapsV3TargetJournal(
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(HistoryJson.encodeUtf8(value))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun next(counter: Long): Long { check(counter in 0 until Long.MAX_VALUE); return counter + 1 }
-    private suspend fun <T> transaction(block: suspend () -> T): T = try { db.withTransaction { block() } }
+    @SuppressLint("RestrictedApi")
+    private suspend fun <T> transaction(block: suspend () -> T): T = try {
+        check(!db.inTransaction())
+        // Pinned Room API catches inherited outer transactions after a dispatcher switch as well.
+        db.assertNotSuspendingTransaction()
+        db.withTransaction { block() }
+    }
     catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { throw AapsV3TargetJournalFailure() }
 

@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Paired Journal Verification
+
+Run AapsV3TargetJournalTest and AapsV3PairingJournalTest on native SQLite with
+AapsV3TargetChannelTest and AapsV3ComboJournalStoreTest. Preserve external/inherited
+transaction rejection, the nested read-only pairing assertion, shared probe/target
+counters and pending ACK settlement. Then run full Android tests/lint/compile/build,
+actual pristine SDK TLS and APK retention/size checks before exact-head CI.
+The compatibility check is pinned to Room2.8.4, including its RestrictedApi guard.
+No schema, phone, server or AAPS migration; rollback is reverting this source stage.
+Do not connect raw Combo transfer or admit meal-time advice based on these tests.
+
 ## Forecast Test Verification
 
 Run ForecastTest session/arbiter/policy/notification/UI tests, the reactive lease

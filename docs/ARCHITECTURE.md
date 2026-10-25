@@ -1,5 +1,19 @@
 # ARCHITECTURE
 
+## Paired Journal Commit Boundary
+
+The existing native paired journal owns commits for enrollment, probes, target
+requests, acknowledgements and returned state. Active or inherited external Room
+transactions are refused before publications, counters, snapshots or credentials
+escape. Native-state detection is a single transactional read, not several reads
+that could disagree about transport ownership. No schema or wire format changes.
+
+The guard's `requireLivePairing` is deliberately a read-only Unit assertion inside
+prepare/commit. It returns no state or signing material. Pending acknowledgements
+use one private implementation inside the owning transaction, not another public
+transaction owner. Future Combo transfer must reuse this counter owner without
+wrapping it in an external transaction; raw transfer remains disconnected.
+
 ## Minute Forecast Test
 
 An opt-in process-local session adds minute `FORECAST_TEST` cycles under the

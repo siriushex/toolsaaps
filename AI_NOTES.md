@@ -1,3 +1,23 @@
+# Paired Journal Boundary - 2026-10-25
+
+- Read-only main CI check: exact b29c42fb Verify has all three jobs successful.
+- Before future Combo transfer, reproduced eleven failures in the existing
+  pairing/target journal: signed publications or state could escape an outer
+  transaction before durable counter/receipt commit.
+- Reject external and inherited Room transactions before public operations;
+  native-state detection now reads consistently under one owned transaction.
+- Keep the legitimate nested pairing assertion read-only. Pending ACKs invoke
+  a private settlement implementation within one owned commit, preserving action
+  status atomicity, redacted failures and coroutine cancellation semantics.
+- Focused74passed; full Android6951passed/six prior skips, actual SDK TLS19.153s.
+  Additional reentry regression passed in the full run. Lint zero errors,
+  379existing warnings/eight hints; build, frozen Kotlin hashes and APK class/
+  size guard passed. Local verification took25m35s under high host load.
+- Existing nativeRouteConfigured exception handling still refuses legacy fallback
+  after a journal failure. No new error-to-legacy path or unguarded signer was added.
+- No raw Combo transport, clinical permission,
+  AAPS change, phone/server update or public APK release in this stage.
+
 # Release Candidate 0.1.16 - 2026-10-24
 
 - Prepare versionCode17/versionName0.1.16 from verified PR49, retaining package,

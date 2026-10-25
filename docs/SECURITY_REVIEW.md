@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Paired Journal Boundary (2026-10-25)
+
+- Pre-transfer audit reproduced eleven regression failures: the existing native
+  journal could expose signed requests or state before an external transaction
+  committed. A later rollback could lose the associated counter/receipt.
+- Public journal operations now reject active/inherited transactions with the
+  fixed redacted journal failure; cancellation remains cancellation. Guard-only
+  pairing assertions are read-only and cannot return credentials or receipts.
+- Preserve the pinned Room2.8.4 compatibility guard and native SQLite regressions,
+  including dispatcher switches, legitimate nested assertions and pending ACKs.
+- No new endpoint, command, key, schema, raw transfer or therapy permission.
+  Pairing/source binding, clock epochs and physical delivery remain separate gates.
+
 ## Combo Receipt Boundary (2026-10-24)
 
 - Pre-transport audit reproduced five cases where a public store result escaped

@@ -1,5 +1,18 @@
 # PLAN
 
+## Paired Journal Boundary (2026-10-25)
+
+- [x] Recheck main b29c42fb: all three Verify jobs succeeded.
+- [x] Reproduce eleven native SQLite failures across enrollment, probe, target,
+      receipt/state reads and inherited transaction contexts.
+- [x] Enforce owned commits, keeping the nested read-only pairing guard and
+      private pending ACK settlement. No schema or protocol change.
+- [x] Focused74passed; full Android6951passed/six prior skips; actual TLS19.153s.
+- [x] Lint zero errors; compile/build, frozen source and APK retention/size passed.
+- [ ] Reviewed explicit source publication and exact-head CI.
+- Raw Combo transfer, source binding, UTC mapping, basal continuity and prospective
+  meal-time safety remain incomplete. No clinical admission or deployment here.
+
 ## Release Candidate 0.1.16 (2026-10-24)
 
 - [x] PR49 exact9f6798d3 passed all six CI checks; independent review is absent.

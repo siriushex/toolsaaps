@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Paired Journal Ownership
+
+- Publications, pairing state, counter state, signing material and ACK receipts
+  cannot escape an external same-database transaction, even after a dispatcher switch.
+- Native-state detection must be consistent and fail closed, never imply that
+  legacy transport is available after an unreadable or uncommitted native state.
+- Only the read-only Unit pairing assertion may join the prepare/commit guard's
+  transaction. It cannot allocate counters, publish, return state or release ownership.
+- Pending ACK settlement shares the same private implementation and commit as
+  direct ACK settlement. Cancelled/failed operations preserve atomic rollback.
+- This boundary does not authenticate raw Combo history or admit meal timing.
+
 ## Forecast Test Isolation
 
 - Extra minute cycles never gain therapy writer rights, even after arming changes.
