@@ -1,5 +1,18 @@
 # SECURITY REVIEW
 
+## Combo Inventory Candidate (2026-10-25)
+
+- Pure bounded response codec/assembly; no production call site or new authority.
+- Domain-separated HKDF/AAD binds expected owner, request/counter, deadline and
+  page cursor/limit. Reuse private primitives; chunk wire and RFC tests unchanged.
+- Whole digest binds all entries and damage flags; final count/byte/hash checks
+  refuse omission, substitution and mixed catalogs. Errors clear partial state.
+- Fixed redacted failures and immutable copied metadata; no keys/raw pump bytes
+  in diagnostics. JVM string/provider erasure is not guaranteed.
+- Native provider oracle is synthetic interoperability, not independent security
+  or clinical approval. Revocation, native dispatch, durable receipts and device
+  measurements remain required before connecting this candidate live.
+
 ## Combo Read Outbox Candidate (2026-10-25)
 
 - Cold internal API only. The existing owner creates narrowly typed inventory or

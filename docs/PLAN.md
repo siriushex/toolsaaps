@@ -1,5 +1,19 @@
 # PLAN
 
+## Combo Inventory And Release 0.1.17 (2026-10-25)
+
+- [x] Verify corrected PR53 exact4bcf7b20, merge with authorization into main
+      5f3aa17c; merge tree matches the tested feature tree.
+- [x] Implement bounded encrypted catalog pages and fail-closed full assembly.
+- [x] Add strict metadata/digest/replay/tampering and native-provider tests.
+- [x] Local6991passed/six prior skips, lint/build,22 focused and14release checks;
+      signed39870608byte APK with7309retained app classes verified.
+- [ ] Exact-head CI; local checks are not CI or clinical approval.
+- [ ] Integrate verified feature into main, then verify main CI.
+- [ ] Publish forward0.1.17/code18 atomically; independently verify public APK.
+- Live raw transfer/receipts, pump epoch/clock mapping, continuous basal coverage
+  and prospective meal-time safety are not complete and must not be bypassed.
+
 ## Combo Read Outbox (2026-10-25)
 
 - [x] Revalidate exact PR52 head0d386c34: all six checks successful.
@@ -14,7 +28,7 @@
       original roster revision without changing pairing/target writers.
 - [x] Correction focused 71/full 6981 passed, six prior skips; native SDK,
       lint/build, source hashes and APK retention/size checks passed.
-- [ ] Verify corrected exact-head CI; initial green CI is not reused as proof.
+- [x] Corrected4bcf7b20 passed all six checks; merged with authorization as5f3aa17c.
 - Still disconnected: native extension/capability and authenticated manifest,
   master arbitration, response/private-retention reconciliation and clinical gates.
 

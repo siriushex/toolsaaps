@@ -14,6 +14,11 @@ internal sealed class AapsV3ComboReadSpec {
     @Serializable @SerialName("inventory")
     data class Inventory(val snapshotId: String? = null, val afterReadId: String? = null,
                          val limit: Int = 32) : AapsV3ComboReadSpec() {
+        fun requireValid() {
+            require(limit in 1..32)
+            require((snapshotId == null) == (afterReadId == null))
+            snapshotId?.let(HistoryJson::uuid); afterReadId?.let(HistoryJson::uuid)
+        }
         override fun toString() = "ComboInventoryRequest(redacted)"
     }
     @Serializable @SerialName("chunk")
@@ -43,9 +48,7 @@ internal class AapsV3ComboReadProtocol(secret: ByteArray) : AutoCloseable {
         val until = issuedAt + TTL_MS
         val query = when (spec) {
             is AapsV3ComboReadSpec.Inventory -> {
-                require(spec.limit in 1..32)
-                require((spec.snapshotId == null) == (spec.afterReadId == null))
-                spec.snapshotId?.let(HistoryJson::uuid); spec.afterReadId?.let(HistoryJson::uuid)
+                spec.requireValid()
                 buildJsonObject {
                     put("kind", "inventory"); put("limit", spec.limit)
                     spec.snapshotId?.let { put("snapshotId", it) }

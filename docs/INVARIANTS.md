@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## Combo Inventory Completeness
+
+- Catalog completeness describes retained files, not physical insulin delivery.
+  Keep both pump binding and delivery completeness unverified at this boundary.
+- Exact counts, sizes, all adverse flags and ordered IDs are covered by a whole
+  catalog digest. Missing/mixed/changed pages cannot return a partial success.
+- Cursor and encryption context come from the issued request, not the response.
+  Same-client/master continuation requires an increasing counter and last-read
+  cursor; bounded latest-response replay is never a durable receipt.
+- Inventory and chunk encryption share private primitives, not wire domains.
+  Page plaintext <=16 KiB, wire <=48 KiB, <=32 entries/page, <=4096 entries and
+  <=32 MiB aggregate. No unbounded parsing, implicit repair or raw export.
+
 ## Combo Read Scheduling
 
 - Read requests use the paired journal's shared counter and owned transaction;
