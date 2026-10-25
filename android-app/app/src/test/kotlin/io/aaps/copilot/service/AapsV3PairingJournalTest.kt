@@ -2,6 +2,7 @@ package io.aaps.copilot.service
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
@@ -10,6 +11,8 @@ import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.*
@@ -18,9 +21,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3PairingJournalTest {
     private lateinit var db: CopilotDatabase
     private val client = "11111111-2222-4333-8444-555555555555"
@@ -32,6 +37,54 @@ class AapsV3PairingJournalTest {
     private fun credential(id: String = client, expiry: Long = at + 120_000) = AapsV3PairingCredential(id, master, expiry, secret)
     @Before fun setup() { db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java).allowMainThreadQueries().build() }
     @After fun teardown() { db.close() }
+    private suspend fun refused(block: suspend () -> Unit) {
+        val failure = runCatching { block() }.exceptionOrNull()
+        assertTrue("Expected fixed journal failure, got $failure", failure is AapsV3TargetJournalFailure)
+        assertNull(failure!!.cause)
+    }
+
+    @Test fun externalTransactionCannotExposeEnrollmentOrConsumePinAttempt() = runBlocking {
+        db.withTransaction {
+            refused { owner().reservePairingAttempt(at) }
+            credential().use { c -> refused { owner().enroll(c, at) } }
+        }
+        assertEquals(0L, db.aapsV3TargetJournalDao().count())
+        assertEquals(0L, db.localNightscoutV3Dao().count())
+        credential().use { assertNotNull(owner().enroll(it, at).publication) }
+    }
+
+    @Test fun externalTransactionCannotReturnPairingStateOrRosterActivation() = runBlocking {
+        credential().use { owner().enroll(it, at) }
+        val row = roster(listOf(client))
+        db.withTransaction {
+            refused { owner().pairingSnapshot() }
+            refused { owner().observeRoster(row) }
+            refused { owner().revokePairing() }
+        }
+        assertEquals(AapsV3PairingPhase.WAITING, owner().pairingSnapshot()!!.phase)
+        assertEquals(AapsV3PairingPhase.ACTIVE, owner().observeRoster(row).phase)
+    }
+
+    @Test fun externalTransactionCannotPublishProbeBeforeCounterCommit() = runBlocking {
+        credential().use { owner().enroll(it, at) }
+        owner().observeRoster(roster(listOf(client)))
+        db.withTransaction { refused { owner().probe(at + 200) } }
+        assertEquals(2L, db.localNightscoutV3Dao().count())
+        val wire = owner().probe(at + 200)!!.document.payloadJson
+        val envelope = Json.parseToJsonElement(wire).jsonObject.getValue("envelope").jsonObject
+        assertEquals(2L, envelope.getValue("counter").jsonPrimitive.long)
+    }
+
+    @Test fun inheritedTransactionCannotExposeSigningProtocolOrPairingState() = runBlocking {
+        credential().use { owner().enroll(it, at) }
+        db.withTransaction {
+            withContext(Dispatchers.IO) {
+                refused { owner().withTargetProtocol { fail("protocol must not escape") } }
+                refused { owner().pairingSnapshot() }
+            }
+        }
+        owner().withTargetProtocol { assertNotNull(it) }
+    }
     private suspend fun roster(ids: List<String>, enabled: Boolean = true): io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity {
         val store = LocalNightscoutV3Store(db, { at + 100 })
         val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, "aaps", "local-v3-owner", 946_684_800_001,
@@ -90,8 +143,11 @@ class AapsV3PairingJournalTest {
         }
         assertTrue(owner().acknowledgeProbe(ack, at + 202))
         assertFalse(owner().acknowledgeProbe(ack, at + 90_000))
+        db.withTransaction { refused { owner().acknowledgeProbe(ack, at + 202) } }
         owner().withTargetProtocol { protocol ->
-            val prepared = owner().prepare("native-test", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"), protocol, at + 300) {}
+            val prepared = owner().prepare("native-test", AapsV3TargetSpec(90.0, 99.0, 30, "Eating Soon"), protocol, at + 300) {
+                owner().requireLivePairing(at + 300, at, 2)
+            }
             assertEquals(3L, prepared.counter)
             assertEquals("native-test", owner().pending()!!.operationId)
             assertNull(owner().probe(at + 301))

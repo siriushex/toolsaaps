@@ -1,5 +1,68 @@
 # SECURITY REVIEW
 
+## Combo Read Outbox Candidate (2026-10-25)
+
+- Cold internal API only. The existing owner creates narrowly typed inventory or
+  chunk requests, with explicit protocol version, destination installation and
+  request identity inside the signed native envelope. No generic signer/therapy
+  fields or replacement credential/counter owner.
+- Full request metadata are encrypted at rest in the existing journal. Wire
+  queries expose routing/manifest references, size and offsets, not raw clinical
+  bytes. Raw responses still require the separately reviewed encrypted codec.
+- Pairing/roster/fresh-session checks, shared counter, outbox and retained identity
+  are transactional. Cancellation or late validation failure rolls everything
+  back. On recovery, compare parsed outer JSON because the settings store
+  canonicalizes field order; the signed payload string remains exact.
+- Target operations do not inspect low-priority state. Corruption in that state
+  must not block an otherwise admissible target. Late history snapshots are
+  suppressed after queue priority, counter supersession, expiry or revocation.
+- Not yet safe to activate: native capability and authenticated paged manifest,
+  master-side arbitration/revocation, response interpretation, retained receipts,
+  bandwidth/device cost and independent protocol review remain required.
+  Successful read admission is neither a response ACK nor physical delivery proof.
+- PR53 review found that an OFF/ON roster transition between read snapshots could
+  revive the old publication. Retain the issue-time roster revision and revoke on
+  any replacement (or missing legacy pin). This uses the already durable pairing
+  revision; roster/target writers do not parse potentially corrupt read records.
+  File-reopen, unobserved OFF/ON, changed/identical roster and legacy-pin regressions
+  cover this correction. Local focused/full checks passed; corrected exact-head
+  CI remains required. This is not independent clinical or protocol approval.
+
+## Combo Chunk Envelope Candidate (2026-10-25)
+
+- No production entry point or device access. Strict bounded pure codec under
+  the existing secret lifecycle; no generic signer or new authentication owner.
+- Key separation follows [RFC5869](https://www.rfc-editor.org/rfc/rfc5869.html):
+  full extract and one expand block via platform HMAC-SHA256. Platform AES-GCM
+  supplies encryption and authentication. A fresh random salt isolates response
+  keys across retries/restarts; a fresh IV is also generated. Protocol context
+  includes direction and algorithm. PIN wrapping remains untouched.
+- Tampering with any scope field, salt, IV, ciphertext or tag must fail without
+  plaintext or raw provider exceptions. Strict parser rejects duplicate fields,
+  oversized content and noncanonical Base64 before crypto work.
+- Returned plaintext belongs to the caller; it must be cleared after private
+  assembly/retention. Logging models and failures are redacted. No zeroization
+  guarantee for immutable strings or provider-owned key schedules.
+- The fixed-lifetime context prevents use outside its interval, but does not
+  independently establish clock trust, pairing validity, replay protection,
+  snapshot provenance or delivery completeness. Those remain owner-layer gates.
+- This is an implementation/self-review, not an independent cryptographic review.
+  Do not wire it live until protocol/nonce review and authenticated manifest,
+  outbox/counter, admission/revocation, storage/work budget and device cost tests.
+
+## Paired Journal Boundary (2026-10-25)
+
+- Pre-transfer audit reproduced eleven regression failures: the existing native
+  journal could expose signed requests or state before an external transaction
+  committed. A later rollback could lose the associated counter/receipt.
+- Public journal operations now reject active/inherited transactions with the
+  fixed redacted journal failure; cancellation remains cancellation. Guard-only
+  pairing assertions are read-only and cannot return credentials or receipts.
+- Preserve the pinned Room2.8.4 compatibility guard and native SQLite regressions,
+  including dispatcher switches, legitimate nested assertions and pending ACKs.
+- No new endpoint, command, key, schema, raw transfer or therapy permission.
+  Pairing/source binding, clock epochs and physical delivery remain separate gates.
+
 ## Combo Receipt Boundary (2026-10-24)
 
 - Pre-transport audit reproduced five cases where a public store result escaped

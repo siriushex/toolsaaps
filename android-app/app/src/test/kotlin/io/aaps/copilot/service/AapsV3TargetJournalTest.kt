@@ -2,6 +2,7 @@ package io.aaps.copilot.service
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
@@ -14,7 +15,9 @@ import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.*
@@ -60,6 +63,107 @@ class AapsV3TargetJournalTest {
     private suspend fun preview(owner: AapsV3TargetJournal, p: AapsV3TargetProtocol) {
         owner.acknowledge("meal-1", p, ack(1,
             """{"bolusId":321,"lines":[{"role":"Normal","text":"synthetic target"}]}"""), at + 2)
+    }
+
+    private suspend fun refused(block: suspend () -> Unit) {
+        val failure = runCatching { block() }.exceptionOrNull()
+        assertTrue("Expected fixed journal failure, got $failure", failure is AapsV3TargetJournalFailure)
+        assertNull(failure!!.cause)
+    }
+
+    @Test fun externalTransactionCannotPublishPrepareBeforeCounterCommit() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            db.withTransaction {
+                refused { owner.prepare("meal-1", target, p, at) { fail("guard must not run") } }
+            }
+            assertEquals(0L, db.localNightscoutV3Dao().count())
+            assertNull(owner.pending())
+            assertEquals(1L, owner.prepare("meal-1", target, p, at) {}.counter)
+        }
+    }
+
+    @Test fun externalTransactionCannotReturnAReplayedPrepareReceipt() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}
+            db.withTransaction { refused { owner.prepare("meal-1", target, p, at + 1) {} } }
+            assertNull(owner.prepare("meal-1", target, p, at + 2) {}.publication)
+        }
+    }
+
+    @Test fun externalTransactionCannotPublishCommitBeforeCounterCommit() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}; preview(owner, p)
+            db.withTransaction {
+                refused { owner.commit("meal-1", p, at + 3) { fail("guard must not run") } }
+            }
+            assertEquals(AapsV3TargetPhase.PREVIEW, owner.pending()!!.phase)
+            assertEquals(1L, db.localNightscoutV3Dao().count())
+            assertEquals(2L, owner.commit("meal-1", p, at + 3) {}.counter)
+        }
+    }
+
+    @Test fun externalTransactionCannotExposeAppliedAckOrSettlePendingOwner() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}; preview(owner, p)
+            owner.commit("meal-1", p, at + 3) {}
+            db.withTransaction {
+                refused { owner.acknowledge("meal-1", p, ack(2, timestamp = at + 4), at + 5) }
+                refused { owner.acknowledgePending(p, ack(2, timestamp = at + 4), at + 5) }
+            }
+            assertEquals(AapsV3TargetPhase.COMMITTED, owner.pending()!!.phase)
+            assertEquals(AapsV3TargetPhase.APPLIED,
+                owner.acknowledgePending(p, ack(2, timestamp = at + 4), at + 5)!!.phase)
+            assertNull(owner.pending())
+        }
+    }
+
+    @Test fun externalTransactionCannotExposeJournalReadsOrExpiryResult() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p -> owner.prepare("meal-1", target, p, at) {} }
+        db.withTransaction {
+            refused { owner.status("meal-1") }
+            refused { owner.pending() }
+            refused { owner.hasNativeState() }
+            refused { owner.expire(at + 8001) }
+            refused { owner.bind(client) }
+        }
+        assertEquals(AapsV3TargetPhase.PREPARED, owner.pending()!!.phase)
+        assertEquals(AapsV3TargetPhase.EXPIRED_NO_COMMIT, owner.expire(at + 8001)!!.phase)
+    }
+
+    @Test fun inheritedTransactionCannotPublishAfterDispatcherSwitch() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            db.withTransaction {
+                withContext(Dispatchers.IO) {
+                    refused { owner.prepare("meal-1", target, p, at) {} }
+                    refused { journal().pending() }
+                }
+            }
+            assertNull(owner.pending())
+            assertEquals(0L, db.localNightscoutV3Dao().count())
+            assertEquals(1L, owner.prepare("meal-1", target, p, at) {}.counter)
+        }
+    }
+
+    @Test fun guardCannotReenterCounterOwnerThroughAnotherJournalInstance() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            refused {
+                owner.prepare("meal-1", target, p, at) {
+                    journal().prepare("meal-2", target, p, at) {}
+                }
+            }
+            assertNull(owner.pending())
+            assertNull(owner.status("meal-1"))
+            assertNull(owner.status("meal-2"))
+            assertEquals(0L, db.localNightscoutV3Dao().count())
+            assertEquals(1L, owner.prepare("meal-1", target, p, at) {}.counter)
+        }
     }
 
     @Test fun requestCounterAndPublicationCommitTogetherAndDuplicateNeverPublishesAgain() = runBlocking {

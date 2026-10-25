@@ -1,5 +1,56 @@
 # INVARIANTS
 
+## Combo Read Scheduling
+
+- Read requests use the paired journal's shared counter and owned transaction;
+  external/inherited transactions cannot return a publication or recovery receipt.
+- Reads never set/clear `Root.pending`, mutate action status or claim delivery.
+  Queued/unresolved targets take precedence; higher counters supersede reads.
+- Recovery never creates a new signature identity, deadline, counter or outbox
+  revision. It verifies the original signed content and returns the committed
+  document only while identity, roster, session pong, clock and expiry still match.
+- Reserve control storage headroom; one outstanding bounded typed request and
+  a single encrypted read row. No arbitrary action/payload signer or read-as-target
+  conversion. Inventory limits 1..32 and chunk geometry follow the envelope contract.
+- Terminal read states do not reactivate on same-ID retry or restored control.
+  Pin the issue-time roster revision; any accepted replacement invalidates the
+  request, including control OFF/ON without intermediate observation. A missing
+  legacy pin cannot be upgraded into authorization during recovery.
+  A new request identity may replace the singleton; all responses still need exact
+  counter/scope matching. This is not an unbounded historical idempotency ledger.
+- No live call site until native capability/manifest, master-side priority and
+  post-I/O admission, encrypted responses, receipt reconciliation and safety tests.
+
+## Combo Chunk Confidentiality
+
+- No raw history bytes or request scope metadata in the chunk envelope. Wire
+  size/timing and the outer settings routing identifier are not concealed.
+- Authenticate the expected paired request context, not metadata asserted by
+  an incoming response. Unknown versions/fields, duplicate JSON keys, invalid
+  UTF-8, noncanonical Base64, tampered tags and wrong scopes fail identically.
+- Use fresh OS CSPRNG salt/IV for every seal, derive a domain-separated key,
+  and clear owned pairing/key/plaintext copies on close/completion. JVM provider
+  internal copies and perfect erasure are not claimed.
+- Exact aligned 32 KiB chunks, at most 64 per 2 MiB read; envelope at most 48 KiB
+  within the existing 64 KiB complete settings limit. Exact body length is required.
+- At issue <= now < expiry, maximum lifetime 30 seconds; clocks and authorization
+  remain caller responsibilities. No codec result grants replay/retention/therapy
+  admission or turns unverified delivery into confirmed delivery.
+- Do not activate before independent protocol/nonce review, paired owner and
+  manifest admission, revocation checks, target priority and recovery are verified.
+
+## Paired Journal Ownership
+
+- Publications, pairing state, counter state, signing material and ACK receipts
+  cannot escape an external same-database transaction, even after a dispatcher switch.
+- Native-state detection must be consistent and fail closed, never imply that
+  legacy transport is available after an unreadable or uncommitted native state.
+- Only the read-only Unit pairing assertion may join the prepare/commit guard's
+  transaction. It cannot allocate counters, publish, return state or release ownership.
+- Pending ACK settlement shares the same private implementation and commit as
+  direct ACK settlement. Cancelled/failed operations preserve atomic rollback.
+- This boundary does not authenticate raw Combo history or admit meal timing.
+
 ## Forecast Test Isolation
 
 - Extra minute cycles never gain therapy writer rights, even after arming changes.

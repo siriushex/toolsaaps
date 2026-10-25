@@ -1,5 +1,50 @@
 # PLAN
 
+## Combo Read Outbox (2026-10-25)
+
+- [x] Revalidate exact PR52 head0d386c34: all six checks successful.
+- [x] Add narrow typed read requests to the existing counter/transaction owner,
+      separate from the pending therapy slot, with durable exact recovery.
+- [x] Add priority, current-session, capacity, cancellation/write-failure,
+      expiry/revocation and same-file reopen regressions.
+- [x] Focused 67 tests and full Android 6977 passed/six prior skips; actual SDK
+      interoperability, lint/build, frozen source and APK retention passed.
+- [x] Publish initial source head0febea34 in PR53; all six CI checks passed.
+- [x] Reproduce PR53 review's unobserved OFF/ON recovery defect; bind read to the
+      original roster revision without changing pairing/target writers.
+- [x] Correction focused 71/full 6981 passed, six prior skips; native SDK,
+      lint/build, source hashes and APK retention/size checks passed.
+- [ ] Verify corrected exact-head CI; initial green CI is not reused as proof.
+- Still disconnected: native extension/capability and authenticated manifest,
+  master arbitration, response/private-retention reconciliation and clinical gates.
+
+## Combo Chunk Envelope (2026-10-25)
+
+- [x] Revalidate PR51 exact head3fb806f2: all six checks successful, PR still open.
+- [x] Implement a bounded, typed response envelope with domain-separated key,
+      strict expected request context, expiry and exact chunk geometry.
+- [x] Add RFC vector, tampering, lifecycle, parser/size and assembly-boundary tests.
+- [x] Native RC1 crypto in both directions; Android6960passed/six prior skips;
+      actual TLS3.683s, lint zero errors, compile/build and APK retention passed.
+- [x] Review/publish explicit source paths; PR52 head0d386c34 has six green checks.
+- [ ] Independently review protocol/key/nonce lifecycle before runtime use.
+- No live raw transfer, new counter owner, device update or clinical timer activation.
+  Next: authenticated paged manifest/capability and read-only dispatch through the
+  existing paired owner, target-first outbox, durable receipt/replay reconciliation.
+
+## Paired Journal Boundary (2026-10-25)
+
+- [x] Recheck main b29c42fb: all three Verify jobs succeeded.
+- [x] Reproduce eleven native SQLite failures across enrollment, probe, target,
+      receipt/state reads and inherited transaction contexts.
+- [x] Enforce owned commits, keeping the nested read-only pairing guard and
+      private pending ACK settlement. No schema or protocol change.
+- [x] Focused74passed; full Android6951passed/six prior skips; actual TLS19.153s.
+- [x] Lint zero errors; compile/build, frozen source and APK retention/size passed.
+- [x] Reviewed explicit source publication and exact-head PR51 CI3fb806f2.
+- Raw Combo transfer, source binding, UTC mapping, basal continuity and prospective
+  meal-time safety remain incomplete. No clinical admission or deployment here.
+
 ## Release Candidate 0.1.16 (2026-10-24)
 
 - [x] PR49 exact9f6798d3 passed all six CI checks; independent review is absent.

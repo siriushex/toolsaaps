@@ -1,3 +1,74 @@
+# Combo Read Outbox - 2026-10-25
+
+- First PR53 head0febea34 passed all six CI checks, but automated review found an
+  unobserved control OFF/ON recovery gap. Reproduced it and the missing legacy
+  revision binding. Pin the issue-time roster revision; any replacement revokes
+  the read without coupling roster/target writers to history parsing. An unchanged
+  roster remains valid. The first changed-roster fixture was a no-op update; use
+  a real roster content change and separately test unchanged observations.
+- Correction: focused 71 passed; full Android 6981 passed/six prior skips, zero
+  failures, lint zero errors/379 warnings/eight hints, compile/build successful.
+  Actual SDK TLS 2.076s, crypto 0.263s, read oracle 0.610s. Frozen Kotlin hashes
+  and APK guard passed (39854211 bytes, 7296 retained app classes). Corrected-head
+  CI is pending; earlier green CI applies only to the initial head.
+- PR52 exact head0d386c34 remains green; no main/device/server deployment.
+- Added a cold typed read lane to the existing paired journal. It shares the
+  counter but never occupies the target slot; pending targets/probes defer reads.
+- Persist publication and request identity atomically; reconstruct only for
+  validation and return the exact stored document during admissible recovery.
+- Initial tests found two healthy-recovery failures caused by canonical JSON
+  key ordering. Compare outer JSON structurally while preserving exact signed
+  payload, revision and owner binding. Added final clock checks before return.
+- Focused 67 tests passed. Full Android: 6977 passed, six prior private-fixture
+  skips, zero failures; stock SDK TLS 1.997s, native chunk crypto 0.290s and read
+  MAC/unsupported-schema oracle 0.770s. Lint zero errors, 379 prior warnings and
+  eight hints; compile/build passed. Kotlin source fingerprints remained exact.
+- Tooling recipe checks: 18 passed; initial combined invocation omitted
+  AAPS_RC1_DIR, so its separate six JSON-isolation tests failed setup. Those six
+  passed with the required environment, without rerunning the passed 18 tests.
+- APK retention passed for all 7296 compiled application classes. Incremental
+  packaging left 7652061 unreferenced bytes; regenerating only the APK reduced
+  47506272 to 39854211 bytes with identical SHA-256 for every archive member.
+  This local artifact is not a release. Exact-head CI awaits source publication.
+- No response decoder/receipt ACK, live sender or clinical admission is enabled.
+
+# Combo Chunk Envelope - 2026-10-25
+
+- PR51 all six checks successful at exact head3fb806f2; main not merged here.
+- Added a pure bounded encrypted response codec with a strict expected context,
+  per-message HKDF-derived key, AES-GCM, exact 32 KiB geometry and fixed failures.
+- No new dependencies; native cross-provider oracle uses the existing pinned
+  RC1 cryptography library, not a second copy of the JCE implementation.
+- Initial test compilation failed on missing codec types as expected. Nine
+  focused tests passed, then full Android6960passed/six prior skips, actual
+  SDK TLS3.683s and final independently framed crypto interoperability0.409s.
+- Lint zero errors/379 prior warnings/eight hints; compile/build, frozen source
+  hashes and APK retention passed (40,762,208 bytes,7276 retained app classes).
+  Exact-head CI remains pending source publication; local artifact is not a release.
+- This stage does not connect raw transfer, allocate counters, alter therapy,
+  activate meal-time advice, merge main or publish APK. Pending owner/manifest,
+  recovery, independent protocol review and clinical evidence gates remain explicit.
+
+# Paired Journal Boundary - 2026-10-25
+
+- Read-only main CI check: exact b29c42fb Verify has all three jobs successful.
+- Before future Combo transfer, reproduced eleven failures in the existing
+  pairing/target journal: signed publications or state could escape an outer
+  transaction before durable counter/receipt commit.
+- Reject external and inherited Room transactions before public operations;
+  native-state detection now reads consistently under one owned transaction.
+- Keep the legitimate nested pairing assertion read-only. Pending ACKs invoke
+  a private settlement implementation within one owned commit, preserving action
+  status atomicity, redacted failures and coroutine cancellation semantics.
+- Focused74passed; full Android6951passed/six prior skips, actual SDK TLS19.153s.
+  Additional reentry regression passed in the full run. Lint zero errors,
+  379existing warnings/eight hints; build, frozen Kotlin hashes and APK class/
+  size guard passed. Local verification took25m35s under high host load.
+- Existing nativeRouteConfigured exception handling still refuses legacy fallback
+  after a journal failure. No new error-to-legacy path or unguarded signer was added.
+- No raw Combo transport, clinical permission,
+  AAPS change, phone/server update or public APK release in this stage.
+
 # Release Candidate 0.1.16 - 2026-10-24
 
 - Prepare versionCode17/versionName0.1.16 from verified PR49, retaining package,

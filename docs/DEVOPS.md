@@ -1,5 +1,48 @@
 # DEVOPS
 
+## Combo Read Outbox Verification
+
+Run native-SQLite `AapsV3ComboReadJournalTest` with pairing/target journal and
+channel regressions. Cover file reopen, exact recovery, priority, concurrent reads,
+row/wire headroom, late clock/cancellation, write failure and external transactions.
+The external `ComboReadRequestInteropKt` verifies the candidate MAC using actual
+pristine RC1 crypto and confirms that its stock closed message schema refuses the
+unknown extension. It is not an extended master endpoint or phone acceptance test.
+Run `prepare.sh`, focused/full Android tests with required native driver variables,
+lint/build and APK guard, then exact-head CI. No AAPS source modification or schema
+migration is introduced. Rollback removes the disconnected code; preserve journals.
+
+Local incremental packaging retained 7.65 MB of unreferenced ZIP gaps. Moving only
+the generated APK aside and running assemble again rebuilt the archive from the
+same checked inputs; compare every member's SHA-256 and rerun the retention/size
+guard. Archive size alone must not be mistaken for a DEX/code-size regression.
+
+## Combo Chunk Envelope Verification
+
+Run `tools/aaps4_compat/prepare.sh` against the clean pinned RC1 checkout with
+Java21. It compiles the external synthetic `ComboChunkCryptoInteropKt` driver
+without modifying native sources. Run `AapsV3ComboChunkEnvelopeTest` with the
+same `AAPS_INTEROP_CLASSPATH` and `AAPS_INTEROP_JAVA_HOME` as the existing TLS
+suite; CI requires the native crypto test rather than accepting a missing fixture.
+The driver uses RC1's real cryptography-kotlin HKDF and AES-GCM in both directions,
+only synthetic fixed-key bytes, bounded stdin and a fixed error code. It opens
+no network connection or pump/application credential and creates no AAPS extension.
+
+Then run full Android test/lint/compile/build, actual SDK TLS and APK retention
+checks. No schema, deployment or configuration migration is required; rollback
+is source revert. A green run does not authorize transport or meal-time activation.
+
+## Paired Journal Verification
+
+Run AapsV3TargetJournalTest and AapsV3PairingJournalTest on native SQLite with
+AapsV3TargetChannelTest and AapsV3ComboJournalStoreTest. Preserve external/inherited
+transaction rejection, the nested read-only pairing assertion, shared probe/target
+counters and pending ACK settlement. Then run full Android tests/lint/compile/build,
+actual pristine SDK TLS and APK retention/size checks before exact-head CI.
+The compatibility check is pinned to Room2.8.4, including its RestrictedApi guard.
+No schema, phone, server or AAPS migration; rollback is reverting this source stage.
+Do not connect raw Combo transfer or admit meal-time advice based on these tests.
+
 ## Forecast Test Verification
 
 Run ForecastTest session/arbiter/policy/notification/UI tests, the reactive lease

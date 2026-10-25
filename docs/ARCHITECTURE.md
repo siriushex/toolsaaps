@@ -1,5 +1,70 @@
 # ARCHITECTURE
 
+## Combo Read Outbox Candidate
+
+The existing `AapsV3TargetJournal` now has an internal, disconnected read-only
+lane for typed inventory-page and chunk requests. Pairing secret, monotonically
+increasing counter, encrypted request identity and settings publication commit
+in the same owned Room transaction. No new owner, schema, generic signer or
+therapy operation is introduced. The native extension type is
+`combo_history_read_v1`; the stock RC1 schema does not support it.
+
+One encrypted `combo-read` row and one request document per paired client bound
+the lane. A queued action target, pending target operation or outstanding liveness
+probe defers new history. A target/probe may advance the shared counter without
+reading or waiting on history; recovery then marks the old read SUPERSEDED.
+Expiry/revocation are terminal for the retained request identity. The original
+roster revision is pinned; any accepted replacement revokes the read,
+including disable/re-enable cycles not observed by the read API. Identical roster
+observations do not change the revision. Legacy reads without a pin are revoked.
+Recovery verifies the committed document, identity, signature context and revision but returns the
+stored bytes without republishing or allocating a counter. The source may already
+have received old bytes; native-side priority/revocation checks are still required.
+
+Requests require a fresh current-session pong, current roster and enabled control,
+with clock/admission rechecks before commit or recovered-wire return. Capacity
+admission leaves one journal row and two maximum-size wire documents for a target
+prepare/commit. This reserve does not claim protection against unrelated writers.
+See [read outbox](AAPS4_COMBO_READ_OUTBOX.md) for exact scope and remaining gates.
+
+## Combo Chunk Envelope Candidate
+
+The internal `AapsV3ComboChunkEnvelope` is a response codec, not a network owner.
+Exact field/framing and ownership contract: [chunk envelope](AAPS4_COMBO_CHUNK_ENVELOPE.md).
+It seals exact 32 KiB aligned read fragments (short final fragment) using JCE
+AES-256-GCM with a 128-bit tag and a fresh random 256-bit HKDF salt and 96-bit IV.
+RFC5869 SHA-256 extract/one-block expand derives a separate response key from the
+32-byte pairing secret. No PIN-derived enrollment key or direct command MAC key
+is used for encryption. The context is both HKDF info and GCM associated data.
+
+The context binds version, direction, cipher, paired client and master installation,
+request, snapshot, read, pump binding, full-read SHA-256, existing shared counter,
+issue/expiry, total size, offset and exact length. All fields have closed ASCII
+alphabets and fixed ordering. The wire contains only version, salt, IV and ciphertext;
+it cannot supply the expected context. The caller must obtain that context through
+the authenticated paired manifest/outbox, never trust a response to identify itself.
+
+This stage has no runtime call site, sender, new counter, manifest endpoint or
+therapy path. `open` authenticates bytes, not freshness of pairing/revocation or
+clinical coverage. The existing assembly still verifies full-read digest, frame
+integrity and adverse evidence. Replays are left to the paired transaction owner.
+Transport admission, inventory paging, durable ciphertext retries, aggregate budgets,
+target priority and receipt reconciliation remain separate required work.
+
+## Paired Journal Commit Boundary
+
+The existing native paired journal owns commits for enrollment, probes, target
+requests, acknowledgements and returned state. Active or inherited external Room
+transactions are refused before publications, counters, snapshots or credentials
+escape. Native-state detection is a single transactional read, not several reads
+that could disagree about transport ownership. No schema or wire format changes.
+
+The guard's `requireLivePairing` is deliberately a read-only Unit assertion inside
+prepare/commit. It returns no state or signing material. Pending acknowledgements
+use one private implementation inside the owning transaction, not another public
+transaction owner. Future Combo transfer must reuse this counter owner without
+wrapping it in an external transaction; raw transfer remains disconnected.
+
 ## Minute Forecast Test
 
 An opt-in process-local session adds minute `FORECAST_TEST` cycles under the
