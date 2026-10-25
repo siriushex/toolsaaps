@@ -1,5 +1,26 @@
 # SECURITY REVIEW
 
+## Combo Read Outbox Candidate (2026-10-25)
+
+- Cold internal API only. The existing owner creates narrowly typed inventory or
+  chunk requests, with explicit protocol version, destination installation and
+  request identity inside the signed native envelope. No generic signer/therapy
+  fields or replacement credential/counter owner.
+- Full request metadata are encrypted at rest in the existing journal. Wire
+  queries expose routing/manifest references, size and offsets, not raw clinical
+  bytes. Raw responses still require the separately reviewed encrypted codec.
+- Pairing/roster/fresh-session checks, shared counter, outbox and retained identity
+  are transactional. Cancellation or late validation failure rolls everything
+  back. On recovery, compare parsed outer JSON because the settings store
+  canonicalizes field order; the signed payload string remains exact.
+- Target operations do not inspect low-priority state. Corruption in that state
+  must not block an otherwise admissible target. Late history snapshots are
+  suppressed after queue priority, counter supersession, expiry or revocation.
+- Not yet safe to activate: native capability and authenticated paged manifest,
+  master-side arbitration/revocation, response interpretation, retained receipts,
+  bandwidth/device cost and independent protocol review remain required.
+  Successful read admission is neither a response ACK nor physical delivery proof.
+
 ## Combo Chunk Envelope Candidate (2026-10-25)
 
 - No production entry point or device access. Strict bounded pure codec under

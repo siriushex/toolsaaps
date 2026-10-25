@@ -1,5 +1,18 @@
 # PLAN
 
+## Combo Read Outbox (2026-10-25)
+
+- [x] Revalidate exact PR52 head0d386c34: all six checks successful.
+- [x] Add narrow typed read requests to the existing counter/transaction owner,
+      separate from the pending therapy slot, with durable exact recovery.
+- [x] Add priority, current-session, capacity, cancellation/write-failure,
+      expiry/revocation and same-file reopen regressions.
+- [x] Focused 67 tests and full Android 6977 passed/six prior skips; actual SDK
+      interoperability, lint/build, frozen source and APK retention passed.
+- [ ] Publish reviewed source paths and verify exact-head CI.
+- Still disconnected: native extension/capability and authenticated manifest,
+  master arbitration, response/private-retention reconciliation and clinical gates.
+
 ## Combo Chunk Envelope (2026-10-25)
 
 - [x] Revalidate PR51 exact head3fb806f2: all six checks successful, PR still open.
@@ -8,7 +21,7 @@
 - [x] Add RFC vector, tampering, lifecycle, parser/size and assembly-boundary tests.
 - [x] Native RC1 crypto in both directions; Android6960passed/six prior skips;
       actual TLS3.683s, lint zero errors, compile/build and APK retention passed.
-- [ ] Review/publish explicit source paths and verify exact-head CI.
+- [x] Review/publish explicit source paths; PR52 head0d386c34 has six green checks.
 - [ ] Independently review protocol/key/nonce lifecycle before runtime use.
 - No live raw transfer, new counter owner, device update or clinical timer activation.
   Next: authenticated paged manifest/capability and read-only dispatch through the

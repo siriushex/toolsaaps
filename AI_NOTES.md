@@ -1,3 +1,26 @@
+# Combo Read Outbox - 2026-10-25
+
+- PR52 exact head0d386c34 remains green; no main/device/server deployment.
+- Added a cold typed read lane to the existing paired journal. It shares the
+  counter but never occupies the target slot; pending targets/probes defer reads.
+- Persist publication and request identity atomically; reconstruct only for
+  validation and return the exact stored document during admissible recovery.
+- Initial tests found two healthy-recovery failures caused by canonical JSON
+  key ordering. Compare outer JSON structurally while preserving exact signed
+  payload, revision and owner binding. Added final clock checks before return.
+- Focused 67 tests passed. Full Android: 6977 passed, six prior private-fixture
+  skips, zero failures; stock SDK TLS 1.997s, native chunk crypto 0.290s and read
+  MAC/unsupported-schema oracle 0.770s. Lint zero errors, 379 prior warnings and
+  eight hints; compile/build passed. Kotlin source fingerprints remained exact.
+- Tooling recipe checks: 18 passed; initial combined invocation omitted
+  AAPS_RC1_DIR, so its separate six JSON-isolation tests failed setup. Those six
+  passed with the required environment, without rerunning the passed 18 tests.
+- APK retention passed for all 7296 compiled application classes. Incremental
+  packaging left 7652061 unreferenced bytes; regenerating only the APK reduced
+  47506272 to 39854211 bytes with identical SHA-256 for every archive member.
+  This local artifact is not a release. Exact-head CI awaits source publication.
+- No response decoder/receipt ACK, live sender or clinical admission is enabled.
+
 # Combo Chunk Envelope - 2026-10-25
 
 - PR51 all six checks successful at exact head3fb806f2; main not merged here.

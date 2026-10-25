@@ -1,5 +1,22 @@
 # DEVOPS
 
+## Combo Read Outbox Verification
+
+Run native-SQLite `AapsV3ComboReadJournalTest` with pairing/target journal and
+channel regressions. Cover file reopen, exact recovery, priority, concurrent reads,
+row/wire headroom, late clock/cancellation, write failure and external transactions.
+The external `ComboReadRequestInteropKt` verifies the candidate MAC using actual
+pristine RC1 crypto and confirms that its stock closed message schema refuses the
+unknown extension. It is not an extended master endpoint or phone acceptance test.
+Run `prepare.sh`, focused/full Android tests with required native driver variables,
+lint/build and APK guard, then exact-head CI. No AAPS source modification or schema
+migration is introduced. Rollback removes the disconnected code; preserve journals.
+
+Local incremental packaging retained 7.65 MB of unreferenced ZIP gaps. Moving only
+the generated APK aside and running assemble again rebuilt the archive from the
+same checked inputs; compare every member's SHA-256 and rerun the retention/size
+guard. Archive size alone must not be mistaken for a DEX/code-size regression.
+
 ## Combo Chunk Envelope Verification
 
 Run `tools/aaps4_compat/prepare.sh` against the clean pinned RC1 checkout with

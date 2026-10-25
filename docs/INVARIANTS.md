@@ -1,5 +1,23 @@
 # INVARIANTS
 
+## Combo Read Scheduling
+
+- Read requests use the paired journal's shared counter and owned transaction;
+  external/inherited transactions cannot return a publication or recovery receipt.
+- Reads never set/clear `Root.pending`, mutate action status or claim delivery.
+  Queued/unresolved targets take precedence; higher counters supersede reads.
+- Recovery never creates a new signature identity, deadline, counter or outbox
+  revision. It verifies the original signed content and returns the committed
+  document only while identity, roster, session pong, clock and expiry still match.
+- Reserve control storage headroom; one outstanding bounded typed request and
+  a single encrypted read row. No arbitrary action/payload signer or read-as-target
+  conversion. Inventory limits 1..32 and chunk geometry follow the envelope contract.
+- Terminal read states do not reactivate on same-ID retry or restored control.
+  A new request identity may replace the singleton; all responses still need exact
+  counter/scope matching. This is not an unbounded historical idempotency ledger.
+- No live call site until native capability/manifest, master-side priority and
+  post-I/O admission, encrypted responses, receipt reconciliation and safety tests.
+
 ## Combo Chunk Confidentiality
 
 - No raw history bytes or request scope metadata in the chunk envelope. Wire

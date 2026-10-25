@@ -1,5 +1,29 @@
 # ARCHITECTURE
 
+## Combo Read Outbox Candidate
+
+The existing `AapsV3TargetJournal` now has an internal, disconnected read-only
+lane for typed inventory-page and chunk requests. Pairing secret, monotonically
+increasing counter, encrypted request identity and settings publication commit
+in the same owned Room transaction. No new owner, schema, generic signer or
+therapy operation is introduced. The native extension type is
+`combo_history_read_v1`; the stock RC1 schema does not support it.
+
+One encrypted `combo-read` row and one request document per paired client bound
+the lane. A queued action target, pending target operation or outstanding liveness
+probe defers new history. A target/probe may advance the shared counter without
+reading or waiting on history; recovery then marks the old read SUPERSEDED.
+Expiry/revocation are terminal for the retained request identity. Recovery verifies
+the committed document, identity, signature context and revision but returns the
+stored bytes without republishing or allocating a counter. The source may already
+have received old bytes; native-side priority/revocation checks are still required.
+
+Requests require a fresh current-session pong, current roster and enabled control,
+with clock/admission rechecks before commit or recovered-wire return. Capacity
+admission leaves one journal row and two maximum-size wire documents for a target
+prepare/commit. This reserve does not claim protection against unrelated writers.
+See [read outbox](AAPS4_COMBO_READ_OUTBOX.md) for exact scope and remaining gates.
+
 ## Combo Chunk Envelope Candidate
 
 The internal `AapsV3ComboChunkEnvelope` is a response codec, not a network owner.
