@@ -139,15 +139,18 @@ phone, clinical activation or public APK publication.
 
 ## RC1 Receiver Patch Verification
 
-The combined recipe also applies combo-history-integrity.patch and
-combo-history-source.patch and runs the full
+The combined recipe also applies combo-history-integrity.patch,
+combo-history-source.patch and combo-history-control.patch and runs the full
 native Combo module suite. Synthetic packets exercise malformed history flags
 and acknowledgement order without accessing a real pump. The same exact-diff
-cleanup owns all five patches; prepare.sh still requires pristine upstream.
+cleanup owns all six patches; prepare.sh still requires pristine upstream.
 Patch inputs are copied before applying. Rollback reverses these immutable copies
 in reverse dependency order: reversing one concatenated stream can recreate a
 new file modified by a later patch. Synthetic recipe tests cover that case,
 missing inputs and concurrent edits without overwriting them.
+The control patch adds isolated history refusal ACKs and native receiver tests
+against disguised stock payloads; it does not enable source reads or advertise
+a history capability. Existing target/executor tests still run in the same suite.
 See AAPS4_COMBO_HISTORY_INTEGRITY.md. This is not an AAPS phone deployment.
 
 The upload patch also includes SDK clock-refusal regressions. These use the
@@ -176,6 +179,11 @@ pristine SDK preparation gate stays unchanged; Verify separately installs the
 upstream-required Android37 platform (`platforms;android-37.0`, the exact Google
 package identifier) for native module tests. This is not a signed
 AAPS APK publication, full upstream APK CI or USB installation permission.
+
+Match the CI toolchain split locally: native patch/SDK preparation uses Java21;
+Copilot quality runs use Java17 with `AAPS_INTEROP_JAVA_HOME` pointing to Java21.
+A JVM fatal error is an incomplete test run, not an application assertion result.
+Keep crash/replay reports private and outside staged source paths.
 
 ## Treatment Wire Stage
 

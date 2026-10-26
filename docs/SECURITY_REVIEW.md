@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## History Reply Isolation (2026-10-26)
+
+- The generic receiver decodes stock payloads independently of the outer type.
+  A reserved history envelope must therefore be refused before stock action or
+  Hello dispatch, not merely routed to a different ACK address after execution.
+- Authenticated history-family responses, including expiry and control-disabled
+  failures, use a separate per-client key. No history response writes the target
+  or delivery slot; ordinary and asynchronous delivery ACKs retain their path.
+- Scope routing uses the MAC-covered type/client, never a settings-name suffix.
+  No metadata or history bytes in refusal payloads; no new secret/counter owner.
+- Gate tests include hidden bolus commit/stop, alarm dismissal, preferences,
+  Hello, unknown history version, malformed payload, bad MAC, replay and echoes.
+- This does not yet remove network waits from commandMutex or admit asynchronous
+  read work. Native epoch/revocation, strict query decoding, encryption and receipt
+  reconciliation remain required before exposing a transfer capability.
+
 ## Archive I/O Concurrency (2026-10-26)
 
 - Reproduced writer/close blocking behind paused archive I/O, plus stale-handle

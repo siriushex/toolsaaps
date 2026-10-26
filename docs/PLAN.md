@@ -1,5 +1,18 @@
 # PLAN
 
+## History Reply Isolation (2026-10-26)
+
+- [x] Inspect generic ACK overwrite and reserved-type/stock-payload ambiguity.
+- [x] Add separate history response route and fail-closed reserved-family gate.
+- [x] Add native signature, expiry, control-off, replay, reflected-response and
+      disguised-stock-action regressions; 11 tests fail before the fix.
+- [x] Native712/recipe21 passed; pristine restore and sequential SDK preparation
+      verified. Copilot6991 passed/six existing skips; lint/compile/assembly passed
+      on Java17 after preserving a JBR21 compiler crash (not an assertion failure).
+- [ ] Exact-head CI/review before main integration.
+- No transfer capability or clinical activation. Asynchronous read arbitration,
+  authenticated encrypted response and durable receipt integration remain next.
+
 ## Combo Archive Read Priority (2026-10-26)
 
 - [x] Inspect native receiver/ACK path and producer locks before wiring.
@@ -12,7 +25,8 @@
 - [x] Sequential pristine SDK preparation and fresh Copilot suite: 6991 passed,
       six existing skips; lint/build passed. Recipe tooling is unchanged from
       the prior 20-test verification; updated patch apply/reverse passed locally.
-- [ ] Review and exact-head CI before main integration.
+- [x] PR56 six checks and review passed; merged as 2ddad08c with the exact tested
+      tree. Separate main run 40374433591 also passed all three jobs.
 - Runtime dispatch stays closed until arbitration/authentication/encryption and
   receipt handling are connected and device costs checked. No clinical admission.
 

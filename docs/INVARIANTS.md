@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## History Response Boundary
+
+- Reserved history envelopes cannot dispatch stock therapy, settings, alarm or
+  pairing actions, even with a valid MAC and a decodable stock payload.
+- Every history response, including expiry/refusal, uses its isolated per-client
+  ACK key. Never overwrite the ordinary target/delivery ACK slot.
+- Derive the response lane from authenticated envelope type/client, not the
+  untrusted settings identifier. Invalid MAC/replay/skew still produce no reply.
+- History refusal advances only the existing replay counter; it grants no
+  capability, pairing activation, source read, delivery proof or timer permission.
+- Signed ACK scope and crypto are unchanged. The future receiver must still
+  match the pending shared counter and decrypt the expected request context;
+  the routing key alone does not authenticate a history response.
+
 ## Native Read Source
 
 - Archive scans/chunks must not hold the writer monitor across file I/O or

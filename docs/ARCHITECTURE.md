@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## Native History Reply Isolation
+
+The minimal RC1 receiver patch reserves `combo_history_read_` as a read-only
+message family. Its signed ACKs use `aaps_clientcontrol_ack_history_<clientId>`,
+never the ordinary target/delivery ACK slot. Routing comes from the authenticated
+envelope, not the incoming settings identifier or untrusted payload.
+
+Until the authenticated history handler is connected, this family receives a
+terminal failure with no payload (or expiry/control-disabled result). It cannot
+dispatch a stock action or promote pairing even when its payload decodes as one.
+MAC, replay, clock and counter ownership remain with the existing receiver.
+The response key stays under the stock ACK prefix so push/poll echoes are ignored.
+This is a refusal/isolation boundary, not an advertised history capability,
+asynchronous transfer worker or delivery-completeness evidence.
+
 ## Native Retained-History Source
 
 The minimal RC1 compatibility patch adds an optional `RetainedPumpHistorySource`
