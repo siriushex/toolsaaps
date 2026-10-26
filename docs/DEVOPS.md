@@ -139,10 +139,15 @@ phone, clinical activation or public APK publication.
 
 ## RC1 Receiver Patch Verification
 
-The combined recipe also applies combo-history-integrity.patch and runs the full
+The combined recipe also applies combo-history-integrity.patch and
+combo-history-source.patch and runs the full
 native Combo module suite. Synthetic packets exercise malformed history flags
 and acknowledgement order without accessing a real pump. The same exact-diff
-cleanup owns all four patches; prepare.sh still requires pristine upstream.
+cleanup owns all five patches; prepare.sh still requires pristine upstream.
+Patch inputs are copied before applying. Rollback reverses these immutable copies
+in reverse dependency order: reversing one concatenated stream can recreate a
+new file modified by a later patch. Synthetic recipe tests cover that case,
+missing inputs and concurrent edits without overwriting them.
 See AAPS4_COMBO_HISTORY_INTEGRITY.md. This is not an AAPS phone deployment.
 
 The upload patch also includes SDK clock-refusal regressions. These use the

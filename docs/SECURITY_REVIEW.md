@@ -1,5 +1,26 @@
 # SECURITY REVIEW
 
+## Native Retained-History Source (2026-10-26)
+
+- Optional local interface only; no endpoint, native receiver branch, uploader,
+  new permission, pump acquisition or therapy action. It cannot advertise remote
+  support just because the active plugin implements the interface.
+- Current unambiguous pairing hash and exact writer are checked across I/O. Lost
+  owner/invalid snapshot/error closes that reader permanently; journal ownership
+  remains with the driver. Full-file hashes protect returned fragments, not the
+  authenticity of producer claims or completeness of physical delivery.
+- Redacted exceptions without original causes; no file paths, addresses, cipher
+  material or raw history in result strings. Outgoing copies clear on late refusal.
+- Still required: native authenticated capability/dispatch, persistent pairing
+  epochs, priority/revocation around suspended work, encrypted response and receipt
+  reconciliation. Current-value checks cannot detect unobserved change/restore.
+- Journal scanning is bounded but synchronized with checkpoint writes. Measure
+  device I/O latency and add arbitration before activating remote background use;
+  unit tests do not establish acceptable pump-driver latency or meal-time safety.
+- Recipe regression: concatenate-then-reverse recreated an owned new file when a
+  later patch modified it. Reverse copied patches in dependency order instead;
+  concurrent-source changes still suppress cleanup and are preserved.
+
 ## Combo Inventory Candidate (2026-10-25)
 
 - Pure bounded response codec/assembly; no production call site or new authority.

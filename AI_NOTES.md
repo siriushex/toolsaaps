@@ -1,3 +1,24 @@
+# Native Combo Read Source - 2026-10-26
+
+- Add optional retained-history source in core interfaces, implemented by ComboV2
+  using its existing writer. No Bluetooth acquisition, second writer or command.
+- Immutable metadata, current owner/writer checks across I/O, latched invalidation,
+  exact aligned fragments, cancellation propagation and redacted errors.
+- Added native adapter and real plugin-path synthetic tests; no actual pump data.
+- Initial native run hit sandbox Gradle cache denial, then exposed cleanup leaving
+  a new file modified by the subsequent patch. Verified that file against our
+  own baseline before removal. Reverse frozen patches in dependency order; do
+  not undo concurrent changes. Recipe tests also preserve pristine SDK prepare.
+- Native suites: 687 tests in the selected reports, zero failures/skips; source
+  restored pristine. Fixed one synthetic BluetoothAddress set inference error.
+  Recipe20 and platform-JSON6 passed; pristine SDK preparation passed. Copilot
+  test/lint/compile/build passed in13s,52 of53 tasks up-to-date (no Copilot code
+  changed; do not count this as6991 newly executed tests). Exact-head CI pending.
+- Runtime
+  receiver/capability, pairing epoch, delivery/clock and meal-time gates stay closed.
+- Prior release completed: PR54 merged as db7ddb03, main CI all green; public
+  0.1.17/code18 signature/digest/range verified. No new APK or deployment here.
+
 # Combo Inventory And Release Candidate - 2026-10-25
 
 - Revalidated PR53 exact4bcf7b20 and merged as5f3aa17c under explicit current

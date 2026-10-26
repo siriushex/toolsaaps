@@ -1,0 +1,482 @@
+diff --git a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/pump/RetainedPumpHistorySource.kt b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/pump/RetainedPumpHistorySource.kt
+new file mode 100644
+index 0000000..ef9d75f
+--- /dev/null
++++ b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/pump/RetainedPumpHistorySource.kt
+@@ -0,0 +1,40 @@
++package app.aaps.core.interfaces.pump
++
++/** Optional local evidence reader. Not a pump command or a proof of insulin delivery. */
++interface RetainedPumpHistorySource {
++
++    /** Blocking private-file I/O. Call off the main thread and outside therapy-command locks. */
++    fun openRetainedHistory(): RetainedPumpHistory
++}
++
++/** One immutable inventory; a write, replacement snapshot or lost owner invalidates its reader. */
++interface RetainedPumpHistory {
++
++    val pumpBinding: String
++    val reads: List<RetainedPumpHistoryRead>
++    val unscopedCorruptReads: Int
++    val writerFailed: Boolean
++
++    /** Recheck before publishing an inventory or bytes, including after suspended work. */
++    fun requireCurrent()
++
++    /** Exactly one aligned 32 KiB fragment, except the final shorter fragment. Caller owns bytes. */
++    fun readChunk(readId: String, offset: Int, byteCount: Int): ByteArray
++
++    /** Invalidates only this reader, never the pump's journal writer. */
++    fun close()
++}
++
++class RetainedPumpHistoryRead(
++    val id: String,
++    val byteCount: Int,
++    val sha256: String,
++    val closed: Boolean,
++    val corrupt: Boolean,
++    val adverse: Boolean,
++    val readFailed: Boolean
++) {
++    override fun toString() = "RetainedPumpHistoryRead(redacted)"
++}
++
++class RetainedPumpHistoryUnavailable : IllegalStateException("Retained pump history unavailable")
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
+index 738e34a..f0796a9 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
+@@ -215,6 +215,12 @@ internal class ComboHistoryJournal(
+         }
+     }
+ 
++    @Synchronized
++    fun requireCurrent(snapshot: Snapshot) {
++        if (currentSnapshot !== snapshot || lock?.isValid != true)
++            throw IOException("History snapshot unavailable")
++    }
++
+     @Synchronized
+     fun readChunk(snapshot: Snapshot, readId: String, offset: Int, maxChunkBytes: Int): Chunk {
+         try {
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt
+new file mode 100644
+index 0000000..40361ac
+--- /dev/null
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt
+@@ -0,0 +1,84 @@
++package info.nightscout.pump.combov2
++
++import app.aaps.core.interfaces.pump.RetainedPumpHistory
++import app.aaps.core.interfaces.pump.RetainedPumpHistoryRead
++import app.aaps.core.interfaces.pump.RetainedPumpHistoryUnavailable
++import java.util.Collections
++import kotlinx.coroutines.CancellationException
++
++/** Reads the existing writer; never opens another journal or acquires a Bluetooth pump. */
++internal class ComboRetainedHistory private constructor(
++    private val journal: ComboHistoryJournal,
++    private val snapshot: ComboHistoryJournal.Snapshot,
++    override val pumpBinding: String,
++    private val ownsJournal: () -> Boolean
++) : RetainedPumpHistory {
++
++    private var invalid = false
++    override val reads: List<RetainedPumpHistoryRead> = Collections.unmodifiableList(snapshot.reads.map {
++        RetainedPumpHistoryRead(it.id, it.size, it.sha256, it.closed, it.corrupt, it.adverse, it.readFailed)
++    })
++    override val unscopedCorruptReads = snapshot.unscopedCorruptReads
++    override val writerFailed = snapshot.writerFailed
++
++    @Synchronized
++    override fun requireCurrent() {
++        try {
++            check(!invalid && ownsJournal())
++            journal.requireCurrent(snapshot)
++        } catch (e: CancellationException) {
++            invalid = true
++            throw e
++        } catch (e: Exception) {
++            invalid = true
++            throw RetainedPumpHistoryUnavailable()
++        }
++    }
++
++    @Synchronized
++    override fun readChunk(readId: String, offset: Int, byteCount: Int): ByteArray {
++        var content: ByteArray? = null
++        try {
++            requireCurrent()
++            val read = checkNotNull(reads.singleOrNull { it.id == readId })
++            require(offset >= 0 && offset < read.byteCount && offset % CHUNK_BYTES == 0)
++            require(byteCount == minOf(CHUNK_BYTES, read.byteCount - offset))
++            val chunk = journal.readChunk(snapshot, readId, offset, byteCount)
++            content = chunk.bytes()
++            check(chunk.offset == offset && chunk.totalSize == read.byteCount && chunk.sha256 == read.sha256 && content.size == byteCount)
++            requireCurrent()
++            return content
++        } catch (e: CancellationException) {
++            content?.fill(0)
++            invalid = true
++            throw e
++        } catch (e: Exception) {
++            content?.fill(0)
++            invalid = true
++            throw RetainedPumpHistoryUnavailable()
++        }
++    }
++
++    @Synchronized
++    override fun close() {
++        invalid = true
++    }
++
++    override fun toString() = "ComboRetainedHistory(redacted)"
++
++    companion object {
++        private const val CHUNK_BYTES = 32768
++
++        fun open(journal: ComboHistoryJournal, binding: String, ownsJournal: () -> Boolean): RetainedPumpHistory {
++            try {
++                check(ownsJournal())
++                val snapshot = journal.snapshot(binding)
++                return ComboRetainedHistory(journal, snapshot, binding, ownsJournal).also { it.requireCurrent() }
++            } catch (e: CancellationException) {
++                throw e
++            } catch (e: Exception) {
++                throw RetainedPumpHistoryUnavailable()
++            }
++        }
++    }
++}
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+index b153cec..453a623 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+@@ -33,6 +33,9 @@ import app.aaps.core.interfaces.pump.PumpPluginBase
+ import app.aaps.core.interfaces.pump.PumpProfile
+ import app.aaps.core.interfaces.pump.PumpRate
+ import app.aaps.core.interfaces.pump.PumpSync
++import app.aaps.core.interfaces.pump.RetainedPumpHistory
++import app.aaps.core.interfaces.pump.RetainedPumpHistorySource
++import app.aaps.core.interfaces.pump.RetainedPumpHistoryUnavailable
+ import app.aaps.core.interfaces.pump.comment
+ import app.aaps.core.interfaces.pump.defs.fillFor
+ import app.aaps.core.interfaces.pump.mapState
+@@ -176,7 +179,7 @@ class ComboV2Plugin(
+             .description(TextRef.AndroidRes(R.string.combov2_plugin_description)),
+         ownPreferences = ComboIntKey.entries + ComboBooleanKey.entries + ComboStringNonKey.entries + ComboIntNonKey.entries + ComboLongNonKey.entries,
+         aapsLogger, rh, preferences, commandQueue, notificationManager
+-    ), Pump, PluginConstraints, PumpPluginConstraints {
++    ), Pump, PluginConstraints, PumpPluginConstraints, RetainedPumpHistorySource {
+ 
+     // Coroutine scope and the associated job. All coroutines
+     // that are started in this plugin are part of this scope.
+@@ -196,9 +199,9 @@ class ComboV2Plugin(
+     // These are initialized in connect() and torn down in disconnect().
+     private var pump: ComboCtlPump? = null
+     @Volatile private var lastHistoryRead: ComboCtlPump.Event.HistoryReadObserved? = null
+-    private var historyJournal: ComboHistoryJournal? = null
++    @Volatile private var historyJournal: ComboHistoryJournal? = null
+     @Volatile private var lastHistoryJournal: Triple<ComboCtlBluetoothAddress, String, JsonObject>? = null
+-    private var historyJournalUnavailable = false
++    @Volatile private var historyJournalUnavailable = false
+     private var connectionSetupJob: Job? = null
+     private var stateAndStatusFlowsDeferred: Deferred<Unit>? = null
+     private var pumpUIFlowsDeferred: Deferred<Unit>? = null
+@@ -1878,6 +1881,27 @@ class ComboV2Plugin(
+         }
+     }
+ 
++    override fun openRetainedHistory(): RetainedPumpHistory {
++        try {
++            val journal = checkNotNull(historyJournal)
++            val binding = checkNotNull(currentHistoryBinding())
++            return ComboRetainedHistory.open(journal, binding) {
++                historyJournal === journal && !historyJournalUnavailable && currentHistoryBinding() == binding
++            }
++        } catch (e: CancellationException) {
++            throw e
++        } catch (e: Exception) {
++            throw RetainedPumpHistoryUnavailable()
++        }
++    }
++
++    private fun currentHistoryBinding(): String? = try {
++        // A read must not pick an arbitrary address if pairing state is ambiguous.
++        pumpManager?.getPairedPumpAddresses()?.singleOrNull()?.let { address ->
++            comboHistoryBinding(address, pumpStateStore.getInvariantPumpData(address))
++        }
++    } catch (e: Exception) { null }
++
+     private fun currentHistoryJournalStatus(): JsonObject? {
+         val snapshot = lastHistoryJournal ?: return null
+         val address = getBluetoothAddress() ?: return null
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboRetainedHistoryTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboRetainedHistoryTest.kt
+new file mode 100644
+index 0000000..f48a4a4
+--- /dev/null
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboRetainedHistoryTest.kt
+@@ -0,0 +1,192 @@
++package info.nightscout.pump.combov2
++
++import app.aaps.core.interfaces.pump.RetainedPumpHistory
++import app.aaps.core.interfaces.pump.RetainedPumpHistoryUnavailable
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.HistoryReadCheckpoint.Phase
++import info.nightscout.comboctl.base.HistoryReadObservation
++import java.io.File
++import java.io.RandomAccessFile
++import java.security.MessageDigest
++import kotlinx.coroutines.CancellationException
++import org.junit.jupiter.api.Assertions.*
++import org.junit.jupiter.api.Test
++import org.junit.jupiter.api.io.TempDir
++
++class ComboRetainedHistoryTest {
++    @TempDir lateinit var root: File
++    private val binding = "a".repeat(64)
++    private val directory get() = File(root, "history")
++
++    private fun checkpoint(phase: Phase, large: Boolean = false) = HistoryReadCheckpoint(
++        phase,
++        HistoryReadObservation(state = if (phase == Phase.END) HistoryReadObservation.State.RETURNED else HistoryReadObservation.State.READING),
++        if (phase == Phase.BLOCK) List(if (large) 4096 else 7) { 0 } else emptyList()
++    )
++
++    private fun complete(journal: ComboHistoryJournal, owner: String = binding, large: Boolean = false) {
++        journal.record(owner, checkpoint(Phase.BEGIN))
++        repeat(if (large) 5 else 1) {
++            journal.record(owner, checkpoint(Phase.BLOCK, large))
++            journal.record(owner, checkpoint(Phase.CONFIRMED))
++        }
++        journal.record(owner, checkpoint(Phase.END))
++    }
++
++    private fun open(journal: ComboHistoryJournal, owns: () -> Boolean = { true }) =
++        ComboRetainedHistory.open(journal, binding, owns)
++
++    private fun refused(block: () -> Unit) {
++        val error = assertThrows(RetainedPumpHistoryUnavailable::class.java, block)
++        assertEquals("Retained pump history unavailable", error.message)
++        assertNull(error.cause)
++    }
++
++    @Test fun exactRetainedBytesAreReadableWithoutASecondWriter() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal, large = true)
++            val source = open(journal)
++            val read = source.reads.single()
++            val expected = File(directory, "${read.id}.chr").readBytes()
++            assertTrue(expected.size > 32768)
++            val first = source.readChunk(read.id, 0, 32768)
++            val last = source.readChunk(read.id, 32768, expected.size - 32768)
++            assertArrayEquals(expected, first + last)
++            assertEquals(expected.size, read.byteCount)
++            assertEquals(MessageDigest.getInstance("SHA-256").digest(expected).joinToString("") { "%02x".format(it.toInt() and 255) }, read.sha256)
++            first.fill(0)
++            assertArrayEquals(expected.copyOfRange(0, 32768), source.readChunk(read.id, 0, 32768))
++            assertTrue(read.closed)
++            assertFalse(read.corrupt)
++            assertEquals("ComboRetainedHistory(redacted)", source.toString())
++            assertEquals("RetainedPumpHistoryRead(redacted)", read.toString())
++            assertThrows(UnsupportedOperationException::class.java) { (source.reads as MutableList).clear() }
++            source.close()
++            source.close()
++            refused { source.requireCurrent() }
++            complete(journal)
++            assertEquals(2, open(journal).reads.size)
++        }
++    }
++
++    @Test fun inventoryScopesRetainedEvidenceWithoutHidingUnscopedDamage() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            complete(journal, "b".repeat(64))
++        }
++        File(directory, "10000000-0000-4000-8000-000000000001.chr").writeBytes(byteArrayOf(1, 2))
++        ComboHistoryJournal(directory).use { journal ->
++            val source = open(journal)
++            assertEquals(binding, source.pumpBinding)
++            assertEquals(1, source.reads.size)
++            assertEquals(1, source.unscopedCorruptReads)
++            assertFalse(source.writerFailed)
++        }
++    }
++
++    @Test fun ownerCheckedBeforeSnapshotAndAgainAfterFileIo() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            var calls = 0
++            refused { open(journal) { ++calls < 2 } }
++            assertEquals(2, calls)
++            calls = 0
++            refused { open(journal) { calls++; false } }
++            assertEquals(1, calls)
++        }
++    }
++
++    @Test fun lostOwnerDuringChunkReadLatchesEvenWhenOwnerReturns() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            var calls = 0
++            var allowed = true
++            val source = open(journal) { ++calls; allowed && calls != 4 }
++            val read = source.reads.single()
++            refused { source.readChunk(read.id, 0, read.byteCount) }
++            allowed = true
++            refused { source.readChunk(read.id, 0, read.byteCount) }
++            refused { source.requireCurrent() }
++        }
++    }
++
++    @Test fun cancellationIsNotTurnedIntoAnOrdinaryReadFailure() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            assertThrows(CancellationException::class.java) { open(journal) { throw CancellationException() } }
++            var cancel = false
++            val source = open(journal) { if (cancel) throw CancellationException() else true }
++            cancel = true
++            assertThrows(CancellationException::class.java) { source.requireCurrent() }
++            cancel = false
++            refused { source.requireCurrent() }
++        }
++    }
++
++    @Test fun newWriteAndNewSnapshotInvalidatePreviousReaders() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val old = open(journal)
++            val current = open(journal)
++            refused { old.requireCurrent() }
++            current.requireCurrent()
++            journal.record(binding, checkpoint(Phase.BEGIN))
++            refused { current.requireCurrent() }
++            refused { open(journal) }
++            journal.record(binding, checkpoint(Phase.END))
++            val next = open(journal)
++            assertEquals(2, next.reads.size)
++            next.requireCurrent()
++            journal.close()
++            refused { next.requireCurrent() }
++        }
++    }
++
++    @Test fun invalidFragmentsAreRejectedBeforeReadingAndReaderRemainsInvalid() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal, large = true)
++            val attempts: List<(RetainedPumpHistory) -> Unit> = listOf(
++                { it.readChunk("missing", 0, 32768) },
++                { it.readChunk(it.reads.single().id, -1, 32768) },
++                { it.readChunk(it.reads.single().id, 1, 32768) },
++                { it.readChunk(it.reads.single().id, 0, 0) },
++                { it.readChunk(it.reads.single().id, 0, 32767) },
++                { it.readChunk(it.reads.single().id, 0, 32769) },
++                { it.readChunk(it.reads.single().id, it.reads.single().byteCount, 0) },
++                { it.readChunk(it.reads.single().id, Int.MAX_VALUE, Int.MAX_VALUE) }
++            )
++            attempts.forEach { attempt ->
++                val source = open(journal)
++                refused { attempt(source) }
++                refused { source.requireCurrent() }
++                assertEquals(1, open(journal).reads.size)
++            }
++        }
++    }
++
++    @Test fun changedFileCannotReturnBytesFromAnOldInventory() {
++        ComboHistoryJournal(directory).use { journal ->
++            complete(journal)
++            val source = open(journal)
++            val read = source.reads.single()
++            RandomAccessFile(File(directory, "${read.id}.chr"), "rw").use { it.seek(10); it.write(1) }
++            refused { source.readChunk(read.id, 0, read.byteCount) }
++            refused { source.requireCurrent() }
++        }
++    }
++
++    @Test fun interruptedAndFailedEvidenceIsNotReportedAsComplete() {
++        ComboHistoryJournal(directory).use { it.record(binding, checkpoint(Phase.BEGIN)) }
++        ComboHistoryJournal(directory).use { journal ->
++            val source = open(journal)
++            assertFalse(source.reads.single().closed)
++            assertFalse(source.writerFailed)
++        }
++        ComboHistoryJournal(directory, sync = { throw java.io.IOException("synthetic") }).use { journal ->
++            assertThrows(java.io.IOException::class.java) { journal.record(binding, checkpoint(Phase.BEGIN)) }
++            val source = open(journal)
++            assertTrue(source.writerFailed)
++            assertTrue(source.reads.any { !it.closed })
++        }
++    }
++}
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+index eddb40f..95aad98 100644
+--- a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+@@ -142,6 +142,63 @@ class ComboV2PluginErrorLockoutTest {
+         }
+     }
+ 
++    @Test
++    fun retainedHistoryUsesOnlyTheOwnedWriterAndCurrentUnambiguousPairing() {
++        val unavailable = app.aaps.core.interfaces.pump.RetainedPumpHistoryUnavailable::class.java
++        org.junit.jupiter.api.Assertions.assertThrows(unavailable) { plugin.openRetainedHistory() }
++        assertThat(files.listFiles()).isEmpty()
++        val address = "12:34:56:78:9A:BC".toBluetoothAddress()
++        var paired = setOf(address)
++        val manager: PumpManager = mock { on { getPairedPumpAddresses() } doAnswer { paired } }
++        ComboV2Plugin::class.java.getDeclaredField("pumpManager").apply { isAccessible = true }.set(plugin, manager)
++        whenever(context.noBackupFilesDir).thenReturn(files)
++        var cipher = Cipher(ByteArray(16) { 1 }).toString()
++        whenever(sp.getString(any<String>(), any<String>())).thenAnswer {
++            when (it.getArgument<String>(0)) {
++                "combov2-cp-cipher-key", "combov2-pc-cipher-key" -> cipher
++                else -> ""
++            }
++        }
++        val method = ComboV2Plugin::class.java.getDeclaredMethod("handlePumpEvent", Pump.Event::class.java).apply { isAccessible = true }
++        for (phase in listOf(HistoryReadCheckpoint.Phase.BEGIN, HistoryReadCheckpoint.Phase.END)) {
++            method.invoke(plugin, Pump.Event.HistoryCheckpoint(address, HistoryReadCheckpoint(
++                phase, HistoryReadObservation(state = if (phase == HistoryReadCheckpoint.Phase.BEGIN)
++                    HistoryReadObservation.State.READING else HistoryReadObservation.State.RETURNED)
++            )))
++        }
++        val field = ComboV2Plugin::class.java.getDeclaredField("historyJournal").apply { isAccessible = true }
++        val journal = field.get(plugin) as ComboHistoryJournal
++        try {
++            val source = (plugin as app.aaps.core.interfaces.pump.RetainedPumpHistorySource).openRetainedHistory()
++            val read = source.reads.single()
++            assertThat(source.readChunk(read.id, 0, read.byteCount)).isEqualTo(
++                java.io.File(files, "combo-history-v1/${read.id}.chr").readBytes()
++            )
++            assertThat(ComboV2Plugin::class.java.getDeclaredField("pump").apply { isAccessible = true }.get(plugin)).isNull()
++            paired = setOf(address, "12:34:56:78:9A:BD".toBluetoothAddress())
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { source.requireCurrent() }
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { plugin.openRetainedHistory() }
++            paired = setOf(address)
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { source.requireCurrent() }
++            val afterPairing = plugin.openRetainedHistory()
++            cipher = Cipher(ByteArray(16) { 3 }).toString()
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { afterPairing.requireCurrent() }
++            assertThat(plugin.openRetainedHistory().reads).isEmpty()
++            cipher = Cipher(ByteArray(16) { 1 }).toString()
++            val afterRestore = plugin.openRetainedHistory()
++            field.set(plugin, null)
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { afterRestore.requireCurrent() }
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { plugin.openRetainedHistory() }
++            field.set(plugin, journal)
++            val beforeFailure = plugin.openRetainedHistory()
++            ComboV2Plugin::class.java.getDeclaredField("historyJournalUnavailable").apply { isAccessible = true }.set(plugin, true)
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { beforeFailure.requireCurrent() }
++            org.junit.jupiter.api.Assertions.assertThrows(unavailable) { plugin.openRetainedHistory() }
++        } finally {
++            journal.close()
++        }
++    }
++
+     @Test
+     fun checkpointFailureRemainsVisibleAfterLaterCallbacksWithoutRetryingStorage() {
+         val address = "12:34:56:78:9A:BC".toBluetoothAddress()

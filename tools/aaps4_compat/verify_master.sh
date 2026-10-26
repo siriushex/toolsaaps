@@ -11,6 +11,7 @@ test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)"
 
 temp="$(mktemp -d "${TMPDIR:-/tmp}/master-admission.XXXXXX")"
 applied=false
+patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source)
 cleanup() {
     status=$?
     trap - EXIT INT TERM
@@ -20,7 +21,14 @@ cleanup() {
         if cmp -s "$temp/applied.diff" "$temp/current.diff" &&
             cmp -s "$temp/applied.untracked" "$temp/current.untracked" &&
             git -C "$AAPS_RC1_DIR" apply --reverse --check "$temp/change.patch"; then
-            git -C "$AAPS_RC1_DIR" apply --reverse "$temp/change.patch" || status=1
+            # Later patches may modify files introduced by an earlier patch.
+            # A concatenated reverse can recreate those files after removing them.
+            for ((i=${#patches[@]}-1; i>=0; i--)); do
+                if ! git -C "$AAPS_RC1_DIR" apply --reverse "$temp/${patches[i]}.patch"; then
+                    status=1
+                    break
+                fi
+            done
             git -C "$AAPS_RC1_DIR" diff --quiet HEAD -- || status=1
             test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)" || status=1
         else
@@ -35,10 +43,12 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-cat "$root/tools/aaps4_compat/master-admission.patch" \
-    "$root/tools/aaps4_compat/transport-privacy.patch" \
-    "$root/tools/aaps4_compat/upload-profile-retry.patch" \
-    "$root/tools/aaps4_compat/combo-history-integrity.patch" > "$temp/change.patch"
+for patch in "${patches[@]}"; do
+    cp "$root/tools/aaps4_compat/$patch.patch" "$temp/$patch.patch"
+done
+for patch in "${patches[@]}"; do
+    cat "$temp/$patch.patch"
+done > "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply --check "$temp/change.patch"
 git -C "$AAPS_RC1_DIR" apply "$temp/change.patch"
 applied=true

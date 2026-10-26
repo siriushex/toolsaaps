@@ -1,5 +1,19 @@
 # PLAN
 
+## Native Combo Read Source (2026-10-26)
+
+- [x] Inspect stock receiver, existing master admission and journal lifecycle.
+- [x] Add optional driver read source with immutable scoped metadata and exact
+      fragments, without opening another writer or acquiring the pump.
+- [x] Add ownership, invalidation, cancellation, geometry and plugin regressions.
+- [x] Fix patch rollback ordering for modifications of earlier added files.
+- [x] Native reports687tests/no failures or skips; source restored pristine.
+      Recipe20 and platform-JSON6 tests plus pristine SDK preparation passed.
+- [x] Copilot build/lint/tests successful, with unchanged tasks up-to-date.
+- [ ] Exact-head CI before integration.
+- No remote dispatch, authenticated capability, durable receipt or clinical
+  recommendation activation. These remain the next integration gates.
+
 ## Combo Inventory And Release 0.1.17 (2026-10-25)
 
 - [x] Verify corrected PR53 exact4bcf7b20, merge with authorization into main
@@ -8,9 +22,10 @@
 - [x] Add strict metadata/digest/replay/tampering and native-provider tests.
 - [x] Local6991passed/six prior skips, lint/build,22 focused and14release checks;
       signed39870608byte APK with7309retained app classes verified.
-- [ ] Exact-head CI; local checks are not CI or clinical approval.
-- [ ] Integrate verified feature into main, then verify main CI.
-- [ ] Publish forward0.1.17/code18 atomically; independently verify public APK.
+- [x] Exact-head PR54 CI passed on b0f23ddf; review found no issues.
+- [x] Integrated as main db7ddb03; all three main checks passed.
+- [x] Published0.1.17/code18; independently verified public APK, signer, hash,
+      package, version, byte range and retained previous version.
 - Live raw transfer/receipts, pump epoch/clock mapping, continuous basal coverage
   and prospective meal-time safety are not complete and must not be bypassed.
 

@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Native Read Source
+
+- Use only the existing driver-owned journal; absence does not create/open one.
+- Scope to exactly one current paired address and its invariant binding. Check
+  writer identity and failure state before/after I/O; observed loss is terminal
+  for that reader even if the same owner later returns.
+- Each read is an exact 32 KiB aligned fragment or the exact shorter final one.
+  No unknown IDs, empty EOF success, truncated request or unbounded offsets.
+- Reader close/failure must not close, repair, delete or acquire the pump writer.
+  Cancellation propagates; error text and result strings do not contain history.
+- A cached list is not current authority: recheck before publishing after waits.
+  A caller still needs active-plugin, paired-client, deadline and command-priority
+  admission. The optional local source alone does not enable remote export.
+
 ## Combo Inventory Completeness
 
 - Catalog completeness describes retained files, not physical insulin delivery.

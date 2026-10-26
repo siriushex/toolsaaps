@@ -4,7 +4,7 @@
 
 The existing private journal now provides an internal read-only snapshot and
 bounded chunk reader. This prepares the source side of later paired transfer.
-It does not add a public endpoint, uploader, plugin callback, second pump reader,
+It does not add a public endpoint, uploader, second pump reader,
 exported Android component or new transport permission. Ordinary devicestatus
 still carries counts only. No physical delivery or meal-time authority follows.
 
@@ -49,6 +49,37 @@ retained snapshot. A future paired transport needs separate authorization,
 destination binding, ingestion, receipts and retention policy.
 
 ## Verification And Open Work
+
+### Native Driver Access
+
+`combo-history-source.patch` adds `RetainedPumpHistorySource` to core interfaces
+and implements it in ComboV2 through `ComboRetainedHistory`. The source uses only
+the existing journal instance. Before the first ordinary retained read there is
+no source; it never creates a writer to satisfy a remote request. Multiple paired
+addresses are refused rather than selecting an arbitrary first address.
+
+The adapter checks current pairing binding, writer identity and writer failure
+before/after I/O, plus the journal's snapshot token. Its immutable metadata is a
+historical inventory, not a continuously valid authorization: callers must use
+`requireCurrent()` after suspended work and immediately before publication.
+Observed owner loss, invalid requests and failed reads latch the handle invalid.
+Changing a file is detected by the existing full-file hash on chunk reads.
+
+The adapter narrows fragments to exact aligned 32 KiB units with a short final
+fragment, matching Copilot's envelope. EOF/zero-length, wrong IDs, overflows and
+other geometry fail closed. Returned byte arrays belong to the caller; failed
+post-read validation clears the outgoing copy. `close()` invalidates only the
+reader, not the pump writer. Cancellation is propagated without raw error details.
+
+The lower-level journal still permits diagnostic reads after writer failure;
+the plugin facade conservatively refuses its latched unavailable state. This
+does not conceal damage from any successfully admitted inventory. A new valid
+pairing may see no scoped files; that is not evidence of zero insulin delivery.
+
+There is no persisted pairing epoch: an unobserved change-and-restore cannot be
+detected by matching current values alone. The client-control receiver, signed
+capability, native encrypted responses and persistent receipt remain unconnected.
+No caller may infer that implementing this interface authorizes remote transfer.
 
 Synthetic tests reconstruct a multi-chunk read byte-for-byte, reopen the journal,
 preserve unclosed/damaged evidence and refuse stale/forged handles, wrong-pairing
