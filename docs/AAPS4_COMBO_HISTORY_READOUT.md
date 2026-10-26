@@ -65,6 +65,26 @@ request. No successful inventory/chunk response or capability is implied.
 Future asynchronous transfer must retain the response separation and perform
 its own bounded query, epoch, admission, encryption and durable receipt checks.
 
+### Query Contract
+
+`combo-history-query.patch` supplies a pure `ComboHistoryReadRequest` decoder in
+the shared native SDK, tested with actual Copilot-generated requests. It requires
+the expected master installation, canonical UUIDs, matching outer/inner type,
+version1, ACK request, counter>1 and issue<=now<expiry (maximum30seconds).
+
+The signed payload is compact ASCII JSON <=2048characters, at most two object
+levels, without escapes/arrays or duplicate fields. The only unions are inventory
+with limit1..32 and either both cursor identifiers or neither, and chunk with exact
+snapshot/read/binding/digest plus size/offset/length. Reads are <=2MiB; chunks are
+32KiB-aligned and exact, including the shorter final fragment. No rounding or
+implicit repair is permitted. Outer settings field reordering does not change the
+payload string and is not restricted by this inner contract.
+
+This decoder accepts structure, not authority: the paired owner still must verify
+MAC, replay, control/driver generation and deadline after suspended work. It has no
+secret, source reader or dispatcher; successful decoding does not bypass the
+current receiver refusal, advertise capability or grant clinical completeness.
+
 ### Archive I/O And Writer Priority
 
 Archive listing, reading, hashing and parsing no longer hold the writer monitor.

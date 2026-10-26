@@ -93,6 +93,12 @@ class MasterRecipeTest(unittest.TestCase):
             "diff --git a/control.txt b/control.txt\nnew file mode 100644\n"
             "--- /dev/null\n+++ b/control.txt\n@@ -0,0 +1 @@\n+isolated response\n"
         )
+        self.query_source = "core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequest.kt"
+        self.query_patch = tools / "combo-history-query.patch"
+        self.query_patch.write_text(
+            f"diff --git a/{self.query_source} b/{self.query_source}\nnew file mode 100644\n"
+            f"--- /dev/null\n+++ b/{self.query_source}\n@@ -0,0 +1 @@\n+synthetic decoder\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -131,6 +137,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertTrue((self.source / ".gradle-invoked").exists())
         self.assertFalse((self.source / "added.txt").exists())
         self.assertFalse((self.source / "control.txt").exists())
+        self.assertFalse((self.source / self.query_source).exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
         self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         self.assertEqual("patched combo\n", (self.source / ".combo-invoked").read_text())
@@ -168,6 +175,29 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_missing_query_patch_refuses_before_changing_source(self):
+        self.query_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_prepare_missing_query_patch_refuses_without_upstream_changes(self):
+        self.query_patch.unlink()
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+        self.assertEqual([], list(self.scratch.glob("query-interop.*")))
+
+    def test_prepare_does_not_adopt_a_patch_without_the_expected_source(self):
+        self.query_patch.write_text(self.control_patch.read_text())
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+        self.assertEqual([], list(self.scratch.glob("query-interop.*")))
 
     def test_concurrent_reader_edit_is_not_reversed(self):
         result = self.run_recipe("reader-edit")
@@ -230,6 +260,9 @@ class MasterRecipeTest(unittest.TestCase):
         exported = self.root / "project/android-app/build/aaps4-interop/classpath.txt"
         self.assertEqual("synthetic\n", exported.read_text())
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+        self.assertIn("-Pkotlin.incremental=false", (self.source / ".gradle-invoked").read_text().splitlines())
+        self.assertFalse((self.source / self.query_source).exists())
+        self.assertEqual([], list(self.scratch.glob("query-interop.*")))
 
     def test_ci_prepares_stock_sdk_after_reversing_temporary_patches(self):
         workflow = (RECIPE.parents[2] / ".github/workflows/verify.yml").read_text()

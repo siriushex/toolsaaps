@@ -1,5 +1,20 @@
 # SECURITY REVIEW
 
+## Native Query Decoder (2026-10-26)
+
+- Uses the standard JSON parser after bounded ASCII/depth framing, then exact
+  compact re-encoding and closed field/type checks. No alternate JSON parser,
+  unbounded recursion, silent duplicate-key overwrite or string-to-number coercion.
+- Binds syntactic request scope to an expected installation and bounded live time;
+  no MAC/replay/roster/driver authority is supplied by this decoder. Tests explicitly
+  distinguish unsigned structural acceptance from authenticated runtime admission.
+- Rejects misaligned/oversize/shortened fragments, ambiguous cursor pairs and
+  request/pump identifiers outside closed alphabets. Errors omit input and causes.
+- One native patch source is used for native suites and external interoperability;
+  no copied parser implementation. No runtime source selection or successful ACK.
+- Owner-generation invalidation, async priority, encryption and receipt lifecycle
+  still require independent tests before any transfer capability is advertised.
+
 ## History Reply Isolation (2026-10-26)
 
 - The generic receiver decodes stock payloads independently of the outer type.

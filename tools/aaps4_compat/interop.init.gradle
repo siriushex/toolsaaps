@@ -4,8 +4,10 @@ gradle.projectsEvaluated {
     if (sdk == null) return
     def source = System.getenv('AAPS_INTEROP_SOURCE')
     def output = System.getenv('AAPS_INTEROP_CLASSPATH')
-    if (!source || !output) throw new GradleException('Missing interop paths')
+    def querySource = System.getenv('AAPS_INTEROP_QUERY_SOURCE')
+    if (!source || !output || !querySource) throw new GradleException('Missing interop paths')
     sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(source)
+    sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(querySource)
     sdk.tasks.register('exportInteropClasspath') {
         dependsOn sdk.tasks.named('jvmTestClasses')
         doLast {

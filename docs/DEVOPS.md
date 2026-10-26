@@ -1,5 +1,21 @@
 # DEVOPS
 
+## Native Query Verification
+
+`combo-history-query.patch` adds a pure shared SDK decoder and common tests. The
+reversible native recipe now owns seven frozen patches. `prepare.sh` extracts only
+the decoder into an owned temporary directory and compiles that exact source beside
+the external SDK driver; the upstream checkout remains pristine. Missing patch or
+source fails before Gradle. Temporary extraction is removed on completion/failure.
+The driver checks actual Copilot inventory/cursor/chunk requests using native MAC
+verification and the candidate decoder, while confirming stock action dispatch
+still rejects the extension. Run recipe tests, native suites, then sequential SDK
+preparation and Copilot quality. Do not concurrently mutate native build outputs.
+This SDK-only preparation disables Kotlin incremental compilation: after native
+patch restoration the pinned compiler can fail computing changed symbols across
+main/test source sets. It still compiles the full SDK/driver and runs the same
+interoperability checks; app and native-test compilation settings are unchanged.
+
 ## Combo Read Outbox Verification
 
 Run native-SQLite `AapsV3ComboReadJournalTest` with pairing/target journal and
@@ -143,7 +159,7 @@ The combined recipe also applies combo-history-integrity.patch,
 combo-history-source.patch and combo-history-control.patch and runs the full
 native Combo module suite. Synthetic packets exercise malformed history flags
 and acknowledgement order without accessing a real pump. The same exact-diff
-cleanup owns all six patches; prepare.sh still requires pristine upstream.
+cleanup owns all seven patches; prepare.sh still requires pristine upstream.
 Patch inputs are copied before applying. Rollback reverses these immutable copies
 in reverse dependency order: reversing one concatenated stream can recreate a
 new file modified by a later patch. Synthetic recipe tests cover that case,

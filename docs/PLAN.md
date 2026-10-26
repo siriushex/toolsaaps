@@ -1,5 +1,18 @@
 # PLAN
 
+## Native History Query Validation (2026-10-26)
+
+- [x] Match candidate query fields and bounds to actual Copilot request generation.
+- [x] Add pure native decoder, malformed-input tests and exact-source SDK oracle.
+- [x] Native726/recipe24/platformJSON6 passed; native source restored pristine.
+      Exact-source SDK driver compiled after a pinned Kotlin incremental failure
+      was isolated to SDK preparation; full SDK compilation succeeded.
+- [x] Copilot6991passed/six existing skips; SDK query oracle exercised all8wire
+      variants, lint/compile/assemble and APK guard passed.
+- [ ] Exact-head CI/review before integration.
+- Still no successful runtime read: owner generation, asynchronous arbitration,
+  encryption, private receipt and physical delivery/clock validation remain open.
+
 ## History Reply Isolation (2026-10-26)
 
 - [x] Inspect generic ACK overwrite and reserved-type/stock-payload ambiguity.
@@ -9,7 +22,8 @@
 - [x] Native712/recipe21 passed; pristine restore and sequential SDK preparation
       verified. Copilot6991 passed/six existing skips; lint/compile/assembly passed
       on Java17 after preserving a JBR21 compiler crash (not an assertion failure).
-- [ ] Exact-head CI/review before main integration.
+- [x] PR57 six checks/review passed; merged c643a856 with exact tested tree.
+      Separate main CI40386089022 passed all three jobs.
 - No transfer capability or clinical activation. Asynchronous read arbitration,
   authenticated encrypted response and durable receipt integration remain next.
 
