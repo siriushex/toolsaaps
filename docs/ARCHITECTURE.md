@@ -15,6 +15,13 @@ replacement snapshots and observed owner loss invalidate reads. This is local
 identity consistency, not an authenticated pairing epoch or clinical completeness.
 See [readout](AAPS4_COMBO_HISTORY_READOUT.md) for activation and latency gates.
 
+Archive I/O uses one non-waiting read permit, separate from the writer monitor.
+Short admission/final checks bind results to a local revision invalidated by
+write attempts/close. File I/O, parsing and hashing never hold the writer monitor.
+Busy reads do not queue or invalidate the admitted reader; stale-handle failures
+cannot invalidate a newer snapshot. Facade close does not wait for archive I/O;
+late results fail. This is not a persistent pairing epoch or latency guarantee.
+
 ## Combo Inventory Candidate
 
 Bounded encrypted inventory pages now reuse the chunk codec's private AEAD

@@ -45,25 +45,173 @@ index 0000000..ef9d75f
 +
 +class RetainedPumpHistoryUnavailable : IllegalStateException("Retained pump history unavailable")
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
-index 738e34a..f0796a9 100644
+index 738e34a..1819bdf 100644
 --- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboHistoryJournal.kt
-@@ -215,6 +215,12 @@ internal class ComboHistoryJournal(
+@@ -20,6 +20,8 @@ import java.util.Collections
+ import java.util.zip.CRC32
+ import java.security.MessageDigest
+ import java.util.concurrent.ConcurrentHashMap
++import java.util.concurrent.Semaphore
++import kotlinx.coroutines.CancellationException
+ import kotlinx.serialization.json.Json
+ import kotlinx.serialization.json.JsonObject
+ import kotlinx.serialization.json.JsonPrimitive
+@@ -39,7 +41,8 @@ internal class ComboHistoryJournal(
+     private val directory: File,
+     private val maxBytes: Long = 32L * 1024 * 1024,
+     private val maxReads: Int = 4096,
+-    private val sync: (RandomAccessFile) -> Unit = { it.fd.sync() }
++    private val sync: (RandomAccessFile) -> Unit = { it.fd.sync() },
++    private val beforeRead: () -> Unit = {}
+ ) : Closeable {
+     private data class Entry(val binding: String?, var closed: Boolean, val corrupt: Boolean, var adverse: Boolean = false, var readFailed: Boolean = false)
+     private val entries = mutableListOf<Entry>()
+@@ -53,6 +56,9 @@ internal class ComboHistoryJournal(
+     private var failed = false
+     private var claimedPath: String? = null
+     private var currentSnapshot: Snapshot? = null
++    private var readEpoch = Any()
++    private val readPermit = Semaphore(1)
++    private class ReadLease(val epoch: Any, val path: String, val writerFailed: Boolean)
+ 
+     internal class RetainedRead internal constructor(
+         val id: String, val size: Int, val sha256: String,
+@@ -107,7 +113,7 @@ internal class ComboHistoryJournal(
+ 
+     @Synchronized
+     fun record(binding: String, checkpoint: HistoryReadCheckpoint) {
+-        currentSnapshot = null
++        invalidateSnapshots()
+         try {
+             check(!failed && lock?.isValid == true)
+             require(binding.matches(Regex("[0-9a-f]{64}")))
+@@ -183,13 +189,16 @@ internal class ComboHistoryJournal(
+     }
+ 
+     /** Internal readout only: a snapshot is not transport authorization or clinical coverage. */
+-    @Synchronized
+     fun snapshot(binding: String): Snapshot {
+-        currentSnapshot = null
++        if (Thread.holdsLock(this) || !readPermit.tryAcquire()) throw IOException("History snapshot unavailable")
+         try {
+-            require(binding.matches(Regex("[0-9a-f]{64}")))
+-            check(lock?.isValid == true && (activeEntry == null || failed))
+-            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == claimedPath)
++            val lease = synchronized(this) {
++                invalidateSnapshots()
++                require(binding.matches(Regex("[0-9a-f]{64}")))
++                check(lock?.isValid == true && (activeEntry == null || failed))
++                ReadLease(readEpoch, checkNotNull(claimedPath), failed)
++            }
++            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == lease.path)
+             val files = checkNotNull(directory.listFiles())
+             require(files.size <= maxReads + 1)
+             var totalBytes = 0L
+@@ -197,8 +206,11 @@ internal class ComboHistoryJournal(
+             val reads = mutableListOf<RetainedRead>()
+             for (file in files.sortedBy { it.name }) {
+                 if (file.name == "writer.lock") continue
++                requireReadEpoch(lease.epoch)
+                 require(file.extension == "chr" && UUID.fromString(file.nameWithoutExtension).toString() == file.nameWithoutExtension)
++                beforeRead()
+                 val raw = readRetainedBytes(file)
++                requireReadEpoch(lease.epoch)
+                 totalBytes += raw.size
+                 require(totalBytes <= maxBytes)
+                 // Scope, damage flags and digest must come from the same immutable bytes.
+@@ -209,30 +221,71 @@ internal class ComboHistoryJournal(
+                     entry.adverse || entry.corrupt, entry.readFailed
+                 )
+             }
+-            return Snapshot(reads, unscoped, failed).also { currentSnapshot = it }
++            val snapshot = Snapshot(reads, unscoped, lease.writerFailed)
++            return synchronized(this) {
++                requireReadEpoch(lease.epoch)
++                snapshot.also { currentSnapshot = it }
++            }
++        } catch (e: CancellationException) {
++            throw e
+         } catch (e: Exception) {
+             throw IOException("History snapshot unavailable")
++        } finally {
++            readPermit.release()
          }
      }
  
++    // Called only while holding the writer monitor; archive I/O never holds it.
++    private fun invalidateSnapshots() {
++        currentSnapshot = null
++        readEpoch = Any()
++    }
++
 +    @Synchronized
++    private fun requireReadEpoch(epoch: Any) {
++        check(readEpoch === epoch && lock?.isValid == true)
++    }
++
+     @Synchronized
 +    fun requireCurrent(snapshot: Snapshot) {
 +        if (currentSnapshot !== snapshot || lock?.isValid != true)
 +            throw IOException("History snapshot unavailable")
 +    }
 +
-     @Synchronized
      fun readChunk(snapshot: Snapshot, readId: String, offset: Int, maxChunkBytes: Int): Chunk {
++        if (Thread.holdsLock(this) || !readPermit.tryAcquire()) throw IOException("History chunk unavailable")
          try {
+-            check(currentSnapshot === snapshot && lock?.isValid == true)
+-            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == claimedPath)
+-            require(maxChunkBytes in 1..65536)
+-            val read = checkNotNull(snapshot.reads.singleOrNull { it.id == readId })
+-            require(offset in 0..read.size)
++            val (read, path) = synchronized(this) {
++                requireCurrent(snapshot)
++                require(maxChunkBytes in 1..65536)
++                val read = checkNotNull(snapshot.reads.singleOrNull { it.id == readId })
++                require(offset in 0..read.size)
++                read to checkNotNull(claimedPath)
++            }
++            check(!Files.isSymbolicLink(directory.toPath()) && directory.canonicalPath == path)
++            beforeRead()
+             val raw = readRetainedBytes(File(directory, "${read.id}.chr"))
+             require(raw.size == read.size && digest(raw) == read.sha256)
+             val end = minOf(raw.size, offset + maxChunkBytes)
+-            return Chunk(offset, read.size, read.sha256, raw.copyOfRange(offset, end))
++            val chunk = Chunk(offset, read.size, read.sha256, raw.copyOfRange(offset, end))
++            requireCurrent(snapshot)
++            return chunk
++        } catch (e: CancellationException) {
++            discardSnapshot(snapshot)
++            throw e
+         } catch (e: Exception) {
+-            currentSnapshot = null
++            discardSnapshot(snapshot)
+             throw IOException("History chunk unavailable")
++        } finally {
++            readPermit.release()
+         }
+     }
+ 
++    @Synchronized
++    private fun discardSnapshot(snapshot: Snapshot) {
++        if (currentSnapshot === snapshot) currentSnapshot = null
++    }
++
+     private fun recover(file: File, raw: ByteArray? = null): Entry {
+         var binding: String? = null
+         return try {
+@@ -267,7 +320,7 @@ internal class ComboHistoryJournal(
+ 
+     @Synchronized
+     override fun close() {
+-        currentSnapshot = null
++        invalidateSnapshots()
+         failed = true
+         releaseLock()
+     }
 diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt
 new file mode 100644
-index 0000000..40361ac
+index 0000000..71a390e
 --- /dev/null
 +++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboRetainedHistory.kt
 @@ -0,0 +1,84 @@
@@ -83,7 +231,7 @@ index 0000000..40361ac
 +    private val ownsJournal: () -> Boolean
 +) : RetainedPumpHistory {
 +
-+    private var invalid = false
++    @Volatile private var invalid = false
 +    override val reads: List<RetainedPumpHistoryRead> = Collections.unmodifiableList(snapshot.reads.map {
 +        RetainedPumpHistoryRead(it.id, it.size, it.sha256, it.closed, it.corrupt, it.adverse, it.readFailed)
 +    })
@@ -95,6 +243,7 @@ index 0000000..40361ac
 +        try {
 +            check(!invalid && ownsJournal())
 +            journal.requireCurrent(snapshot)
++            check(!invalid)
 +        } catch (e: CancellationException) {
 +            invalid = true
 +            throw e
@@ -128,7 +277,6 @@ index 0000000..40361ac
 +        }
 +    }
 +
-+    @Synchronized
 +    override fun close() {
 +        invalid = true
 +    }
@@ -214,6 +362,214 @@ index b153cec..453a623 100644
      private fun currentHistoryJournalStatus(): JsonObject? {
          val snapshot = lastHistoryJournal ?: return null
          val address = getBluetoothAddress() ?: return null
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadConcurrencyTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadConcurrencyTest.kt
+new file mode 100644
+index 0000000..058b370
+--- /dev/null
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboHistoryReadConcurrencyTest.kt
+@@ -0,0 +1,202 @@
++package info.nightscout.pump.combov2
++
++import info.nightscout.comboctl.base.HistoryReadCheckpoint
++import info.nightscout.comboctl.base.HistoryReadCheckpoint.Phase
++import info.nightscout.comboctl.base.HistoryReadObservation
++import java.io.File
++import java.io.IOException
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.ExecutionException
++import java.util.concurrent.Executors
++import java.util.concurrent.Future
++import java.util.concurrent.TimeUnit.SECONDS
++import java.util.concurrent.atomic.AtomicBoolean
++import kotlinx.coroutines.CancellationException
++import org.junit.jupiter.api.Assertions.*
++import org.junit.jupiter.api.Test
++import org.junit.jupiter.api.io.TempDir
++
++class ComboHistoryReadConcurrencyTest {
++    @TempDir lateinit var root: File
++    private val binding = "a".repeat(64)
++
++    private class Pause {
++        val armed = AtomicBoolean(false)
++        val entered = CountDownLatch(1)
++        val release = CountDownLatch(1)
++
++        fun beforeRead() {
++            if (armed.compareAndSet(true, false)) {
++                entered.countDown()
++                check(release.await(30, SECONDS))
++            }
++        }
++    }
++
++    private fun complete(journal: ComboHistoryJournal) {
++        for (phase in listOf(Phase.BEGIN, Phase.END)) journal.record(binding, HistoryReadCheckpoint(
++            phase, HistoryReadObservation(state = if (phase == Phase.END)
++                HistoryReadObservation.State.RETURNED else HistoryReadObservation.State.READING)
++        ))
++    }
++
++    private fun stale(future: Future<*>) {
++        val error = assertThrows(ExecutionException::class.java) { future.get(5, SECONDS) }
++        assertInstanceOf(IOException::class.java, error.cause)
++        assertNull(error.cause!!.cause)
++    }
++
++    private fun concurrent(block: (ComboHistoryJournal, Pause, java.util.concurrent.ExecutorService) -> Unit) {
++        val pause = Pause()
++        val executor = Executors.newFixedThreadPool(3)
++        val journal = ComboHistoryJournal(File(root, "history"), beforeRead = pause::beforeRead)
++        try {
++            complete(journal)
++            block(journal, pause, executor)
++        } finally {
++            pause.release.countDown()
++            executor.shutdown()
++            try { assertTrue(executor.awaitTermination(10, SECONDS)) } finally { journal.close() }
++        }
++    }
++
++    @Test fun slowSnapshotDoesNotBlockCheckpointsAndCannotCommitAfterAWrite() = concurrent { journal, pause, executor ->
++        pause.armed.set(true)
++        val reader = executor.submit<ComboHistoryJournal.Snapshot> { journal.snapshot(binding) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit { complete(journal) }.get(5, SECONDS)
++        pause.release.countDown()
++        stale(reader)
++        assertEquals(2, journal.snapshot(binding).reads.size)
++    }
++
++    @Test fun slowChunkDoesNotBlockCheckpointsAndCannotReturnAfterAWrite() = concurrent { journal, pause, executor ->
++        val snapshot = journal.snapshot(binding)
++        pause.armed.set(true)
++        val reader = executor.submit<ComboHistoryJournal.Chunk> { journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit { complete(journal) }.get(5, SECONDS)
++        pause.release.countDown()
++        stale(reader)
++        assertEquals(2, journal.snapshot(binding).reads.size)
++    }
++
++    @Test fun busyArchiveReadFailsFastWithoutInvalidatingTheCurrentReader() = concurrent { journal, pause, executor ->
++        val snapshot = journal.snapshot(binding)
++        val id = snapshot.reads.single().id
++        pause.armed.set(true)
++        val reader = executor.submit<ComboHistoryJournal.Chunk> { journal.readChunk(snapshot, id, 0, 32) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit {
++            assertThrows(IOException::class.java) { journal.snapshot(binding) }
++            assertThrows(IOException::class.java) { journal.readChunk(snapshot, id, 0, 32) }
++            journal.requireCurrent(snapshot)
++        }.get(5, SECONDS)
++        pause.release.countDown()
++        assertEquals(32, reader.get(5, SECONDS).bytes().size)
++        journal.requireCurrent(snapshot)
++        assertEquals(1, journal.snapshot(binding).reads.size)
++    }
++
++    @Test fun closeDoesNotWaitForSnapshotIoOrPermitOldResultToRevive() = concurrent { journal, pause, executor ->
++        pause.armed.set(true)
++        val reader = executor.submit<ComboHistoryJournal.Snapshot> { journal.snapshot(binding) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit { journal.close() }.get(5, SECONDS)
++        pause.release.countDown()
++        stale(reader)
++        assertThrows(IOException::class.java) { journal.snapshot(binding) }
++    }
++
++    @Test fun closeDoesNotWaitForChunkIoOrPermitOldBytesToReturn() = concurrent { journal, pause, executor ->
++        val snapshot = journal.snapshot(binding)
++        pause.armed.set(true)
++        val reader = executor.submit<ComboHistoryJournal.Chunk> { journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit { journal.close() }.get(5, SECONDS)
++        pause.release.countDown()
++        stale(reader)
++    }
++
++    @Test fun facadeCloseDoesNotWaitForChunkIoOrCloseThePumpWriter() = concurrent { journal, pause, executor ->
++        val source = ComboRetainedHistory.open(journal, binding) { true }
++        val read = source.reads.single()
++        pause.armed.set(true)
++        val reader = executor.submit<ByteArray> { source.readChunk(read.id, 0, read.byteCount) }
++        assertTrue(pause.entered.await(5, SECONDS))
++        executor.submit { source.close() }.get(5, SECONDS)
++        pause.release.countDown()
++        val error = assertThrows(ExecutionException::class.java) { reader.get(5, SECONDS) }
++        assertInstanceOf(app.aaps.core.interfaces.pump.RetainedPumpHistoryUnavailable::class.java, error.cause)
++        complete(journal)
++        assertEquals(2, ComboRetainedHistory.open(journal, binding) { true }.reads.size)
++    }
++
++    @Test fun obsoleteHandleFailureCannotInvalidateNewerSnapshot() {
++        ComboHistoryJournal(File(root, "history")).use { journal ->
++            complete(journal)
++            val old = journal.snapshot(binding)
++            val latest = journal.snapshot(binding)
++            assertThrows(IOException::class.java) { journal.readChunk(old, old.reads.single().id, 0, 32) }
++            journal.requireCurrent(latest)
++            assertEquals(32, journal.readChunk(latest, latest.reads.single().id, 0, 32).bytes().size)
++        }
++    }
++
++    @Test fun inheritedWriterMonitorIsRefusedBeforeAnyArchiveIo() {
++        var reads = 0
++        ComboHistoryJournal(File(root, "history"), beforeRead = { reads++ }).use { journal ->
++            complete(journal)
++            val snapshot = journal.snapshot(binding)
++            val before = reads
++            synchronized(journal) {
++                assertThrows(IOException::class.java) { journal.snapshot(binding) }
++                assertThrows(IOException::class.java) { journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32) }
++            }
++            assertEquals(before, reads)
++            journal.requireCurrent(snapshot)
++            assertEquals(32, journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32).bytes().size)
++        }
++    }
++
++    @Test fun fileIoRunsOutsideWriterMonitorAndCancelledReadsReleaseCapacity() {
++        lateinit var journal: ComboHistoryJournal
++        var cancel = false
++        journal = ComboHistoryJournal(File(root, "history"), beforeRead = {
++            assertFalse(Thread.holdsLock(journal))
++            if (cancel) throw CancellationException()
++        })
++        journal.use {
++            complete(journal)
++            cancel = true
++            assertThrows(CancellationException::class.java) { journal.snapshot(binding) }
++            cancel = false
++            val snapshot = journal.snapshot(binding)
++            cancel = true
++            assertThrows(CancellationException::class.java) { journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32) }
++            assertThrows(IOException::class.java) { journal.requireCurrent(snapshot) }
++            cancel = false
++            val latest = journal.snapshot(binding)
++            assertEquals(32, journal.readChunk(latest, latest.reads.single().id, 0, 32).bytes().size)
++        }
++    }
++
++    @Test fun failedReadReleasesCapacityAndDoesNotExposeFailureDetails() {
++        var fail = true
++        ComboHistoryJournal(File(root, "history"), beforeRead = {
++            if (fail) throw IOException("private synthetic read detail")
++        }).use { journal ->
++            complete(journal)
++            val error = assertThrows(IOException::class.java) { journal.snapshot(binding) }
++            assertEquals("History snapshot unavailable", error.message)
++            assertNull(error.cause)
++            fail = false
++            val snapshot = journal.snapshot(binding)
++            fail = true
++            assertThrows(IOException::class.java) { journal.readChunk(snapshot, snapshot.reads.single().id, 0, 32) }
++            fail = false
++            assertEquals(1, journal.snapshot(binding).reads.size)
++            complete(journal)
++        }
++    }
++}
 diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboRetainedHistoryTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboRetainedHistoryTest.kt
 new file mode 100644
 index 0000000..f48a4a4

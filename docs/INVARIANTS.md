@@ -2,6 +2,14 @@
 
 ## Native Read Source
 
+- Archive scans/chunks must not hold the writer monitor across file I/O or
+  hashing/parsing. At most one archive operation is admitted without waiting;
+  writer checkpoints/close never wait for that read permit.
+- Write attempts/close invalidate an admitted scan's local revision. Validate
+  again before return; never commit a mixed snapshot or return known-stale bytes.
+- Busy calls do not invalidate an in-flight reader. An obsolete/forged handle
+  cannot invalidate a newer handle. Closing the facade is immediate and terminal;
+  a late read result cannot make it valid again.
 - Use only the existing driver-owned journal; absence does not create/open one.
 - Scope to exactly one current paired address and its invariant binding. Check
   writer identity and failure state before/after I/O; observed loss is terminal

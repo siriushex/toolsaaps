@@ -1,5 +1,21 @@
 # PLAN
 
+## Combo Archive Read Priority (2026-10-26)
+
+- [x] Inspect native receiver/ACK path and producer locks before wiring.
+- [x] Reproduce seven failures: writer/close blocking, stale-handle invalidation,
+      busy-reader blocking and cancellation/monitor boundaries.
+- [x] Separate archive I/O from writer-state checks with a non-waiting single-read
+      budget and local revision invalidation.
+- [x] Verify facade close during I/O and inherited monitor rejection: 10 new
+      tests; selected native reports 697 tests, no failures/skips, pristine restore.
+- [x] Sequential pristine SDK preparation and fresh Copilot suite: 6991 passed,
+      six existing skips; lint/build passed. Recipe tooling is unchanged from
+      the prior 20-test verification; updated patch apply/reverse passed locally.
+- [ ] Review and exact-head CI before main integration.
+- Runtime dispatch stays closed until arbitration/authentication/encryption and
+  receipt handling are connected and device costs checked. No clinical admission.
+
 ## Native Combo Read Source (2026-10-26)
 
 - [x] Inspect stock receiver, existing master admission and journal lifecycle.
@@ -10,7 +26,8 @@
 - [x] Native reports687tests/no failures or skips; source restored pristine.
       Recipe20 and platform-JSON6 tests plus pristine SDK preparation passed.
 - [x] Copilot build/lint/tests successful, with unchanged tasks up-to-date.
-- [ ] Exact-head CI before integration.
+- [x] PR55 six checks and automated review passed; merged as f80b199d with exact
+      tested tree. Separate main CI run 40363666752 also passed all three jobs.
 - No remote dispatch, authenticated capability, durable receipt or clinical
   recommendation activation. These remain the next integration gates.
 

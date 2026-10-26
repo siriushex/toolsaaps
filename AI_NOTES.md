@@ -1,3 +1,20 @@
+# Combo Archive Read Priority - 2026-10-26
+
+- Before receiver wiring, found archive scans held the pump checkpoint monitor.
+  Paused-I/O tests reproduced seven failures, including writer/close blocking
+  and an old handle invalidating a newer snapshot.
+- Move archive I/O outside short writer-state sections. A local epoch rejects
+  results changed by write/close; one non-waiting permit bounds reads without
+  delaying the writer. Stale failures affect only their own handle.
+- Ten deterministic concurrency tests pass, including facade close and inherited
+  monitor rejection. Native selected reports: 697 tests, no failures or skips;
+  pristine checkout restored. Fresh Copilot run: 6991 passed, six existing skips;
+  lint/build and sequential pristine SDK preparation passed.
+- Baseline PR55 merged as f80b199d after six green checks and no review findings;
+  all three separate main checks passed in run 40363666752. This stage still
+  requires its own exact-head CI/review. No network sender, receiver, phone,
+  therapy, timing thresholds or APK changed.
+
 # Native Combo Read Source - 2026-10-26
 
 - Add optional retained-history source in core interfaces, implemented by ComboV2

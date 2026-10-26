@@ -19,7 +19,7 @@ An unknown binding contributes only to unscopedCorruptReads. Another pairing's
 read IDs and raw bytes are not returned. Missing origin must not be treated as
 zero history or assigned to the current pump.
 
-Only one snapshot handle is current. Another snapshot request, any write attempt
+Only one snapshot handle is current. Another admitted snapshot request, any write attempt
 or close invalidates it. Handles cannot be reused after reopening; stable read
 IDs and digests let a future transport reconcile a freshly obtained inventory.
 The snapshot is an in-process handle, not proof of authenticated destination,
@@ -49,6 +49,34 @@ retained snapshot. A future paired transport needs separate authorization,
 destination binding, ingestion, receipts and retention policy.
 
 ## Verification And Open Work
+
+### Archive I/O And Writer Priority
+
+Archive listing, reading, hashing and parsing no longer hold the writer monitor.
+A short admission section captures a local read epoch, owner path and failure
+state. Every write attempt and close invalidates the epoch. Scans recheck between
+files and before committing; chunks recheck their exact snapshot after I/O and
+hash validation. Concurrent changes never yield a mixed successful inventory.
+
+A separate non-waiting permit admits at most one archive operation per journal.
+Busy calls fail without queuing or invalidating the current reader. The permit
+releases on every exit, including cancellation or fatal exceptions. Writes and
+writer close never acquire it. The writer still serializes its own fsync work;
+this is not a hard real-time latency guarantee. Calls inheriting the writer
+monitor are refused before archive I/O rather than holding that outer monitor.
+
+An obsolete/forged handle can invalidate only itself, never a newer snapshot.
+Facade close sets a terminal visible flag without waiting for its read lock;
+any late read must fail final validation. The local epoch is not a persistent
+pairing epoch, clock mapping, receipt or physical delivery proof. Existing file
+limits and private-directory trust remain unchanged.
+
+Ten deterministic latch-based regressions cover write/close progress, stale
+results, busy readers, cancellation, old handles and inherited monitor rejection.
+The combined native recipe passed with 697 selected report tests and restored
+the pinned checkout; no failures or skips. Sequential pristine SDK preparation
+and a fresh Copilot suite passed (6991 passed, six existing skips), as did lint
+and build. These checks establish concurrency behavior, not clinical admission.
 
 ### Native Driver Access
 
@@ -88,8 +116,8 @@ Writer failure remains visible while readable evidence stays unverified.
 Run the two native Combo suites, reversible combined recipe, recipe isolation,
 pristine SDK interoperability and full Copilot quality commands before CI/review.
 
-Readout is not connected to a production caller. It is synchronized with journal
-writes; filesystem latency and memory behavior require device measurement before
+Readout is not connected to a production caller. Archive I/O is outside the writer
+monitor; filesystem latency and memory behavior still require device measurement before
 connecting background transfer. Independent pump binding, initial history,
 clock epochs, physical basal continuity and prospective meal-time safety remain
 open. No APK publication, phone/server deployment or therapy change is included.
