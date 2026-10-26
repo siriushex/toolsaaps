@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Archive I/O Concurrency (2026-10-26)
+
+- Reproduced writer/close blocking behind paused archive I/O, plus stale-handle
+  failures invalidating a newer snapshot. Scans/chunks now do file I/O, parsing
+  and hashing outside the writer monitor. Short admission/final checks refuse
+  results invalidated by writes/close; size/hash/ownership gates remain.
+- One non-waiting read permit bounds memory/CPU work. Busy calls do not queue or
+  revoke the current reader; the writer never takes it. Cancellation propagates
+  and capacity releases on all exits. Facade close must not wait for a read and
+  must refuse its late result. Errors on old handles affect only those handles.
+- This addresses monitor contention, not OS scheduling, device performance,
+  authenticated dispatch, persistent pairing epochs or clinical safety approval.
+  Private-directory trust is unchanged; no new network entry point or activation.
+
 ## Native Retained-History Source (2026-10-26)
 
 - Optional local interface only; no endpoint, native receiver branch, uploader,
@@ -14,7 +28,7 @@
 - Still required: native authenticated capability/dispatch, persistent pairing
   epochs, priority/revocation around suspended work, encrypted response and receipt
   reconciliation. Current-value checks cannot detect unobserved change/restore.
-- Journal scanning is bounded but synchronized with checkpoint writes. Measure
+- Journal scanning is bounded and now outside the writer monitor. Measure
   device I/O latency and add arbitration before activating remote background use;
   unit tests do not establish acceptable pump-driver latency or meal-time safety.
 - Recipe regression: concatenate-then-reverse recreated an owned new file when a
