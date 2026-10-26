@@ -1,3 +1,24 @@
+# Native History Query Validation - 2026-10-26
+
+- Added a pure native decoder for the exact bounded inventory/chunk wire contract.
+  Validates expected owner, lifetime, field types, canonical identities and exact
+  chunk geometry; duplicate/escaped/deep/oversized payloads fail without raw errors.
+- Shared native patch source is also compiled beside the pristine SDK driver to
+  check real Copilot-generated requests, not a separately reimplemented decoder.
+- Runtime history dispatch remains a terminal refusal. No new capability,
+  secret/counter owner, therapy action, timer, phone/server or APK change.
+- Native726 tests passed, including14new decoder tests; recipe24 and platform
+  JSON6 passed, pristine native restoration verified. Initial SDK incremental
+  compilation failed in dirty-symbol calculation after patch reversal. Full
+  SDK-only compilation succeeded; test behavior was not weakened. One platform
+  test setup was initially blocked by sandbox cache permissions, then passed
+  with required cache access. Copilot6991passed/six existing skips, native query
+  interoperability passed5.855s (eight wire variants); lint/compile/assembly
+  succeeded10m43s. APK guard retained7309classes/39870608bytes. Exact-head CI and
+  review are pending; no APK publication in this source-only stage.
+- Prior PR57 six checks/review passed; merged c643a856 with exact tested tree;
+  separate main CI40386089022 passed all three jobs.
+
 # History Reply Isolation - 2026-10-26
 
 - Separate authenticated history responses from the target/delivery ACK key,

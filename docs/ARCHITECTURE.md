@@ -1,5 +1,21 @@
 # ARCHITECTURE
 
+## Native History Query Structure
+
+The candidate `ComboHistoryReadRequest` decodes only the versioned inventory/chunk
+union emitted by Copilot, bound to the expected master installation and a current
+request lifetime of at most 30 seconds. It is a pure structure check: no secret,
+counter ownership, source read, dispatcher or capability is added. The receiver's
+isolated terminal refusal remains in place until runtime admission is complete.
+
+The signed inner payload is compact ASCII JSON, at most 2048 characters, with
+two object levels and no escapes or arrays. JSON decoding/re-encoding must preserve
+its exact bytes; this rejects duplicate keys and whitespace aliases. Exact field
+sets, canonical integer/UUID/hash alphabets and exact 32 KiB chunk geometry prevent
+ambiguous reads. Outer settings JSON remains free to reorder its envelope fields;
+only the already-signed payload string has this contract. Query values/errors are
+redacted. Native tests and the pristine SDK driver compile the same patch source.
+
 ## Native History Reply Isolation
 
 The minimal RC1 receiver patch reserves `combo_history_read_` as a read-only

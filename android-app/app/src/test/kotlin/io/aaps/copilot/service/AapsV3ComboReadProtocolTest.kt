@@ -43,7 +43,7 @@ class AapsV3ComboReadProtocolTest {
         assertThrows(IllegalStateException::class.java) { p.request(client, master, id, 3, at, chunk) }
     }
 
-    @Test fun nativeRc1AuthenticatesReadEnvelopeButRefusesUnknownMessageType() {
+    @Test fun nativeRc1AuthenticatesAndDecodesCandidateQueryButStockDispatchRemainsUnsupported() {
         val classpath = System.getenv("AAPS_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
         if (System.getenv("CI") == "true") check(classpath?.isFile == true && !javaHome.isNullOrBlank())
@@ -52,15 +52,17 @@ class AapsV3ComboReadProtocolTest {
         val errors = File.createTempFile("read-protocol-", ".err")
         try {
             AapsV3ComboReadProtocol(ByteArray(32) { it.toByte() }).use { protocol ->
-                for (spec in listOf(AapsV3ComboReadSpec.Inventory(),
-                    AapsV3ComboReadSpec.Inventory(snapshotId, id), chunk)) {
+                for (spec in listOf(AapsV3ComboReadSpec.Inventory(), AapsV3ComboReadSpec.Inventory(limit = 1),
+                    AapsV3ComboReadSpec.Inventory(snapshotId, id), chunk,
+                    chunk.copy(totalBytes = 1, offset = 0), chunk.copy(totalBytes = 32768, offset = 0),
+                    chunk.copy(totalBytes = 32771, offset = 0), chunk.copy(totalBytes = 2097152, offset = 2064384))) {
                     val process = ProcessBuilder("$javaHome/bin/java", "-cp", classpath!!.readText(),
                         "integration.entries.ComboReadRequestInteropKt").redirectOutput(output).redirectError(errors).start()
                     try {
                         process.outputStream.use { it.write(protocol.request(client, master, id, 3, at, spec).json.toString().toByteArray()) }
                         assertTrue("Native request check timed out", process.waitFor(30, TimeUnit.SECONDS))
                         assertEquals("Native request check failed", 0, process.exitValue())
-                        assertEquals("native_signature_ok_extension_unsupported", output.readText())
+                        assertEquals("native_signature_query_ok_extension_unsupported", output.readText())
                     } finally {
                         if (process.isAlive) { process.destroyForcibly(); check(process.waitFor(10, TimeUnit.SECONDS)) }
                     }

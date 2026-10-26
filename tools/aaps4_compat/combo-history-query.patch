@@ -1,0 +1,294 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequest.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequest.kt
+new file mode 100644
+index 0000000..fb6e8a8
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequest.kt
+@@ -0,0 +1,132 @@
++package app.aaps.core.nssdk.localmodel.clientcontrol
++
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.JsonPrimitive
++
++/** Structure only. The paired owner must verify MAC, replay and lifecycle before using it. */
++class ComboHistoryReadRequest private constructor(
++    val clientId: String,
++    val masterInstallId: String,
++    val requestId: String,
++    val counter: Long,
++    val issuedAt: Long,
++    val validUntil: Long,
++    val query: Query
++) {
++    sealed interface Query
++
++    class Inventory internal constructor(val snapshotId: String?, val afterReadId: String?, val limit: Int) : Query {
++        override fun toString() = "ComboInventoryQuery(redacted)"
++    }
++
++    class Chunk internal constructor(
++        val snapshotId: String, val readId: String, val pumpBinding: String, val sha256: String,
++        val totalBytes: Int, val offset: Int, val length: Int
++    ) : Query {
++        override fun toString() = "ComboChunkQuery(redacted)"
++    }
++
++    override fun toString() = "ComboHistoryReadRequest(redacted)"
++
++    companion object {
++        const val TYPE = "combo_history_read_v1"
++        private const val MAX_TIME = 253_402_300_799_999L
++        private const val TTL_MS = 30_000L
++        private const val MAX_PAYLOAD_CHARS = 2048
++        private const val MAX_READ_BYTES = 2 * 1024 * 1024
++        private const val CHUNK_BYTES = 32768
++        private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
++        private val HASH = Regex("[0-9a-f]{64}")
++        private val ROOT_KEYS = setOf("type", "version", "masterInstallId", "requestId", "query")
++        private val INVENTORY_KEYS = setOf("kind", "limit")
++        private val CURSOR_KEYS = INVENTORY_KEYS + setOf("snapshotId", "afterReadId")
++        private val CHUNK_KEYS = setOf("kind", "snapshotId", "readId", "pumpBinding", "sha256", "totalBytes", "offset", "length")
++
++        /** Does not authenticate [envelope] or consume its counter; the caller owns both checks. */
++        fun decode(envelope: SignedEnvelope, expectedMasterInstallId: String, now: Long): ComboHistoryReadRequest = try {
++            require(UUID.matches(envelope.clientId) && UUID.matches(expectedMasterInstallId))
++            require(envelope.clientId != expectedMasterInstallId && envelope.counter > 1)
++            require(envelope.type == TYPE && envelope.wantsAck)
++            require(envelope.timestamp in 1..MAX_TIME - TTL_MS)
++            require(envelope.validUntil > envelope.timestamp && envelope.validUntil - envelope.timestamp <= TTL_MS)
++            require(now >= envelope.timestamp && now < envelope.validUntil)
++            val payload = envelope.payload
++            checkFraming(payload)
++            val root = Json.parseToJsonElement(payload) as? JsonObject ?: invalid()
++            // The sender signs compact JSON verbatim. Re-encoding rejects duplicate keys
++            // and noncanonical whitespace without implementing another JSON parser.
++            require(root.toString() == payload && root.keys == ROOT_KEYS)
++            require(root.string("type") == TYPE && root.integer("version") == 1)
++            require(root.string("masterInstallId") == expectedMasterInstallId)
++            val requestId = root.identifier("requestId")
++            val body = root["query"] as? JsonObject ?: invalid()
++            val query = when (body.string("kind")) {
++                "inventory" -> {
++                    require(body.keys == INVENTORY_KEYS || body.keys == CURSOR_KEYS)
++                    val limit = body.integer("limit")
++                    require(limit in 1..32)
++                    Inventory(
++                        if ("snapshotId" in body) body.identifier("snapshotId") else null,
++                        if ("afterReadId" in body) body.identifier("afterReadId") else null,
++                        limit
++                    )
++                }
++                "chunk" -> {
++                    require(body.keys == CHUNK_KEYS)
++                    val snapshotId = body.identifier("snapshotId")
++                    val readId = body.identifier("readId")
++                    val pumpBinding = body.string("pumpBinding").also { require(HASH.matches(it)) }
++                    val sha256 = body.string("sha256").also { require(HASH.matches(it)) }
++                    val totalBytes = body.integer("totalBytes")
++                    val offset = body.integer("offset")
++                    val length = body.integer("length")
++                    require(totalBytes in 1..MAX_READ_BYTES)
++                    require(offset in 0 until totalBytes && offset % CHUNK_BYTES == 0)
++                    require(length == minOf(CHUNK_BYTES, totalBytes - offset))
++                    Chunk(snapshotId, readId, pumpBinding, sha256, totalBytes, offset, length)
++                }
++                else -> invalid()
++            }
++            ComboHistoryReadRequest(envelope.clientId, expectedMasterInstallId, requestId,
++                envelope.counter, envelope.timestamp, envelope.validUntil, query)
++        } catch (_: Exception) {
++            invalid()
++        }
++
++        private fun checkFraming(raw: String) {
++            require(raw.length in 1..MAX_PAYLOAD_CHARS)
++            var depth = 0
++            var quoted = false
++            for (char in raw) {
++                // This version contains only closed ASCII identifiers and numeric fields.
++                require(char in ' '..'~' && char != '\\')
++                if (char == '"') quoted = !quoted
++                else if (!quoted) when (char) {
++                    '{' -> { depth++; require(depth <= 2) }
++                    '}' -> { depth--; require(depth >= 0) }
++                    '[', ']' -> invalid()
++                }
++            }
++            require(!quoted && depth == 0)
++        }
++
++        private fun JsonObject.string(name: String): String {
++            val value = this[name] as? JsonPrimitive ?: invalid()
++            require(value.isString)
++            return value.content
++        }
++
++        private fun JsonObject.identifier(name: String) = string(name).also { require(UUID.matches(it)) }
++
++        private fun JsonObject.integer(name: String): Int {
++            val value = this[name] as? JsonPrimitive ?: invalid()
++            require(!value.isString)
++            val number = value.content.toIntOrNull() ?: invalid()
++            require(number.toString() == value.content)
++            return number
++        }
++
++        private fun invalid(): Nothing = throw IllegalArgumentException("combo_history_query_invalid")
++    }
++}
+diff --git a/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequestTest.kt b/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequestTest.kt
+new file mode 100644
+index 0000000..cdfd245
+--- /dev/null
++++ b/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadRequestTest.kt
+@@ -0,0 +1,150 @@
++package app.aaps.core.nssdk.localmodel.clientcontrol
++
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFailsWith
++import kotlin.test.assertFalse
++import kotlin.test.assertIs
++import kotlin.test.assertNull
++import kotlinx.serialization.json.*
++
++class ComboHistoryReadRequestTest {
++    private val client = "11111111-2222-4333-8444-555555555555"
++    private val master = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++    private val request = "00000000-0000-4000-8000-000000000001"
++    private val snapshot = "00000000-0000-4000-8000-000000000002"
++    private val at = 1_800_000_000_000L
++    private fun inventory() = buildJsonObject { put("kind", "inventory"); put("limit", 32) }
++    private fun chunk() = buildJsonObject {
++        put("kind", "chunk"); put("snapshotId", snapshot); put("readId", request)
++        put("pumpBinding", "a".repeat(64)); put("sha256", "b".repeat(64))
++        put("totalBytes", 32771); put("offset", 32768); put("length", 3)
++    }
++    private fun root(query: JsonElement = inventory()) = buildJsonObject {
++        put("type", ComboHistoryReadRequest.TYPE); put("version", 1)
++        put("masterInstallId", master); put("requestId", request); put("query", query)
++    }
++    private fun envelope(payload: String = root().toString()) = SignedEnvelope(
++        client, 3, at, ComboHistoryReadRequest.TYPE, payload, "", at + 30000, true)
++    private fun JsonObject.changed(key: String, value: JsonElement?) = JsonObject(toMutableMap().apply {
++        if (value == null) remove(key) else put(key, value)
++    })
++    private fun rejected(env: SignedEnvelope = envelope(), owner: String = master, now: Long = at) {
++        val failure = assertFailsWith<IllegalArgumentException> { ComboHistoryReadRequest.decode(env, owner, now) }
++        assertEquals("combo_history_query_invalid", failure.message)
++        assertNull(failure.cause)
++    }
++    private fun rejectedQuery(query: JsonElement) = rejected(envelope(root(query).toString()))
++
++    @Test fun initialInventoryHasNoInventedCursorOrAuthority() {
++        val decoded = ComboHistoryReadRequest.decode(envelope(), master, at)
++        assertEquals(client, decoded.clientId); assertEquals(master, decoded.masterInstallId)
++        assertEquals(request, decoded.requestId); assertEquals(3L, decoded.counter)
++        assertEquals(at, decoded.issuedAt); assertEquals(at + 30000, decoded.validUntil)
++        val query = assertIs<ComboHistoryReadRequest.Inventory>(decoded.query)
++        assertEquals(32, query.limit); assertNull(query.snapshotId); assertNull(query.afterReadId)
++        // Deliberately unsigned: this is a syntax check, never authentication.
++        assertEquals("", envelope().signature)
++    }
++    @Test fun continuationAndInventoryLimits() {
++        for (limit in listOf(1, 32)) {
++            val body = inventory().changed("limit", JsonPrimitive(limit))
++                .changed("snapshotId", JsonPrimitive(snapshot)).changed("afterReadId", JsonPrimitive(request))
++            val decoded = ComboHistoryReadRequest.decode(envelope(root(body).toString()), master, at + 29999)
++            val query = assertIs<ComboHistoryReadRequest.Inventory>(decoded.query)
++            assertEquals(snapshot, query.snapshotId); assertEquals(request, query.afterReadId)
++            assertEquals(limit, query.limit)
++        }
++    }
++    @Test fun exactFirstMiddleLastAndMaximumChunks() {
++        for ((size, offset) in listOf(1 to 0, 32768 to 0, 32771 to 0, 32771 to 32768, 2097152 to 2064384)) {
++            val length = minOf(32768, size - offset)
++            val body = chunk().changed("totalBytes", JsonPrimitive(size)).changed("offset", JsonPrimitive(offset))
++                .changed("length", JsonPrimitive(length))
++            val query = assertIs<ComboHistoryReadRequest.Chunk>(ComboHistoryReadRequest.decode(envelope(root(body).toString()), master, at).query)
++            assertEquals(size, query.totalBytes); assertEquals(offset, query.offset); assertEquals(length, query.length)
++            assertEquals(snapshot, query.snapshotId); assertEquals(request, query.readId)
++            assertEquals("a".repeat(64), query.pumpBinding); assertEquals("b".repeat(64), query.sha256)
++        }
++    }
++    @Test fun wrongOuterTypeVersionAckAndCounterAreRejected() {
++        listOf("hello", "combo_history_read_v2", "combo_history_read_", "").forEach { rejected(envelope().copy(type = it)) }
++        rejected(envelope().copy(wantsAck = false))
++        listOf(Long.MIN_VALUE, -1, 0, 1).forEach { rejected(envelope().copy(counter = it)) }
++        listOf(JsonPrimitive(0), JsonPrimitive(2), JsonPrimitive("1"), JsonNull).forEach {
++            rejected(envelope(root().changed("version", it).toString()))
++        }
++    }
++    @Test fun exactOwnerAndCanonicalIdentitiesRequired() {
++        listOf(master.uppercase(), "../owner", "", "a-b-c-d-e").forEach {
++            rejected(owner = it); rejected(envelope().copy(clientId = it))
++            rejected(envelope(root().changed("requestId", JsonPrimitive(it)).toString()))
++        }
++        rejected(envelope().copy(clientId = master))
++        rejected(envelope(root().changed("masterInstallId", JsonPrimitive(client)).toString()))
++        for (field in listOf("snapshotId", "readId")) rejectedQuery(chunk().changed(field, JsonPrimitive("bad")))
++    }
++    @Test fun missingAndExtraRootAndQueryFieldsAreRejected() {
++        root().keys.forEach { rejected(envelope(root().changed(it, null).toString())) }
++        rejected(envelope(root().changed("bolus", JsonPrimitive(1)).toString()))
++        for (base in listOf(inventory(), chunk())) {
++            base.keys.forEach { rejectedQuery(base.changed(it, null)) }
++            rejectedQuery(base.changed("unexpected", JsonPrimitive(true)))
++        }
++        rejectedQuery(root()); rejectedQuery(JsonNull); rejectedQuery(JsonArray(emptyList()))
++        rejectedQuery(JsonPrimitive("inventory")); rejectedQuery(inventory().changed("kind", JsonPrimitive("bolus.commit")))
++    }
++    @Test fun halfCursorsExplicitNullsAndInventoryLimitsAreRejected() {
++        rejectedQuery(inventory().changed("snapshotId", JsonPrimitive(snapshot)))
++        rejectedQuery(inventory().changed("afterReadId", JsonPrimitive(request)))
++        rejectedQuery(inventory().changed("snapshotId", JsonNull).changed("afterReadId", JsonNull))
++        for (value in listOf(JsonPrimitive(-1), JsonPrimitive(0), JsonPrimitive(33), JsonPrimitive(Int.MAX_VALUE),
++            JsonPrimitive("32"), JsonPrimitive(true), JsonNull)) rejectedQuery(inventory().changed("limit", value))
++    }
++    @Test fun chunkGeometryNeverRoundsOrTruncates() {
++        for (size in listOf(-1, 0, 2097153, Int.MAX_VALUE)) rejectedQuery(chunk().changed("totalBytes", JsonPrimitive(size)))
++        for (offset in listOf(-32768, -1, 1, 32769, 32771, Int.MAX_VALUE)) rejectedQuery(chunk().changed("offset", JsonPrimitive(offset)))
++        for (length in listOf(-1, 0, 2, 4, 32768, Int.MAX_VALUE)) rejectedQuery(chunk().changed("length", JsonPrimitive(length)))
++        for (field in listOf("totalBytes", "offset", "length")) {
++            rejectedQuery(chunk().changed(field, JsonPrimitive("3"))); rejectedQuery(chunk().changed(field, JsonNull))
++        }
++    }
++    @Test fun bindingsAndDigestsUseClosedAlphabet() {
++        for (field in listOf("pumpBinding", "sha256")) for (value in listOf("A".repeat(64), "a".repeat(63),
++            "a".repeat(65), "../read", "a|b", "a\nb")) rejectedQuery(chunk().changed(field, JsonPrimitive(value)))
++    }
++    @Test fun lifetimeAndNowCheckAllBoundariesWithoutOverflow() {
++        rejected(now = at - 1); rejected(now = at + 30000); rejected(now = Long.MIN_VALUE); rejected(now = Long.MAX_VALUE)
++        for (time in listOf(Long.MIN_VALUE, -1, 0, 253_402_300_770_000L, Long.MAX_VALUE)) rejected(envelope().copy(timestamp = time))
++        for (until in listOf(Long.MIN_VALUE, at - 1, at, at + 30001, Long.MAX_VALUE)) rejected(envelope().copy(validUntil = until))
++        ComboHistoryReadRequest.decode(envelope().copy(validUntil = at + 1), master, at)
++    }
++    @Test fun duplicateKeysAtEitherLevelAreRejectedEvenWhenEqual() {
++        val raw = root().toString()
++        rejected(envelope(raw.replace("\"version\":1", "\"version\":1,\"version\":1")))
++        rejected(envelope(raw.replace("\"limit\":32", "\"limit\":1,\"limit\":32")))
++        rejected(envelope(raw.replace("\"query\":", "\"query\":{},\"query\":")))
++    }
++    @Test fun escapedKeysNumbersAndWhitespaceAreNotAlternateWireForms() {
++        val raw = root().toString()
++        listOf("1.0", "1e0", "+1", "01", "-0", "9999999999999999999999").forEach {
++            rejected(envelope(raw.replace("\"version\":1", "\"version\":$it")))
++        }
++        rejected(envelope(raw.replace("version", "ver\\u0073ion")))
++        rejected(envelope(" $raw")); rejected(envelope(raw.replace(",", ", ")))
++        rejected(envelope(raw.replace("\"limit\":32", "\"limit\":32,")))
++    }
++    @Test fun oversizedDeepAndMalformedPayloadsFailWithoutLeakingInput() {
++        listOf("", " ".repeat(2049), "{".repeat(1000) + "}".repeat(1000), "[".repeat(1000) + "]".repeat(1000),
++            "{}{}", "{", "}", "{\"query\":{\"extra\":{}}}", root().toString() + "\u0000", "{\"note\":\"личное\"}")
++            .forEach { rejected(envelope(it)) }
++    }
++    @Test fun descriptionsNeverContainRequestScope() {
++        for (body in listOf(inventory(), chunk())) {
++            val decoded = ComboHistoryReadRequest.decode(envelope(root(body).toString()), master, at)
++            for (sensitive in listOf(client, master, request, snapshot, "a".repeat(64), "b".repeat(64))) {
++                assertFalse(decoded.toString().contains(sensitive)); assertFalse(decoded.query.toString().contains(sensitive))
++            }
++        }
++    }
++}

@@ -1,6 +1,7 @@
 package integration.entries
 
 import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
+import app.aaps.core.nssdk.localmodel.clientcontrol.ComboHistoryReadRequest
 import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import kotlinx.serialization.SerializationException
@@ -22,11 +23,32 @@ fun main() {
         check(body["version"] == JsonPrimitive(1))
         check(body["masterInstallId"] == JsonPrimitive("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"))
         check(body.getValue("query").jsonObject.getValue("kind").jsonPrimitive.content in setOf("inventory", "chunk"))
+        val decoded = ComboHistoryReadRequest.decode(envelope, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", envelope.timestamp)
+        check(decoded.clientId == envelope.clientId && decoded.counter == envelope.counter)
+        check(decoded.issuedAt == envelope.timestamp && decoded.validUntil == envelope.validUntil)
+        check(decoded.requestId == body.getValue("requestId").jsonPrimitive.content)
+        val query = body.getValue("query").jsonObject
+        when (val read = decoded.query) {
+            is ComboHistoryReadRequest.Inventory -> {
+                check(read.limit == query.getValue("limit").jsonPrimitive.int)
+                check(read.snapshotId == query["snapshotId"]?.jsonPrimitive?.content)
+                check(read.afterReadId == query["afterReadId"]?.jsonPrimitive?.content)
+            }
+            is ComboHistoryReadRequest.Chunk -> {
+                check(read.snapshotId == query.getValue("snapshotId").jsonPrimitive.content)
+                check(read.readId == query.getValue("readId").jsonPrimitive.content)
+                check(read.pumpBinding == query.getValue("pumpBinding").jsonPrimitive.content)
+                check(read.sha256 == query.getValue("sha256").jsonPrimitive.content)
+                check(read.totalBytes == query.getValue("totalBytes").jsonPrimitive.int)
+                check(read.offset == query.getValue("offset").jsonPrimitive.int)
+                check(read.length == query.getValue("length").jsonPrimitive.int)
+            }
+        }
         var unsupported = false
         try { Json.decodeFromString<ClientControlMessage>(envelope.payload) }
         catch (_: SerializationException) { unsupported = true }
         check(unsupported)
-        print("native_signature_ok_extension_unsupported")
+        print("native_signature_query_ok_extension_unsupported")
     } catch (_: Exception) {
         System.err.print("read_protocol_check_failed")
         exitProcess(1)

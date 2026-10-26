@@ -1,5 +1,18 @@
 # INVARIANTS
 
+## History Query Structure
+
+- Structural decode is never MAC verification, replay admission or delivery proof.
+- Require exact type/version, expected installation, canonical identities, positive
+  shared counter after enrollment and issue <= now < expiry, lifetime <=30 seconds.
+- Only exact inventory/chunk fields are valid; no half/null cursors, therapy fields,
+  duplicate keys, escaped aliases or alternate numeric representations.
+- Bound before parsing: <=2048 ASCII characters, no arrays, object depth <=2.
+  Fragments are aligned, nonempty and exact, including the shorter final fragment.
+- Reject with a fixed redacted failure, no original parser cause or request text.
+- Keep native history dispatch closed until independent owner/lifecycle, encrypted
+  response, receipt and clinical gates pass. Parsing alone cannot advertise support.
+
 ## History Response Boundary
 
 - Reserved history envelopes cannot dispatch stock therapy, settings, alarm or
