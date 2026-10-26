@@ -1,5 +1,20 @@
 # ARCHITECTURE
 
+## Native Retained-History Source
+
+The minimal RC1 compatibility patch adds an optional `RetainedPumpHistorySource`
+interface implemented by ComboV2. It reads only the already-owned private journal:
+no second writer, lazy reopen, Bluetooth read or delivery command. Native sync can
+later select this interface through the active driver without depending on Combo
+implementation classes. It is not yet called by the client-control receiver.
+
+The source pins the current unambiguous pairing hash and writer instance, checking
+both before/after I/O. A reader owns immutable metadata, exact aligned fragments
+and a latched validity state; closing it never closes the writer. Journal changes,
+replacement snapshots and observed owner loss invalidate reads. This is local
+identity consistency, not an authenticated pairing epoch or clinical completeness.
+See [readout](AAPS4_COMBO_HISTORY_READOUT.md) for activation and latency gates.
+
 ## Combo Inventory Candidate
 
 Bounded encrypted inventory pages now reuse the chunk codec's private AEAD

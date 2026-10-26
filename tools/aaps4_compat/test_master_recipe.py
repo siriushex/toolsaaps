@@ -28,7 +28,7 @@ class MasterRecipeTest(unittest.TestCase):
         (self.source / "transport.txt").write_text("original transport\n")
         (self.source / "upload.txt").write_text("original upload\n")
         (self.source / "combo.txt").write_text("original combo\n")
-        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n.upload-invoked\n.combo-invoked\n")
+        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n.upload-invoked\n.combo-invoked\n.reader-invoked\n")
         wrapper = self.source / "gradlew"
         wrapper.write_text(
             "#!/usr/bin/env bash\nset -eu\n"
@@ -36,6 +36,7 @@ class MasterRecipeTest(unittest.TestCase):
             "cp transport.txt .transport-invoked\n"
             "cp upload.txt .upload-invoked\n"
             "cp combo.txt .combo-invoked\n"
+            "if [ -f added.txt ]; then cp added.txt .reader-invoked; fi\n"
             "if [ -n \"${AAPS_INTEROP_CLASSPATH:-}\" ]; then\n"
             "  mkdir -p \"$(dirname \"$AAPS_INTEROP_CLASSPATH\")\"\n"
             "  printf '%s\\n' synthetic > \"$AAPS_INTEROP_CLASSPATH\"\nfi\n"
@@ -51,6 +52,8 @@ class MasterRecipeTest(unittest.TestCase):
             "  printf '%s\\n' 'other edit' >> upload.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = combo-edit ]; then\n"
             "  printf '%s\\n' 'other edit' >> combo.txt\nfi\n"
+            "if [ \"${FIXTURE_MODE:-}\" = reader-edit ]; then\n"
+            "  printf '%s\\n' 'other edit' >> added.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = failure ]; then exit 9; fi\n"
         )
         wrapper.chmod(0o755)
@@ -80,6 +83,11 @@ class MasterRecipeTest(unittest.TestCase):
         self.combo_patch = tools / "combo-history-integrity.patch"
         self.combo_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "combo.txt").stdout)
         (self.source / "combo.txt").write_text("original combo\n")
+        self.reader_patch = tools / "combo-history-source.patch"
+        self.reader_patch.write_text(
+            "diff --git a/added.txt b/added.txt\n--- a/added.txt\n+++ b/added.txt\n"
+            "@@ -1 +1 @@\n-new test\n+new test with reader\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -120,6 +128,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
         self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         self.assertEqual("patched combo\n", (self.source / ".combo-invoked").read_text())
+        self.assertEqual("new test with reader\n", (self.source / ".reader-invoked").read_text())
         arguments = (self.source / ".gradle-invoked").read_text().splitlines()
         self.assertIn(":plugins:sync:testAndroidHostTest", arguments)
         self.assertIn(":implementation:testAndroidHostTest", arguments)
@@ -139,6 +148,19 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_missing_reader_patch_refuses_before_changing_source(self):
+        self.reader_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_concurrent_reader_edit_is_not_reversed(self):
+        result = self.run_recipe("reader-edit")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("preserving the checkout", result.stderr)
+        self.assertEqual("new test with reader\nother edit\n", (self.source / "added.txt").read_text())
 
     def test_concurrent_combo_edit_is_not_reversed(self):
         result = self.run_recipe("combo-edit")
@@ -223,7 +245,7 @@ class MasterRecipeTest(unittest.TestCase):
         result = self.run_recipe("added-edit")
         self.assertNotEqual(0, result.returncode)
         self.assertIn("preserving the checkout", result.stderr)
-        self.assertEqual("new test\nother edit\n", (self.source / "added.txt").read_text())
+        self.assertEqual("new test with reader\nother edit\n", (self.source / "added.txt").read_text())
 
     def test_concurrent_edit_is_not_reversed_or_overwritten(self):
         result = self.run_recipe("concurrent")
