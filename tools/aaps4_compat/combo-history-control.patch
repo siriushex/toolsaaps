@@ -1,0 +1,304 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+index 300f2f0..bc7b698 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+@@ -68,6 +68,7 @@ import org.mockito.kotlin.eq
+ import org.mockito.kotlin.never
+ import org.mockito.kotlin.times
+ import org.mockito.kotlin.verify
++import org.mockito.kotlin.verifyNoInteractions
+ import org.mockito.kotlin.whenever
+ import kotlin.time.Duration.Companion.milliseconds
+ import kotlin.time.ExperimentalTime
+@@ -1190,6 +1191,169 @@ internal class ClientControlReceiverTest {
+         assertThat(ClientControlCrypto.verifyAck(secret, acks.last())).isTrue()
+     }
+ 
++    // Read-history replies must not share the target/delivery ACK slot.
++    private val historyType = "combo_history_read_v1"
++    private fun historyAckId(clientId: String) = "${ClientControlPublisher.IDENTIFIER_ACK_PREFIX}history_$clientId"
++
++    private suspend fun captureHistoryAcks(clientId: String): MutableList<AckEnvelope> {
++        val acks = mutableListOf<AckEnvelope>()
++        whenever(nsAndroidClient.updateSettings(eq(historyAckId(clientId)), any())).thenAnswer {
++            acks += Json.decodeFromJsonElement(AckEnvelope.serializer(), it.getArgument<JsonObject>(1).getValue("ack"))
++            deleteOk
++        }
++        return acks
++    }
++
++    private fun historyEnvelope(clientId: String, secret: ByteArray, payload: String = "{}",
++                                type: String = historyType, until: Long = now + 30_000L,
++                                wantsAck: Boolean = true): SignedEnvelope =
++        signedEnvelope(clientId, secret, type, payload, counter = 5L, validUntil = until, wantsAck = wantsAck)
++
++    private fun assertHistoryFailure(acks: List<AckEnvelope>, secret: ByteArray, status: String = "Failed") {
++        assertThat(acks).hasSize(1)
++        assertThat(acks.single().phase.name).isEqualTo("Done")
++        assertThat(acks.single().status.name).isEqualTo(status)
++        assertThat(acks.single().payload).isNull()
++        assertThat(ClientControlCrypto.verifyAck(secret, acks.single())).isTrue()
++    }
++
++    @Test fun unsupportedHistoryReplyIsSignedAndDoesNotReplaceTherapyAck() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}ping_$clientId",
++            wrap(envelope(clientId, secret, ClientControlMessage.Ping, counter = 3L, wantsAck = true)))
++        val previous = ordinary.toList()
++        val request = historyEnvelope(clientId, secret, """{"type":"combo_history_read_v1","version":1,"query":{"kind":"inventory","limit":1}}""")
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}${historyType}_$clientId", wrap(request))
++        assertHistoryFailure(history, secret)
++        assertThat(ordinary).containsExactlyElementsIn(previous).inOrder()
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
++        verifyNoInteractions(wizardBolusExecutor, sceneAutomationApi, commandQueue, notificationManager, persistenceLayer)
++    }
++
++    @Test fun expiredHistoryUsesOnlyHistoryReplySlot() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read", wrap(historyEnvelope(clientId, secret, until = now)))
++        assertHistoryFailure(history, secret, "Expired")
++        assertThat(ordinary).isEmpty()
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
++    }
++
++    @Test fun disabledControlHistoryUsesOnlyHistoryReplySlot() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        whenever(preferences.get(BooleanKey.NsClientAllowClientControl)).thenReturn(false)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read", wrap(historyEnvelope(clientId, secret)))
++        assertHistoryFailure(history, secret)
++        assertThat(history.single().reason).isEqualTo("ControlDisabled")
++        assertThat(ordinary).isEmpty()
++    }
++
++    private suspend fun rejectDisguisedHistory(message: ClientControlMessage, active: Boolean = true,
++                                             type: String = historyType) {
++        val (clientId, secret) = pair()
++        if (active) authorizedRepository.markActive(clientId, 1L, now)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        val payload = publisherJson.encodeToString(ClientControlMessage.serializer(), message)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, payload, type)))
++        assertThat(authorizedRepository.findRaw(clientId)!!.state).isEqualTo(if (active) ClientState.Active else ClientState.Pending)
++        verifyNoInteractions(wizardBolusExecutor, sceneAutomationApi, commandQueue, notificationManager, persistenceLayer)
++        verify(runningConfigurationPublisher, never()).requestColdRepublish()
++        verify(offerPublisher, never()).deleteOffer(any())
++        assertHistoryFailure(history, secret)
++        assertThat(ordinary).isEmpty()
++    }
++
++    @Test fun historyCannotDispatchHiddenBolusCommit() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.BolusCommit(42L))
++    }
++    @Test fun historyCannotDispatchHiddenStopBolus() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.StopBolus)
++    }
++    @Test fun historyCannotDispatchHiddenDismissAlarm() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.DismissAlarm)
++    }
++    @Test fun historyCannotDispatchHiddenPreferences() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.PreferencesUpdate(emptyMap()))
++    }
++    @Test fun historyCannotPromotePendingPairingWithHiddenHello() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.Hello(), active = false)
++    }
++    @Test fun unknownHistoryVersionCannotDispatchStockAction() = runTest {
++        rejectDisguisedHistory(ClientControlMessage.StopBolus, type = "combo_history_read_v2")
++    }
++
++    @Test fun malformedHistoryPayloadStillUsesIsolatedFailure() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read", wrap(historyEnvelope(clientId, secret, "{")))
++        assertHistoryFailure(history, secret)
++        assertThat(ordinary).isEmpty()
++    }
++
++    @Test fun invalidHistoryMacDoesNotWriteReplyOrConsumeCounter() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret).copy(signature = "0".repeat(64))))
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(1L)
++    }
++
++    @Test fun replayedHistoryDoesNotReplaceNewerReply() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 6L, now)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read", wrap(historyEnvelope(clientId, secret)))
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(6L)
++    }
++
++    @Test fun historyWithoutAckStillCannotDispatchOrPublish() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val payload = publisherJson.encodeToString(ClientControlMessage.serializer(), ClientControlMessage.StopBolus)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, payload, wantsAck = false)))
++        verifyNoInteractions(commandQueue)
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(5L)
++    }
++
++    @Test fun replyLaneUsesAuthenticatedTypeNotUntrustedIdentifier() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}${historyType}_ignored",
++            wrap(envelope(clientId, secret, ClientControlMessage.Ping, counter = 5L, wantsAck = true)))
++        assertThat(ordinary.last().status.name).isEqualTo("Ok")
++        assertThat(history).isEmpty()
++    }
++
++    @Test fun historyReplyEchoIsSkippedOnPushAndPolling() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val id = historyAckId(clientId)
++        val doc = JsonObject(wrap(historyEnvelope(clientId, secret)) + ("identifier" to JsonPrimitive(id)))
++        whenever(nsAndroidClient.searchSettings(limit = 100)).thenReturn(
++            NSAndroidClient.ReadResponse(code = 200, lastServerModified = null, values = listOf(doc)))
++        sut.onSettingsDocChanged(id, doc)
++        sut.processPending()
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++        assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(1L)
++    }
++
+     // -- preferences_update (generic synced-pref channel) ---------------------------------
+ 
+     private val concentrationKey = BooleanKey.GeneralInsulinConcentration.key
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlPublisher.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlPublisher.kt
+index 1672829..fda020f 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlPublisher.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlPublisher.kt
+@@ -59,6 +59,10 @@ class ClientControlPublisher(
+         // not an inbound command envelope) — see ClientControlReceiver.
+         const val IDENTIFIER_ACK_PREFIX = "${IDENTIFIER_PREFIX}ack_"
+ 
++        // Reserved read replies must never overwrite target or delivery acknowledgements.
++        const val IDENTIFIER_HISTORY_ACK_PREFIX = "${IDENTIFIER_ACK_PREFIX}history_"
++        const val HISTORY_READ_TYPE_PREFIX = "combo_history_read_"
++
+         // Master→client live bolus-progress mirror (one per client, overwritten in place, throttled ~1/s).
+         // The master writes here; the client reads here. Shares IDENTIFIER_PREFIX, so the master receiver MUST
+         // skip it (it is not an inbound command envelope) — see ClientControlReceiver.
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index 459b348..f6bf6fd 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -343,7 +343,15 @@ class ClientControlReceiver(
+             authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
+             nsClientRepository.addLog("◄ CLIENTCTL", "expired ${envelope.type} from ${entry.name}")
+             aapsLogger.warn(LTag.NSCLIENT, "ClientControl: $identifier expired (validUntil=${envelope.validUntil} < now=$now), not executing")
+-            if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, AckStatus.Expired, "expired before master applied it", null, now)
++            if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, AckStatus.Expired, "expired before master applied it", null, now)
++            return
++        }
++        // This reserved family is not a stock action, even if its payload decodes
++        // as one. Refuse before Hello/therapy dispatch; no history capability yet.
++        if (envelope.type.startsWith(ClientControlPublisher.HISTORY_READ_TYPE_PREFIX)) {
++            authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
++            val reason = if (preferences.clientControlOperational()) FailureReason.ExecutionFailed else FailureReason.ControlDisabled
++            if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, AckStatus.Failed, reason.name, null, dateUtil.now())
+             return
+         }
+         // Decode the payload into the sealed message family. A failure here means the verified
+@@ -361,7 +369,7 @@ class ClientControlReceiver(
+             authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
+             nsClientRepository.addLog("◄ CLIENTCTL", "control disabled, rejecting ${envelope.type} from ${entry.name}")
+             aapsLogger.warn(LTag.NSCLIENT, "ClientControl: $identifier rejected — client control disabled on master")
+-            if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, AckStatus.Failed, FailureReason.ControlDisabled.name, null, now)
++            if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, AckStatus.Failed, FailureReason.ControlDisabled.name, null, now)
+             return
+         }
+         // Hello is the pairing handshake, not a user action — no ACK round-trip. Its handling
+@@ -373,7 +381,7 @@ class ClientControlReceiver(
+         // Round-trip commands (wantsAck) get the two-step ACK: Executing before dispatch, then the
+         // result. Fire-and-forget commands (scenes, pref sync) skip it — no client is waiting, so the
+         // ACK doc would be pure write amplification.
+-        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Executing, AckStatus.Pending, null, null, dateUtil.now())
++        if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Executing, AckStatus.Pending, null, null, dateUtil.now())
+         // Advance the replay counter ONCE here — post-gate, pre-dispatch — so a command can never be re-executed even
+         // if a handler throws or early-returns before its own bump. The whole pipeline is inside commandMutex, so this
+         // just makes the protection order explicit; the per-handler bumpLastSeen calls become idempotent no-ops (same
+@@ -383,7 +391,7 @@ class ClientControlReceiver(
+         // checked again after those waits, not against the pre-network timestamp.
+         val refusal = dispatchRefusal(entry, envelope, receipt, message !is ClientControlMessage.Ping)
+         if (refusal != null) {
+-            if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, refusal.status, refusal.reason, null, dateUtil.now())
++            if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, refusal.status, refusal.reason, null, dateUtil.now())
+             return
+         }
+         now = dateUtil.now()
+@@ -405,7 +413,7 @@ class ClientControlReceiver(
+             ClientControlMessage.DismissAlarm         -> onVerifiedDismissAlarm(entry, envelope, now)
+             ClientControlMessage.StopBolus            -> onVerifiedStopBolus(entry, envelope, now)
+         }
+-        if (envelope.wantsAck) writeAck(client, lookup.secretBytes, envelope.clientId, envelope.counter, AckPhase.Done, outcome.status, outcome.reason, outcome.payload, dateUtil.now())
++        if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, outcome.status, outcome.reason, outcome.payload, dateUtil.now())
+         // Don't deleteSettings here (nor on any error path above). NS soft-deletes (tombstones)
+         // the identifier; the next legitimate same-type command from the same client would PUT to
+         // that identifier and hit HTTP 410. Counter dedup (line above) prevents replay; the doc
+@@ -843,6 +851,21 @@ class ClientControlReceiver(
+         aapsLogger.warn(LTag.NSCLIENT, "ClientControl: ${entry.clientId} verified envelope type=${envelope.type} has no decoder on this master, advancing counter and acking")
+     }
+ 
++    private suspend fun writeRequestAck(
++        client: NSAndroidClient,
++        secret: ByteArray,
++        envelope: SignedEnvelope,
++        phase: AckPhase,
++        status: AckStatus,
++        reason: String?,
++        payload: String?,
++        now: Long
++    ) {
++        val prefix = if (envelope.type.startsWith(ClientControlPublisher.HISTORY_READ_TYPE_PREFIX))
++            ClientControlPublisher.IDENTIFIER_HISTORY_ACK_PREFIX else ClientControlPublisher.IDENTIFIER_ACK_PREFIX
++        writeAck(client, secret, envelope.clientId, envelope.counter, phase, status, reason, payload, now, prefix + envelope.clientId)
++    }
++
+     /**
+      * Write a signed [AckEnvelope] to the per-client ACK identifier (overwritten in place). Signed
+      * with the same shared secret as the inbound command so the client can prove it came from us.
+@@ -858,13 +881,13 @@ class ClientControlReceiver(
+         status: AckStatus,
+         reason: String?,
+         payload: String?,
+-        now: Long
++        now: Long,
++        responseIdentifier: String = ClientControlPublisher.IDENTIFIER_ACK_PREFIX + clientId
+     ) {
+         val ack = ClientControlCrypto.signAck(
+             secret,
+             AckEnvelope(clientId = clientId, commandCounter = commandCounter, phase = phase, status = status, reason = reason, payload = payload, timestamp = now, signature = "")
+         )
+-        val identifier = ClientControlPublisher.IDENTIFIER_ACK_PREFIX + clientId
+         val doc = buildJsonObject {
+             put("date", ClientControlPublisher.DOC_DATE)
+             put("utcOffset", 0)
+@@ -872,9 +895,9 @@ class ClientControlReceiver(
+             put("schemaVersion", ClientControlPublisher.SCHEMA_VERSION)
+             put("ack", json.encodeToJsonElement(AckEnvelope.serializer(), ack))
+         }
+-        runCatching { client.updateSettings(identifier, doc) }
++        runCatching { client.updateSettings(responseIdentifier, doc) }
+             .onSuccess { nsClientRepository.addLog("► CLIENTCTL", "ack $phase/$status counter=$commandCounter" + (reason?.let { " ($it)" } ?: "")) }
+-            .onFailure { aapsLogger.error(LTag.NSCLIENT, "ClientControl: ack write failed for $identifier: ${it.message}") }
++            .onFailure { aapsLogger.error(LTag.NSCLIENT, "ClientControl: ack write failed for $responseIdentifier: ${it.message}") }
+     }
+ 
+     /**

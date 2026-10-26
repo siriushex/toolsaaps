@@ -50,6 +50,21 @@ destination binding, ingestion, receipts and retention policy.
 
 ## Verification And Open Work
 
+### Reserved Control Responses
+
+`combo-history-control.patch` isolates responses for the authenticated
+`combo_history_read_` family at `aaps_clientcontrol_ack_history_<clientId>`.
+The existing target/delivery key is unchanged; stock push/poll paths ignore
+the new response key because it remains under the ACK prefix.
+
+The family is currently refused before stock payload/Hello dispatch, with a
+signed terminal failure and no payload. Expiry/control-disabled paths use the
+same isolated response key. Invalid authentication/replay/skew are ignored.
+A valid signature is not permission to disguise a stock action as a history
+request. No successful inventory/chunk response or capability is implied.
+Future asynchronous transfer must retain the response separation and perform
+its own bounded query, epoch, admission, encryption and durable receipt checks.
+
 ### Archive I/O And Writer Priority
 
 Archive listing, reading, hashing and parsing no longer hold the writer monitor.

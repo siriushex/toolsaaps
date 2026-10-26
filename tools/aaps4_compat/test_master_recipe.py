@@ -88,6 +88,11 @@ class MasterRecipeTest(unittest.TestCase):
             "diff --git a/added.txt b/added.txt\n--- a/added.txt\n+++ b/added.txt\n"
             "@@ -1 +1 @@\n-new test\n+new test with reader\n"
         )
+        self.control_patch = tools / "combo-history-control.patch"
+        self.control_patch.write_text(
+            "diff --git a/control.txt b/control.txt\nnew file mode 100644\n"
+            "--- /dev/null\n+++ b/control.txt\n@@ -0,0 +1 @@\n+isolated response\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -125,6 +130,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual([], list(self.scratch.glob("master-admission.*")))
         self.assertTrue((self.source / ".gradle-invoked").exists())
         self.assertFalse((self.source / "added.txt").exists())
+        self.assertFalse((self.source / "control.txt").exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
         self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         self.assertEqual("patched combo\n", (self.source / ".combo-invoked").read_text())
@@ -151,6 +157,13 @@ class MasterRecipeTest(unittest.TestCase):
 
     def test_missing_reader_patch_refuses_before_changing_source(self):
         self.reader_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
+
+    def test_missing_control_patch_refuses_before_changing_source(self):
+        self.control_patch.unlink()
         result = self.run_recipe()
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())

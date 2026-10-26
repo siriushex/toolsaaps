@@ -1,3 +1,21 @@
+# History Reply Isolation - 2026-10-26
+
+- Separate authenticated history responses from the target/delivery ACK key,
+  including refusal/expiry paths. Derive routing from MAC-covered envelope fields.
+- Reject the reserved history family before stock payload dispatch or pairing
+  promotion. No history capability or data export is enabled by this boundary.
+- Added 15 native regressions; 11 failed on the previous receiver. Selected native
+  reports: 712 tests, zero failures/skips; all 21 recipe tests passed and the
+  native checkout restored pristine. Sequential pristine SDK preparation passed.
+- First Copilot test fork crashed in JBR21 C2 (`Node::uncast`, SIGSEGV), not an
+  application assertion. Preserve its private crash report and rerun on installed
+  Java17 matching CI; native SDK interoperability continues on Java21. That full
+  rerun passed 6991 tests with six existing skips; lint/compile/assembly passed.
+- No phone/server/APK or therapy changes. Asynchronous read arbitration,
+  encrypted response admission, epoch/receipt and clinical gates remain open.
+- Prior PR56 passed six checks/review and merged as 2ddad08c; separate main CI
+  run40374433591 also passed all three jobs.
+
 # Combo Archive Read Priority - 2026-10-26
 
 - Before receiver wiring, found archive scans held the pump checkpoint monitor.
