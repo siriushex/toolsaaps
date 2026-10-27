@@ -32,14 +32,29 @@ class ForecastTestSettingsTest {
         val changes = mutableListOf<Boolean>()
         try {
             activity.get().setContent { MaterialTheme { ForecastTestSettings(ForecastTestState()) { changes += it } } }
+            compose.onNodeWithText("Off. Standard mode").assertExists()
+            compose.onNodeWithText("Every minute, until stopped").assertDoesNotExist()
             compose.onNodeWithTag("forecast_test_toggle").assertIsOff().performClick()
             assertThat(changes).isEmpty()
             compose.onNodeWithText("Cancel").performClick()
             assertThat(changes).isEmpty()
             compose.onNodeWithTag("forecast_test_toggle").performClick()
-            compose.onNodeWithText("Every minute, until stopped").assertExists()
+            compose.onNodeWithText("Off. Standard mode").assertExists()
             compose.onNodeWithText("Start test").performClick()
             assertThat(changes).containsExactly(true)
+        } finally { activity.pause().stop().destroy() }
+    }
+
+    @Test fun pendingValidationCanBeSwitchedOffWithoutAnotherConfirmation() {
+        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+        val changes = mutableListOf<Boolean>()
+        try {
+            activity.get().setContent { MaterialTheme {
+                ForecastTestSettings(ForecastTestState(pendingStart = true, status = ForecastTestStatus.STARTING)) { changes += it }
+            } }
+            compose.onNodeWithTag("forecast_test_toggle").assertIsOn().performClick()
+            assertThat(changes).containsExactly(false)
+            compose.onNodeWithText("Start test").assertDoesNotExist()
         } finally { activity.pause().stop().destroy() }
     }
 

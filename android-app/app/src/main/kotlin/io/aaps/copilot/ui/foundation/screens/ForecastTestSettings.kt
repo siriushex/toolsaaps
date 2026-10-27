@@ -27,13 +27,15 @@ import io.aaps.copilot.service.ForecastTestStatus
 internal fun ForecastTestSettings(state: ForecastTestState, onToggle: (Boolean) -> Unit) {
     var confirm by rememberSaveable { mutableStateOf(false) }
     val title = stringResource(R.string.forecast_test_title)
+    val requested = state.active || state.pendingStart
     Column {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall)
-                Text(stringResource(R.string.forecast_test_subtitle), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(if (requested) R.string.forecast_test_subtitle else R.string.forecast_test_off),
+                    style = MaterialTheme.typography.bodySmall)
             }
-            Switch(state.active, onCheckedChange = { if (it) confirm = true else onToggle(false) },
+            Switch(requested, onCheckedChange = { if (it) confirm = true else onToggle(false) },
                 modifier = Modifier.testTag("forecast_test_toggle").semantics { contentDescription = title })
         }
         if (state.status != ForecastTestStatus.OFF) {

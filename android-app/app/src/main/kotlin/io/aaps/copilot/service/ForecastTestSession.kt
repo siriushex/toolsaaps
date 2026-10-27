@@ -25,7 +25,8 @@ data class ForecastTestState(
     val status: ForecastTestStatus = ForecastTestStatus.OFF,
     val elapsedMinutes: Long = 0,
     val completedCycles: Int = 0,
-    val lastDurationMs: Long? = null
+    val lastDurationMs: Long? = null,
+    val pendingStart: Boolean = false
 )
 
 /** Process-local opt-in: navigation does not stop it, process restart never resumes it. */
@@ -35,10 +36,40 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
     private val owner = Mutex()
     private var startedAt = 0L
     private var runningJob: Job? = null
+    private var pendingRequest: StartRequest? = null
+
+    class StartRequest internal constructor()
+
+    /** Reserve explicit user intent before a settings read can suspend. */
+    @Synchronized
+    fun requestStart(): StartRequest? {
+        if (state.value.active) return null
+        return StartRequest().also {
+            pendingRequest = it
+            mutableState.value = ForecastTestState(
+                sessionId = state.value.sessionId, status = ForecastTestStatus.STARTING, pendingStart = true
+            )
+        }
+    }
 
     @Synchronized
-    fun start(): Long {
+    fun completeStart(request: StartRequest): Long? {
+        if (pendingRequest !== request) return null
+        return start()
+    }
+
+    @Synchronized
+    fun cancelStart(request: StartRequest, reason: ForecastTestStatus = ForecastTestStatus.OFF): Boolean {
+        if (pendingRequest !== request) return false
+        pendingRequest = null
+        mutableState.value = state.value.copy(pendingStart = false, status = reason)
+        return true
+    }
+
+    @Synchronized
+    internal fun start(): Long {
         if (state.value.active) return state.value.sessionId
+        pendingRequest = null
         startedAt = elapsedMs()
         val id = state.value.sessionId + 1
         mutableState.value = ForecastTestState(id, true, ForecastTestStatus.STARTING)
@@ -46,9 +77,11 @@ class ForecastTestSession(private val elapsedMs: () -> Long) {
     }
 
     @Synchronized
-    fun stop(reason: ForecastTestStatus = ForecastTestStatus.OFF, sessionId: Long = state.value.sessionId) {
-        if (!state.value.active || state.value.sessionId != sessionId) return
-        mutableState.value = state.value.copy(active = false, status = reason)
+    fun stop(reason: ForecastTestStatus = ForecastTestStatus.OFF, sessionId: Long? = null) {
+        if (sessionId != null && (!state.value.active || state.value.sessionId != sessionId)) return
+        pendingRequest = null
+        if (!state.value.active && !state.value.pendingStart) return
+        mutableState.value = state.value.copy(active = false, pendingStart = false, status = reason)
         runningJob?.cancel()
     }
 

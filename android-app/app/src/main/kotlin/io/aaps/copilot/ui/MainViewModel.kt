@@ -5455,22 +5455,36 @@ class MainViewModel(application: Application) :
             session.stop()
             return
         }
+        val request = session.requestStart() ?: return
         viewModelScope.launch {
-            val settings = container.settingsStore.settings.first()
-            if (!settings.localObservationRuntimeAllowed() || PowerSaveController.isActive(settings)) {
-                messageState.value = getApplication<Application>().getString(R.string.forecast_test_unavailable)
-                return@launch
-            }
-            val id = session.start()
             try {
-                LocalNightscoutServiceController.start(getApplication())
+                val settings = container.settingsStore.settings.first()
+                currentCoroutineContext().ensureActive()
+                if (!settings.localObservationRuntimeAllowed() || PowerSaveController.isActive(settings)) {
+                    if (session.cancelStart(request, ForecastTestStatus.UNAVAILABLE)) {
+                        messageState.value = getApplication<Application>().getString(R.string.forecast_test_unavailable)
+                    }
+                    return@launch
+                }
+                val id = session.completeStart(request) ?: return@launch
+                try {
+                    LocalNightscoutServiceController.start(getApplication())
+                } catch (_: Exception) {
+                    session.stop(ForecastTestStatus.UNAVAILABLE, id)
+                }
+                delay(10_000L)
+                if (session.state.value.sessionId == id && session.state.value.status == ForecastTestStatus.STARTING) {
+                    session.stop(ForecastTestStatus.UNAVAILABLE, id)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                session.stop(ForecastTestStatus.UNAVAILABLE, id)
+                if (session.cancelStart(request, ForecastTestStatus.UNAVAILABLE)) {
+                    messageState.value = getApplication<Application>().getString(R.string.forecast_test_unavailable)
+                }
             }
-            delay(10_000L)
-            if (session.state.value.sessionId == id && session.state.value.status == ForecastTestStatus.STARTING) {
-                session.stop(ForecastTestStatus.UNAVAILABLE, id)
-            }
+        }.invokeOnCompletion {
+            session.cancelStart(request)
         }
     }
 

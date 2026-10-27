@@ -45,6 +45,17 @@ class ForecastTestNotificationTest {
         assertThat(ForecastTestRuntime.session.state.value.active).isFalse()
     }
 
+    @Test fun pendingStartDoesNotAdvertiseActiveRuntimeAndOwnerLossCancelsIt() {
+        val controller = Robolectric.buildService(LocalNightscoutForegroundService::class.java).create()
+        val request = checkNotNull(ForecastTestRuntime.session.requestStart())
+        try {
+            assertThat(controller.get().buildNotification(17582, false).actions).isNull()
+        } finally { controller.destroy() }
+        assertThat(ForecastTestRuntime.session.completeStart(request)).isNull()
+        assertThat(ForecastTestRuntime.session.state.value.active).isFalse()
+        assertThat(ForecastTestRuntime.session.state.value.pendingStart).isFalse()
+    }
+
     @Test fun androidServiceTimeoutStopsTestAndServiceInsteadOfCrashing() {
         val controller = Robolectric.buildService(LocalNightscoutForegroundService::class.java).create()
         try {
