@@ -11,7 +11,7 @@ test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)"
 
 temp="$(mktemp -d "${TMPDIR:-/tmp}/master-admission.XXXXXX")"
 applied=false
-patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query)
+patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query combo-history-reply combo-error-timeout)
 cleanup() {
     status=$?
     trap - EXIT INT TERM

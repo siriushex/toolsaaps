@@ -1,5 +1,18 @@
 # ARCHITECTURE
 
+## Native Encrypted History Replies
+
+The candidate shared SDK reply codec binds one immutable, bounded catalog to
+client/master, snapshot and pump scope, then seals pages or exact fragments with
+the existing native HKDF/AES-GCM provider. It matches the independently implemented
+Copilot framing, whole-catalog digest and adverse flags. Keys are per-call copies,
+not retained catalog state. It has no source/driver/counter/lifecycle authority.
+
+The exact candidate patch source is also compiled beside the pristine SDK oracle;
+Copilot tests decrypt its real output. The native receiver's terminal refusal is
+unchanged. Source selection, asynchronous arbitration and final publication checks
+remain the runtime owner's responsibility. See AAPS4_COMBO_NATIVE_REPLY.md.
+
 ## Authenticated Catalog Retention
 
 `AapsV3ComboCatalogRetention` consumes the paired journal's one-time page handoffs

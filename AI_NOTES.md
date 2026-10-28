@@ -1,3 +1,49 @@
+# Native Encrypted Reply Candidate - 2026-10-29
+
+## CI Follow-up
+
+- Exact-head PR CI40781360339 failed the second expiration in upstream
+  `everyErrorEndsItsLockoutAfterTheTimeout`; native reply tests passed. Bytecode
+  line mapping and a deterministic callback regression reproduced a real race:
+  unlocked flag with an active finishing job prevents the next timer from starting.
+- Add isolated `combo-error-timeout.patch` to the reversible native recipe.
+  Serialize transitions, lazily publish timer ownership, retire before unlock/
+  callbacks and refuse obsolete/cancelled expiration. Keep lockout duration and
+  delivery commands unchanged. Replace wall-clock sleeps with a test scheduler;
+  clean up all test timers, test re-entry and cancellation including due work.
+- The new regression failed on unchanged production code, preserved in private
+  `lockout-red.log/xml`. After the fix all740selected native tests passed, including
+  four new lifecycle cases; 28recipe tests passed. Native source restored pristine
+  and SDK prepared again in10s. Unchanged Android quality tasks were up-to-date
+  (7104passed/six existing skips, zero failures/errors); APK size/retention guard
+  passed. Renewed exact-head CI/review pending. No AAPS/phone install, server,
+  live recommendation or APK publication.
+
+## Initial Candidate
+
+- Native requests and Copilot decryption existed, but native response construction
+  still had no implementation. Add a shared SDK codec for bounded immutable
+  catalogs and exact fragments, preserving all adverse source metadata.
+- Use existing native HKDF/AES-GCM provider, fresh per-response salt/nonce and
+  exact domain-separated request context. No stored pairing key, new dependency,
+  raw-source I/O, replay owner, successful runtime handler or therapy action.
+- Extend reversible recipe and exact-source SDK preparation. Native common tests
+  and real native-to-Copilot decrypt/digest tests cover scope, pagination, bounds,
+  caller mutation, short/final fragments, time, key, tampering and failure output.
+- Recipe27tests and platform-JSON6tests passed. Selected native suites736passed,
+  including10new codec cases, with no skips/failures; native source restored pristine.
+  Exact-source SDK preparation passed in16s. Copilot29focused tests passed, including
+  six new native-output interoperability tests. Full Android7104passed/six existing
+  skips, zero failures/errors; lint0errors/383warnings/eight hints, compile/build
+  and APK retention/size guard passed in3m8s. Exact-head CI/review remain pending.
+- Prior PR66 passed six exact-head checks and review without findings; merged
+  main28a24583 has the tested tree and successful Verify40775278107. Downloaded
+  PR/main reports confirm7098passed/six existing skips/0failures/errors. This
+  closes the pending candidate note below without rewriting its original audit.
+- Source mapping, async admission/capability, device I/O/priority, pump clocks,
+  complete delivery and clinical timer safety remain separate gates. No phone,
+  server, live timer, target/dose, APK version or publication change here.
+
 # Authenticated Catalog Retention - 2026-10-29
 
 - Bind one complete authenticated page sequence to the existing private audit,

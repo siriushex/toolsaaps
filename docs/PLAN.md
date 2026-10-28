@@ -1,5 +1,19 @@
 # PLAN
 
+## Native Encrypted Reply Codec (2026-10-29)
+
+- [x] Inspect native source/query/refusal and Copilot decryption contracts.
+- [x] Add bounded immutable native catalog, encrypted pages/fragments and
+      common synthetic tests without changing the live receiver.
+- [x] Compile exact candidate source in the external SDK driver; add Copilot
+      cross-implementation tests and reversible-recipe failure checks.
+- [x] Recipe27/platform-JSON6/native736/focused29tests passed; full Android
+      7104passed/six existing skips, no failures/errors. Lint/compile/build and
+      APK guard passed; native checkout restored pristine.
+- [ ] Exact-head CI/review and controlled main integration.
+- Source mapping, async runtime/capability, device validation and clinical gates
+  remain separate. No phone/server/therapy or APK publication in this stage.
+
 ## Authenticated Catalog Retention (2026-10-29)
 
 - [x] Bind complete authenticated paged catalogs to the existing private audit,
@@ -12,7 +26,8 @@
       regressions failed before the fix and passed afterward.
 - [x] Full Android: 7098 passed, six existing skips, no failures/errors; lint,
       compile/assembly and APK retention/size guard passed.
-- [ ] Exact-head CI/review and main integration.
+- [x] PR66 exact-head CI/review passed; main28a24583 has the same tested tree
+      and successful Verify40775278107. No APK published by that source stage.
 - Native capability/dispatch and production transfer lifecycle remain separate;
   this stage does not activate the live timer, change AAPS or publish an APK.
 

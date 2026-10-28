@@ -1,5 +1,26 @@
 # DEVOPS
 
+## Native Reply Verification
+
+The native recipe now freezes nine compatibility patches, adding the pure reply
+codec and common tests. SDK preparation extracts the exact decoder and encoder
+beside the external driver without patching upstream. Run recipe tests, native
+verification/restoration, sequential pristine SDK preparation, then Copilot's
+AapsV3ComboNativeReplyTest and full Android quality/APK guard.
+
+Verify metadata digest and adverse flags as well as decryption: encryption alone
+does not establish protocol equivalence or complete history. Use only synthetic
+fixtures. This source stage has no runtime/phone/server/APK deployment or migration;
+rollback removes the unused codec while preserving all retained evidence.
+
+CI 40781360339 exposed an upstream Combo error-lockout timer race. The ninth
+patch, `combo-error-timeout.patch`, retires timer ownership atomically before
+unlock/callbacks and prevents a cancelled timer from clearing a newer error.
+Its controlled-time regression fails without the fix; no CI skip or retry-to-green
+is used. The original failed run is retained. The patch is applied only in the
+reversible verification checkout, not deployed to AAPS. Lockout duration, pump
+delivery commands and clinical activation are unchanged.
+
 ## Catalog Retention Verification
 
 Run `AapsV3ComboCatalogRetentionTest` with the read-journal, inventory and private
@@ -32,8 +53,8 @@ preserved; no phone/server deployment or clinical activation is implied.
 ## Native Query Verification
 
 `combo-history-query.patch` adds a pure shared SDK decoder and common tests. The
-reversible native recipe now owns seven frozen patches. `prepare.sh` extracts only
-the decoder into an owned temporary directory and compiles that exact source beside
+reversible native recipe now owns eight frozen patches. `prepare.sh` extracts
+the decoder and reply codec into an owned temporary directory and compiles those exact sources beside
 the external SDK driver; the upstream checkout remains pristine. Missing patch or
 source fails before Gradle. Temporary extraction is removed on completion/failure.
 The driver checks actual Copilot inventory/cursor/chunk requests using native MAC

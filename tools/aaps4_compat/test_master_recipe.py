@@ -99,6 +99,17 @@ class MasterRecipeTest(unittest.TestCase):
             f"diff --git a/{self.query_source} b/{self.query_source}\nnew file mode 100644\n"
             f"--- /dev/null\n+++ b/{self.query_source}\n@@ -0,0 +1 @@\n+synthetic decoder\n"
         )
+        self.reply_source = self.query_source.replace("ReadRequest", "ReadReply")
+        self.reply_patch = tools / "combo-history-reply.patch"
+        self.reply_patch.write_text(
+            f"diff --git a/{self.reply_source} b/{self.reply_source}\nnew file mode 100644\n"
+            f"--- /dev/null\n+++ b/{self.reply_source}\n@@ -0,0 +1 @@\n+synthetic reply codec\n"
+        )
+        self.timeout_patch = tools / "combo-error-timeout.patch"
+        self.timeout_patch.write_text(
+            "diff --git a/control.txt b/control.txt\n--- a/control.txt\n+++ b/control.txt\n"
+            "@@ -1 +1 @@\n-isolated response\n+isolated response with timer\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -138,6 +149,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertFalse((self.source / "added.txt").exists())
         self.assertFalse((self.source / "control.txt").exists())
         self.assertFalse((self.source / self.query_source).exists())
+        self.assertFalse((self.source / self.reply_source).exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
         self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         self.assertEqual("patched combo\n", (self.source / ".combo-invoked").read_text())
@@ -185,6 +197,36 @@ class MasterRecipeTest(unittest.TestCase):
 
     def test_prepare_missing_query_patch_refuses_without_upstream_changes(self):
         self.query_patch.unlink()
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+        self.assertEqual([], list(self.scratch.glob("query-interop.*")))
+
+    def test_missing_reply_patch_refuses_before_changing_source(self):
+        self.reply_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+
+    def test_prepare_missing_reply_patch_refuses_without_upstream_changes(self):
+        self.reply_patch.unlink()
+        result = subprocess.run(["bash", str(self.prepare)], env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+        self.assertEqual([], list(self.scratch.glob("query-interop.*")))
+
+    def test_missing_timeout_patch_refuses_before_changing_source(self):
+        self.timeout_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+
+    def test_prepare_requires_exact_reply_source(self):
+        self.reply_patch.write_text(self.control_patch.read_text())
         result = subprocess.run(["bash", str(self.prepare)], env=self.env, capture_output=True, text=True)
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())
@@ -262,6 +304,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
         self.assertIn("-Pkotlin.incremental=false", (self.source / ".gradle-invoked").read_text().splitlines())
         self.assertFalse((self.source / self.query_source).exists())
+        self.assertFalse((self.source / self.reply_source).exists())
         self.assertEqual([], list(self.scratch.glob("query-interop.*")))
 
     def test_ci_prepares_stock_sdk_after_reversing_temporary_patches(self):

@@ -1,5 +1,29 @@
 # INVARIANTS
 
+## Native Reply Encoding
+
+- A catalog is copied, bounded and ordered, never repaired, pruned or converted
+  to a physical-delivery claim. Preserve all source adverse flags in its digest.
+- Match original request scope, snapshot/cursor and declared fragment geometry.
+  A codec cannot authenticate caller input or prove a fragment's source/hash.
+- Use native provider HKDF/AES-GCM with fresh salt/IV and domain-separated exact
+  request context. Clear owned key/plaintext buffers; do not alter caller arrays.
+- Missing native patch/source must refuse verification, never fall back to an
+  untested copied implementation. Check actual native output in Copilot.
+- Do not connect successful replies to the reserved runtime lane until source,
+  generation, priority, revocation and post-I/O/deadline admission are implemented.
+  No source-delete ACK, transfer capability or clinical permission from encoding.
+
+## Combo Error Timeout Ownership
+
+- Retire the expired timer before publishing the unlocked state or callbacks.
+  A new error during cleanup must get its own full lockout timer.
+- Serialize error, manual clear and expiration transitions. Only the current
+  active timer may clear the flag; a cancelled predecessor cannot clear a new error.
+- Repeated errors within an active lockout do not extend its existing deadline.
+  Keep the configured timeout and pump commands unchanged; no wall-clock sleeps
+  in lifecycle tests and no suppression of failing regressions.
+
 ## Catalog Handoff Admission
 
 - Carry the paired journal's checked session start and admission observation with

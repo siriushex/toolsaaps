@@ -1,0 +1,326 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReply.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReply.kt
+new file mode 100644
+index 0000000..1b2d19d
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReply.kt
+@@ -0,0 +1,138 @@
++package app.aaps.core.nssdk.localmodel.clientcontrol
++
++import app.aaps.core.nssdk.utils.ClientControlCrypto
++import dev.whyoleg.cryptography.BinarySize.Companion.bytes
++import dev.whyoleg.cryptography.CryptographyProvider
++import dev.whyoleg.cryptography.DelicateCryptographyApi
++import dev.whyoleg.cryptography.algorithms.AES
++import dev.whyoleg.cryptography.algorithms.HKDF
++import dev.whyoleg.cryptography.algorithms.SHA256
++import dev.whyoleg.cryptography.random.CryptographyRandom
++import kotlin.io.encoding.Base64
++import kotlinx.coroutines.CancellationException
++import kotlinx.serialization.json.*
++
++/** Immutable wire catalog, not authenticated access, a live source or insulin-delivery evidence. */
++class ComboHistoryReadReply private constructor(
++    private val clientId: String,
++    private val masterInstallId: String,
++    private val snapshotId: String,
++    private val pumpBinding: String,
++    private val reads: List<Read>,
++    private val unscopedCorruptReads: Int,
++    private val writerFailed: Boolean
++) {
++    class Read(
++        val readId: String, val byteCount: Int, val sha256: String,
++        val closed: Boolean, val corrupt: Boolean, val adverse: Boolean, val readFailed: Boolean
++    ) {
++        override fun toString() = "ComboReplyRead(redacted)"
++    }
++
++    private val totalBytes = reads.sumOf { it.byteCount.toLong() }
++    private val digest = operation {
++        val plain = buildString {
++            append(listOf("aaps-combo-inventory-v1", snapshotId, pumpBinding, reads.size,
++                totalBytes, unscopedCorruptReads, writerFailed).joinToString("|")); append('\n')
++            reads.forEach { row ->
++                append(listOf(row.readId, row.byteCount, row.sha256, row.closed, row.corrupt,
++                    row.adverse, row.readFailed).joinToString("|")); append('\n')
++            }
++        }.encodeToByteArray()
++        try { ClientControlCrypto.bytesToHex(CryptographyProvider.Default.get(SHA256).hasher().hashBlocking(plain)) }
++        finally { plain.fill(0) }
++    }
++
++    /** The owner authenticates the request and rechecks source/lifecycle/deadline before publishing. */
++    fun seal(request: ComboHistoryReadRequest, secret: ByteArray, now: Long, chunk: ByteArray? = null): ByteArray = operation {
++        require(request.clientId == clientId && request.masterInstallId == masterInstallId)
++        require(now >= request.issuedAt && now < request.validUntil && secret.size == 32)
++        val context: ByteArray
++        val plain: ByteArray
++        when (val query = request.query) {
++            is ComboHistoryReadRequest.Inventory -> {
++                require(chunk == null)
++                val start = if (query.snapshotId == null) 0 else {
++                    require(query.snapshotId == snapshotId)
++                    val previous = reads.indexOfFirst { it.readId == query.afterReadId }
++                    require(previous >= 0 && previous < reads.lastIndex)
++                    previous + 1
++                }
++                val end = minOf(reads.size, start + query.limit)
++                context = listOf("aaps-combo-inventory-page-v1", "master-to-client", "aes-256-gcm",
++                    clientId, masterInstallId, request.requestId, request.counter, request.issuedAt, request.validUntil,
++                    query.snapshotId ?: "-", query.afterReadId ?: "-", query.limit).joinToString("|").encodeToByteArray()
++                plain = buildJsonObject {
++                    put("version", 1); put("snapshotId", snapshotId); put("pumpBinding", pumpBinding); put("sha256", digest)
++                    put("totalReads", reads.size); put("totalBytes", totalBytes)
++                    put("unscopedCorruptReads", unscopedCorruptReads); put("writerFailed", writerFailed)
++                    put("hasMore", end < reads.size)
++                    put("reads", JsonArray(reads.subList(start, end).map { row -> buildJsonObject {
++                        put("readId", row.readId); put("byteCount", row.byteCount); put("sha256", row.sha256)
++                        put("closed", row.closed); put("corrupt", row.corrupt)
++                        put("adverse", row.adverse); put("readFailed", row.readFailed)
++                    } }))
++                }.toString().encodeToByteArray()
++            }
++            is ComboHistoryReadRequest.Chunk -> {
++                require(query.snapshotId == snapshotId && query.pumpBinding == pumpBinding)
++                val row = reads.firstOrNull { it.readId == query.readId } ?: invalid()
++                require(row.sha256 == query.sha256 && row.byteCount == query.totalBytes)
++                require(chunk != null && chunk.size == query.length)
++                context = listOf("aaps-combo-journal-chunk-v1", "master-to-client", "aes-256-gcm",
++                    clientId, masterInstallId, request.requestId, snapshotId, row.readId, pumpBinding, row.sha256,
++                    request.counter, request.issuedAt, request.validUntil, row.byteCount, query.offset, query.length)
++                    .joinToString("|").encodeToByteArray()
++                plain = chunk.copyOf()
++            }
++        }
++        try {
++            require(plain.size in 1..if (request.query is ComboHistoryReadRequest.Inventory) 16_384 else 32_768)
++            encrypt(secret, context, plain)
++        } finally { plain.fill(0) }
++    }
++
++    override fun toString() = "ComboHistoryReadReply(redacted)"
++
++    companion object {
++        private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
++        private val HASH = Regex("[0-9a-f]{64}")
++
++        fun create(clientId: String, masterInstallId: String, snapshotId: String, pumpBinding: String,
++                   reads: List<Read>, unscopedCorruptReads: Int, writerFailed: Boolean): ComboHistoryReadReply = operation {
++            require(listOf(clientId, masterInstallId, snapshotId).all(UUID::matches) && clientId != masterInstallId)
++            require(HASH.matches(pumpBinding) && reads.size <= 4096 && unscopedCorruptReads in 0..4096)
++            val copy = reads.toList()
++            require(copy.size <= 4096 && copy.size + unscopedCorruptReads <= 4096)
++            require(copy.all { UUID.matches(it.readId) && HASH.matches(it.sha256) && it.byteCount in 1..2 * 1024 * 1024 })
++            require(copy.zipWithNext().all { (a, b) -> a.readId < b.readId })
++            require(copy.sumOf { it.byteCount.toLong() } <= 32L * 1024 * 1024)
++            ComboHistoryReadReply(clientId, masterInstallId, snapshotId, pumpBinding, copy, unscopedCorruptReads, writerFailed)
++        }
++
++        @OptIn(DelicateCryptographyApi::class)
++        private fun encrypt(secret: ByteArray, context: ByteArray, plain: ByteArray): ByteArray {
++            val owned = secret.copyOf()
++            try {
++                val salt = CryptographyRandom.nextBytes(32)
++                val iv = CryptographyRandom.nextBytes(12)
++                val provider = CryptographyProvider.Default
++                val key = provider.get(HKDF).secretDerivation(SHA256, 32.bytes, salt, context)
++                    .deriveSecretToByteArrayBlocking(owned)
++                val cipher = try {
++                    provider.get(AES.GCM).keyDecoder().decodeFromByteArrayBlocking(AES.Key.Format.RAW, key)
++                        .cipher().encryptWithIvBlocking(iv, plain, context)
++                } finally { key.fill(0) }
++                return buildJsonObject {
++                    put("version", 1); put("saltB64", Base64.encode(salt)); put("ivB64", Base64.encode(iv))
++                    put("ciphertextB64", Base64.encode(cipher))
++                }.toString().encodeToByteArray().also { require(it.size <= 48 * 1024) }
++            } finally { owned.fill(0) }
++        }
++
++        private inline fun <T> operation(block: () -> T): T = try { block() }
++        catch (cancelled: CancellationException) { throw cancelled }
++        catch (_: Exception) { invalid() }
++        private fun invalid(): Nothing = throw IllegalArgumentException("combo_history_reply_invalid")
++    }
++}
+diff --git a/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReplyTest.kt b/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReplyTest.kt
+new file mode 100644
+index 0000000..7d04f74
+--- /dev/null
++++ b/core/nssdk/src/commonTest/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/ComboHistoryReadReplyTest.kt
+@@ -0,0 +1,176 @@
++package app.aaps.core.nssdk.localmodel.clientcontrol
++
++import dev.whyoleg.cryptography.BinarySize.Companion.bytes
++import dev.whyoleg.cryptography.CryptographyProvider
++import dev.whyoleg.cryptography.DelicateCryptographyApi
++import dev.whyoleg.cryptography.algorithms.AES
++import dev.whyoleg.cryptography.algorithms.HKDF
++import dev.whyoleg.cryptography.algorithms.SHA256
++import kotlin.io.encoding.Base64
++import kotlin.test.*
++import kotlinx.serialization.json.*
++
++class ComboHistoryReadReplyTest {
++    private val at = 1_800_000_000_000L
++    private val client = "11111111-2222-4333-8444-555555555555"
++    private val master = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++    private val snapshot = id(9999)
++    private val binding = "a".repeat(64)
++    private val secret = ByteArray(32) { it.toByte() }
++    private fun id(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0')
++    private fun row(n: Int, size: Int = 32771) = ComboHistoryReadReply.Read(id(n), size, "b".repeat(64),
++        closed = n != 1, corrupt = n == 1, adverse = true, readFailed = n == 2)
++    private fun catalog(rows: List<ComboHistoryReadReply.Read> = listOf(row(1), row(2)), unknown: Int = 1,
++                        failed: Boolean = true) = ComboHistoryReadReply.create(client, master, snapshot, binding, rows, unknown, failed)
++    private fun inventory(after: String? = null, snap: String = snapshot, limit: Int = 1) = buildJsonObject {
++        put("kind", "inventory"); put("limit", limit)
++        if (after != null) { put("snapshotId", snap); put("afterReadId", after) }
++    }
++    private fun chunk(offset: Int = 32768, length: Int = 3) = buildJsonObject {
++        put("kind", "chunk"); put("snapshotId", snapshot); put("readId", id(1)); put("pumpBinding", binding)
++        put("sha256", "b".repeat(64)); put("totalBytes", 32771); put("offset", offset); put("length", length)
++    }
++    private fun request(query: JsonObject = inventory(), who: String = client, owner: String = master): ComboHistoryReadRequest {
++        val payload = buildJsonObject {
++            put("type", ComboHistoryReadRequest.TYPE); put("version", 1); put("masterInstallId", owner)
++            put("requestId", id(8002)); put("query", query)
++        }
++        return ComboHistoryReadRequest.decode(SignedEnvelope(who, 2, at, ComboHistoryReadRequest.TYPE,
++            payload.toString(), "", at + 30000, true), owner, at)
++    }
++    private fun refused(block: () -> Any?) {
++        val e = assertFailsWith<IllegalArgumentException> { block() }
++        assertEquals("combo_history_reply_invalid", e.message); assertNull(e.cause)
++    }
++    private fun pageContext(after: String? = null, limit: Int = 1) =
++        "aaps-combo-inventory-page-v1|master-to-client|aes-256-gcm|$client|$master|${id(8002)}|2|$at|${at + 30000}|${if (after == null) "-" else snapshot}|${after ?: "-"}|$limit"
++    private fun chunkContext(offset: Int = 32768, length: Int = 3) =
++        "aaps-combo-journal-chunk-v1|master-to-client|aes-256-gcm|$client|$master|${id(8002)}|$snapshot|${id(1)}|$binding|${"b".repeat(64)}|2|$at|${at + 30000}|32771|$offset|$length"
++
++    @OptIn(DelicateCryptographyApi::class)
++    private fun open(wire: ByteArray, context: String): ByteArray {
++        val body = Json.parseToJsonElement(wire.decodeToString()).jsonObject
++        assertEquals(setOf("version", "saltB64", "ivB64", "ciphertextB64"), body.keys)
++        fun bytes(key: String) = Base64.decode(body.getValue(key).jsonPrimitive.content)
++        val provider = CryptographyProvider.Default
++        val salt = bytes("saltB64"); val iv = bytes("ivB64")
++        assertEquals(32, salt.size); assertEquals(12, iv.size)
++        val key = provider.get(HKDF).secretDerivation(SHA256, 32.bytes, salt, context.encodeToByteArray())
++            .deriveSecretToByteArrayBlocking(secret)
++        return try { provider.get(AES.GCM).keyDecoder().decodeFromByteArrayBlocking(AES.Key.Format.RAW, key)
++            .cipher().decryptWithIvBlocking(iv, bytes("ciphertextB64"), context.encodeToByteArray()) }
++        finally { key.fill(0) }
++    }
++    private fun page(c: ComboHistoryReadReply, after: String? = null, limit: Int = 1) = Json.parseToJsonElement(
++        open(c.seal(request(inventory(after, limit = limit)), secret, at), pageContext(after, limit)).decodeToString()).jsonObject
++
++    @Test fun pagesPreserveWholeDigestAndAllAdverseMetadata() {
++        val c = catalog(); val first = page(c); val second = page(c, id(1))
++        assertEquals(first["sha256"], second["sha256"])
++        assertEquals(2, first.getValue("totalReads").jsonPrimitive.int)
++        assertEquals(65542, first.getValue("totalBytes").jsonPrimitive.int)
++        assertEquals(1, first.getValue("unscopedCorruptReads").jsonPrimitive.int)
++        assertTrue(first.getValue("writerFailed").jsonPrimitive.boolean)
++        assertTrue(first.getValue("hasMore").jsonPrimitive.boolean)
++        assertFalse(second.getValue("hasMore").jsonPrimitive.boolean)
++        val r = first.getValue("reads").jsonArray.single().jsonObject
++        assertEquals(id(1), r.getValue("readId").jsonPrimitive.content)
++        assertFalse(r.getValue("closed").jsonPrimitive.boolean)
++        assertTrue(r.getValue("corrupt").jsonPrimitive.boolean)
++        assertTrue(r.getValue("adverse").jsonPrimitive.boolean)
++        assertTrue(second.getValue("reads").jsonArray.single().jsonObject.getValue("readFailed").jsonPrimitive.boolean)
++    }
++    @Test fun everyHazardChangesCatalogDigest() {
++        val c = catalog(); val original = page(c)["sha256"]
++        assertNotEquals(original, page(catalog(unknown = 0))["sha256"])
++        assertNotEquals(original, page(catalog(failed = false))["sha256"])
++        val r = row(1)
++        for (i in 0..3) {
++            val changed = ComboHistoryReadReply.Read(r.readId, r.byteCount, r.sha256,
++                if (i == 0) !r.closed else r.closed, if (i == 1) !r.corrupt else r.corrupt,
++                if (i == 2) !r.adverse else r.adverse, if (i == 3) !r.readFailed else r.readFailed)
++            assertNotEquals(original, page(catalog(listOf(changed, row(2))))["sha256"])
++        }
++    }
++    @Test fun inputListCannotChangeCatalog() {
++        val list = mutableListOf(row(1), row(2)); val c = catalog(list); list.clear()
++        assertEquals(2, page(c).getValue("totalReads").jsonPrimitive.int)
++    }
++    @Test fun chunksAreExactIncludingShortFinalFragmentAndLeaveCallerBytesIntact() {
++        for ((offset, length) in listOf(0 to 32768, 32768 to 3)) {
++            val raw = ByteArray(length) { (it % 251).toByte() }; val before = raw.copyOf()
++            val wire = catalog().seal(request(chunk(offset, length)), secret, at, raw)
++            assertTrue(wire.size <= 49152); assertContentEquals(before, raw)
++            assertContentEquals(raw, open(wire, chunkContext(offset, length)))
++        }
++        assertContentEquals(ByteArray(32) { it.toByte() }, secret)
++    }
++    @Test fun sealingTwiceUsesFreshSaltAndNonceWithoutRetainingTheKey() {
++        val c = catalog(); val r = request(); val a = c.seal(r, secret, at); val b = c.seal(r, secret, at)
++        val ja = Json.parseToJsonElement(a.decodeToString()).jsonObject
++        val jb = Json.parseToJsonElement(b.decodeToString()).jsonObject
++        assertNotEquals(ja["saltB64"], jb["saltB64"]); assertNotEquals(ja["ivB64"], jb["ivB64"])
++        assertContentEquals(open(a, pageContext()), open(b, pageContext()))
++        val otherKey = secret.copyOf().also { it.fill(0) }
++        assertFails { open(c.seal(r, otherKey, at), pageContext()) }
++        assertContentEquals(ByteArray(32) { it.toByte() }, secret)
++    }
++    @Test fun wrongRequestContextCannotOpenCiphertext() {
++        val wire = catalog().seal(request(), secret, at)
++        for (ctx in listOf(pageContext().replace(client, id(70)), pageContext().replace(master, id(71)),
++            pageContext().replace(id(8002), id(8003)), pageContext().replace("|2|", "|3|"),
++            pageContext().replace("|$at|", "|${at + 1}|"), pageContext().replace("${at + 30000}", "${at + 29999}"),
++            pageContext(limit = 2), pageContext(id(1)), chunkContext())) assertFails { open(wire, ctx) }
++    }
++    @Test fun malformedScopeAndCatalogGeometryAreRefused() {
++        for (bad in listOf("", "UPPERCASE", master.uppercase())) refused {
++            ComboHistoryReadReply.create(bad, master, snapshot, binding, listOf(row(1)), 0, false)
++        }
++        refused { ComboHistoryReadReply.create(client, client, snapshot, binding, listOf(row(1)), 0, false) }
++        refused { ComboHistoryReadReply.create(client, master, "bad", binding, listOf(row(1)), 0, false) }
++        refused { ComboHistoryReadReply.create(client, master, snapshot, "z".repeat(64), listOf(row(1)), 0, false) }
++        refused { catalog(listOf(row(2), row(1))) }; refused { catalog(listOf(row(1), row(1))) }
++        for (size in listOf(0, -1, 2 * 1024 * 1024 + 1, Int.MAX_VALUE)) refused { catalog(listOf(row(1, size))) }
++        refused { catalog(listOf(ComboHistoryReadReply.Read(id(1), 1, "bad", true, false, false, false))) }
++        refused { catalog((1..4097).map { row(it, 1) }, 0) }
++        refused { catalog((1..17).map { row(it, 2 * 1024 * 1024) }, 0) }
++        refused { catalog(unknown = -1) }; refused { catalog(unknown = 4095) }
++    }
++    @Test fun wrongOwnerCursorChunkMetadataOrPayloadCannotBeSealed() {
++        val c = catalog()
++        refused { c.seal(request(who = id(50)), secret, at) }
++        refused { c.seal(request(owner = id(51)), secret, at) }
++        for (after in listOf(id(2), id(3))) refused { c.seal(request(inventory(after)), secret, at) }
++        refused { c.seal(request(inventory(id(1), id(80))), secret, at) }
++        refused { c.seal(request(), secret, at, byteArrayOf(1)) }
++        refused { c.seal(request(chunk()), secret, at) }
++        refused { c.seal(request(chunk()), secret, at, ByteArray(4)) }
++        for ((name, value) in listOf("snapshotId" to id(80), "readId" to id(81), "pumpBinding" to "c".repeat(64), "sha256" to "d".repeat(64)))
++            refused { c.seal(request(JsonObject(chunk() + (name to JsonPrimitive(value)))), secret, at, ByteArray(3)) }
++        val resized = JsonObject(chunk() + mapOf("totalBytes" to JsonPrimitive(32772), "length" to JsonPrimitive(4)))
++        refused { c.seal(request(resized), secret, at, ByteArray(4)) }
++    }
++    @Test fun timeAndKeyBoundsFailWithoutLeakingInputs() {
++        val c = catalog(); val r = request()
++        for (time in listOf(at - 1, at + 30000, Long.MIN_VALUE, Long.MAX_VALUE)) refused { c.seal(r, secret, time) }
++        for (size in listOf(0, 31, 33)) refused { c.seal(r, ByteArray(size), at) }
++        assertTrue(c.seal(r, secret, at + 29999).isNotEmpty())
++        assertFalse(c.toString().contains(snapshot)); assertFalse(row(1).toString().contains(id(1)))
++        val wire = c.seal(r, secret, at).decodeToString()
++        for (s in listOf(client, master, snapshot, binding, id(1))) assertFalse(wire.contains(s))
++    }
++    @Test fun emptyAndMaximumCatalogsRemainBoundedWithNoInferredAuthority() {
++        val empty = page(catalog(emptyList(), 2))
++        assertEquals(0, empty.getValue("totalReads").jsonPrimitive.int)
++        assertTrue(empty.getValue("reads").jsonArray.isEmpty()); assertTrue(empty.getValue("writerFailed").jsonPrimitive.boolean)
++        val c = catalog((1..4096).map { row(it, 1) }, 0)
++        var after: String? = null; var seen = 0; var digest: JsonElement? = null
++        repeat(128) {
++            val page = page(c, after, 32); val rows = page.getValue("reads").jsonArray
++            assertEquals(32, rows.size); if (digest != null) assertEquals(digest, page["sha256"])
++            digest = page["sha256"]; after = rows.last().jsonObject.getValue("readId").jsonPrimitive.content
++            seen += rows.size; assertEquals(it < 127, page.getValue("hasMore").jsonPrimitive.boolean)
++        }
++        assertEquals(4096, seen)
++    }
++}
