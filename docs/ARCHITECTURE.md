@@ -2,6 +2,13 @@
 
 ## Combo Inventory Retention Reconciliation
 
+Reconciliation also builds a bounded cross-read event audit from all exact scoped
+bytes. It detects reused counters, interior numeric gaps and backwards adjacent
+local clocks, preserving unconfirmed/unknown/clock-change evidence and distinct
+bolus phase counts. Repeats never inflate those counts; conflicting counters
+cannot act as time anchors. No stored bytes, epochs or UTC times are rewritten,
+and no physical delivery or meal-time authority follows from a clean interior.
+
 The private journal store compares a complete declared inventory with retained
 bytes in one owned read transaction. Exact scoped read ID, byte count and SHA-256
 must match. Missing and conflicting IDs remain separate; no row is repaired,

@@ -1,3 +1,24 @@
+# Cross-Read Combo Audit And 0.1.19 Candidate - 2026-10-28
+
+- Reconcile event counters and local timestamps across all privately retained
+  scoped reads. Exact copies cannot inflate distinct recorded bolus phase counts;
+  conflicts, interior numeric gaps and backwards local times remain visible.
+- Do not use conflicted counters as clock anchors, merge clock epochs, infer UTC
+  from the reader, match boluses or replace unconfirmed evidence with later ACKs.
+  Unknowns and explicit clock changes stay adverse. Limits refuse a whole audit.
+- Integrate the count-only immutable audit in the existing read transaction; no
+  byte rewriting, pruning, schema, native AAPS patch or runtime worker is added.
+- 94focused tests passed, including12new cases for repeat/conflict ordering,
+  gaps, unsigned wrap, time rewind/change, ACK separation, bounded/immutable
+  results, owner/pump isolation, reopen and preservation of omitted older bytes.
+- Prepare0.1.19/code20 without activating live meal advice. Full quality,
+  exact-head CI/review and independent public signature/hash checks precede
+  publication. No phone/AI-service/therapy changes.
+- Local quality passed in3m46s:7055tests passed/six existing skips, no failures;
+  lint0errors/383warnings/eight hints. Release helpers14and publisher6passed.
+  Recreated signed APK39887472bytes retains7322app classes and matches the
+  independently checked public predecessor signer. CI/publication remain pending.
+
 # Combo Response Admission - 2026-10-28
 
 - Add a cold inbound operation to the existing paired journal, not a second

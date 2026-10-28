@@ -1,5 +1,22 @@
 # PLAN
 
+## Cross-Read Combo Audit And 0.1.19 (2026-10-28)
+
+- [x] Audit counters/local clocks across all retained scoped reads, preserving
+      conflicts, numeric gaps, unknown events and unconfirmed evidence.
+- [x] Separate recorded bolus phase counts without matching requests to delivery.
+- [x] Integrate in the existing read-only catalog reconciliation transaction;
+      keep raw bytes and clinical admission unchanged.
+- [x] Verify94 focused tests, including12new cross-read/native SQLite cases.
+- [x] Full Android7055passed/six existing skips, zero failures/errors;
+      lint0errors, compile/build passed in3m46s. Release helpers14/publisher6passed.
+- [x] Distribution APK39887472bytes,7322retained app classes, package/version and
+      existing signer verified after generated APK recreation.
+- [ ] Exact-head CI/review, authorized main integration and public artifact check.
+- Prepare0.1.19/code20 as a diagnostic/safety update. It does not enable the live
+  meal-time recommender; native transport, clock epochs and basal coverage remain
+  separate gates. AAPS, the phone and therapy are unchanged.
+
 ## Combo Response Admission (2026-10-28)
 
 - [x] Reuse the paired journal/counter and isolated native history ACK key.
@@ -24,7 +41,8 @@
 - [x] Verify45focused tests, including10new retention regressions.
 - [x] Full Android7027passed/six prior skips; zero lint errors, compile/build
       and APK class/size checks passed in5m26s.
-- [ ] Exact-head CI/review and integration.
+- [x] PR62 f2845b32 passed six checks/review; merged as main d00ed138 with the
+      exact tested tree. Separate main CI remains to be observed.
 - Native dispatch, authenticated receipts and real delivery/clock evidence remain
   open. No live meal recommendation, timer activation or APK publication here.
 

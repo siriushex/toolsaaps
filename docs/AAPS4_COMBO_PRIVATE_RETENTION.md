@@ -83,6 +83,41 @@ capacity. All inputs are synthetic; no runtime transfer is enabled by this stage
 
 ## Limits And Privacy
 
+### Cross-Read Counter And Local-Time Audit
+
+Catalog reconciliation now accumulates validated event observations from every
+scoped retained read, including older reads absent from the supplied catalog.
+Original bytes and per-read adverse flags are unchanged. The returned event audit
+has counts only, immutable collections and no UTC conversion or dose arithmetic.
+
+Counters are compared as their original unsigned 32-bit values. Identical copies
+under a nonconflicting counter count once in phase totals; extra observations are
+reported separately. A counter with different original event bytes is conflicting
+and is excluded from bolus-phase and local-time comparisons. Conflict counts and
+exact-repeat counts are independent of database/read ordering. Reader block ACK
+observations remain separate from physical insulin delivery; a later acknowledged
+copy never erases the earlier unconfirmed hazard.
+
+Gaps describe missing interior numeric counter values only, not a number of lost
+doses or proof of a FIFO gap. A wrap/reset may span that numeric space; no epoch
+or chronological repair is inferred. Empty data, a contiguous interior or an
+exact catalog match cannot prove initial/final history coverage. Requested,
+infused-labelled, started and ended bolus events remain separate counts without
+inventing matches or delivery-start times.
+
+In counter order, adjacent nonconflicting events with backwards local clocks
+produce a time-rewind hazard. Equal times are allowed. Clock-change records keep
+their original semantics and remain adverse; their replacement clock is not used
+to shift other events. A conflicting event cannot serve as a clock anchor or be
+silently skipped to infer continuity across it. Sensor/phone/reader clocks are
+not substituted for pump event time.
+
+The accumulator bounds distinct counters to100000 and observations to1000000,
+in addition to the existing byte/read limits. Overflow fails the complete owned
+transaction, never returns a partial successful audit. It is transaction-local,
+not a second history owner or runtime worker. Pump binding, clock mapping and
+delivery completeness explicitly remain unverified.
+
 Default capacity is 4096 reads and 32 MiB of raw bytes across all namespaces,
 with a 2 MiB per-read limit. Metadata totals are reconciled with stored chunk
 lengths. These are logical-data limits; SQLite pages/journal overhead are additional.

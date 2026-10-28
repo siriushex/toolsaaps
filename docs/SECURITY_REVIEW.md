@@ -1,5 +1,19 @@
 # SECURITY REVIEW
 
+## Cross-Read Event Audit (2026-10-28)
+
+- Reuse the private retention transaction and exact owner/pump scope. Every read
+  is hash/origin/geometry checked before its validated event prefix contributes.
+  Older omitted evidence remains visible; neither a catalog nor timestamps select
+  a different namespace or overwrite retained records.
+- Bound counters/observations and refuse the whole audit on overflow. Return only
+  immutable counts/hazards; no raw event bytes, pump timestamps or binding in logs.
+- Conflicting counter values cannot become bolus counts or clock anchors. Numeric
+  gaps do not resolve wrap/reset, FIFO coverage or missing delivered insulin.
+  Clock change and unconfirmed evidence stay adverse even with later clean copies.
+- No runtime owner, network route, new schema, clinical authority or source ACK.
+  Native transport, true pump/UTC epochs and physical basal continuity remain open.
+
 ## Paired History Response Admission (2026-10-28)
 
 - Inbound scope comes from the committed encrypted request, not from an ACK or
