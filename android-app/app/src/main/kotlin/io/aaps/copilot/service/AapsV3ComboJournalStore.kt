@@ -23,6 +23,22 @@ internal class ComboRetentionReceipt(
     override fun toString() = "ComboRetentionReceipt(redacted)"
 }
 
+/** Exact catalog-to-storage comparison, not authentication, clock mapping or insulin coverage. */
+internal class ComboInventoryRetentionAudit(
+    val snapshotId: String, val inventorySha256: String,
+    val expectedReadCount: Int, val matchedReadCount: Int, val retainedOutsideInventory: Int,
+    missingReadIds: List<String>, conflictingReadIds: List<String>, hazards: Set<AapsV3ComboHistoryHazard>
+) {
+    val missingReadIds: List<String> = Collections.unmodifiableList(missingReadIds.toList())
+    val conflictingReadIds: List<String> = Collections.unmodifiableList(conflictingReadIds.toList())
+    val hazards: Set<AapsV3ComboHistoryHazard> = Collections.unmodifiableSet(hazards.toSet())
+    val declaredInventoryRetained: Boolean get() = matchedReadCount == expectedReadCount &&
+        missingReadIds.isEmpty() && conflictingReadIds.isEmpty()
+    val pumpBindingVerified: Boolean get() = false
+    val deliveryCompletenessVerified: Boolean get() = false
+    override fun toString() = "ComboInventoryRetentionAudit(redacted)"
+}
+
 /** Bounded diagnostic retention. A future paired receiver must authenticate the caller separately. */
 internal class AapsV3ComboJournalStore(
     private val db: ComboJournalDatabase,
@@ -73,12 +89,44 @@ internal class AapsV3ComboJournalStore(
     suspend fun inventory(ownerId: String, binding: String): List<ComboRetentionReceipt> {
         scope(ownerId, binding)
         return transaction {
-            val totals = dao.totals()
-            if (totals.bytes != totals.storedBytes) fail(ComboRetentionError.CORRUPT)
-            if (totals.reads !in 0..maximumReads.toLong() || totals.bytes !in 0..maximumBytes) fail(ComboRetentionError.CAPACITY)
-            val rows = dao.inventory(ownerId, binding, maximumReads + 1)
+            Collections.unmodifiableList(inventoryRows(ownerId, binding).map { receipt(it, load(it), false) })
+        }
+    }
+
+    /** Recheck all scoped bytes in one owned read transaction, without retaining or acknowledging anything. */
+    suspend fun reconcileInventory(ownerId: String, expected: AapsV3ComboInventory): ComboInventoryRetentionAudit {
+        scope(ownerId, expected.pumpBinding)
+        return transaction {
+            val rows = inventoryRows(ownerId, expected.pumpBinding)
+            val declared = expected.reads.associateBy { it.readId }
+            val retained = rows.associateBy { it.readId }
+            val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
+            if (expected.writerFailed) hazards += AapsV3ComboHistoryHazard.STORAGE_FAILED
+            if (expected.unscopedCorruptReads > 0) hazards += AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION
+            for (entry in expected.reads) {
+                if (!entry.closed) hazards += AapsV3ComboHistoryHazard.UNCLOSED_READ
+                if (entry.corrupt) hazards += AapsV3ComboHistoryHazard.CORRUPT_READ
+                if (entry.adverse) hazards += AapsV3ComboHistoryHazard.ADVERSE_READ
+                if (entry.readFailed) hazards += AapsV3ComboHistoryHazard.FAILED_READ
+            }
+            // Do not lose older adverse evidence just because the latest source catalog omits it.
+            for (row in rows) hazards += load(row).hazards
+            val missing = expected.reads.filter { it.readId !in retained }.map { it.readId }
+            val conflicts = expected.reads.filter { entry -> retained[entry.readId]?.let {
+                it.sha256 != entry.sha256 || it.byteCount != entry.byteCount
+            } == true }.map { it.readId }
+            ComboInventoryRetentionAudit(expected.snapshotId, expected.sha256, expected.reads.size,
+                expected.reads.size - missing.size - conflicts.size,
+                rows.count { it.readId !in declared }, missing, conflicts, hazards)
+        }
+    }
+
+    private suspend fun inventoryRows(ownerId: String, binding: String): List<ComboReadEntity> {
+        val totals = dao.totals()
+        if (totals.bytes != totals.storedBytes) fail(ComboRetentionError.CORRUPT)
+        if (totals.reads !in 0..maximumReads.toLong() || totals.bytes !in 0..maximumBytes) fail(ComboRetentionError.CAPACITY)
+        return dao.inventory(ownerId, binding, maximumReads + 1).also { rows ->
             if (rows.size > maximumReads || rows.sumOf { it.byteCount.toLong() } > maximumBytes) fail(ComboRetentionError.CAPACITY)
-            Collections.unmodifiableList(rows.map { receipt(it, load(it), false) })
         }
     }
 

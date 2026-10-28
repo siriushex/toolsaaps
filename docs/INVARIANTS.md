@@ -1,5 +1,20 @@
 # INVARIANTS
 
+## Combo Retention Reconciliation
+
+- A declared catalog is not an authenticated source or delivery timeline. Exact
+  local retention cannot grant pump binding or delivery-completeness authority.
+- Match owner, pump binding, read ID, size and full digest; distinguish absent
+  rows from changed identities. Never fill a missing read from another scope.
+- Recheck all scoped bytes in the same owned transaction. Corrupt local storage
+  refuses the entire result; no partial successful audit may escape.
+- Preserve adverse source flags even for missing reads, and decoded hazards from
+  older retained reads omitted by the current catalog. Do not prune or repair.
+- Empty catalog success means only no declared entries are missing; retain exact
+  counts, snapshot ID and catalog digest. It never proves absence of insulin.
+- Results are immutable and redacted; external/inherited transactions cannot
+  return an audit before their commit. Reconciliation sends no receipt or command.
+
 ## Prospective Window Observation
 
 - Endpoint forecast error is not whole-window safety. Preserve low observations

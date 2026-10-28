@@ -86,6 +86,122 @@ class AapsV3ComboJournalStoreTest {
     private fun readBytes(scope: String = binding) = listOf("BEGIN", "BLOCK", "CONFIRMED", "END")
         .fold(byteArrayOf()) { bytes, phase -> bytes + frame(phase, scope) }
     private fun largeRead(size: Int = 150_000): ByteArray = frame("BEGIN").let { it + ByteArray(size - it.size) }
+    private fun entry(bytes: ByteArray = readBytes(), readId: String = id) =
+        AapsV3ComboInventoryEntry(readId, bytes.size, hash(bytes), true, false, false, false)
+    private fun catalog(entries: List<AapsV3ComboInventoryEntry> = listOf(entry()),
+                        scope: String = binding, unscoped: Int = 0, writerFailed: Boolean = false) =
+        AapsV3ComboInventory.create("44444444-4444-4444-8444-444444444444", scope,
+            entries.sortedBy { it.readId }, unscoped, writerFailed)
+
+    @Test fun completeDeclaredInventorySurvivesReopenWithoutGrantingDeliveryAuthority() = runBlocking {
+        val raw = readBytes(); retain(raw)
+        val expected = catalog()
+        db.close(); db = ComboJournalDatabase.create(context)
+        val audit = store().reconcileInventory(owner, expected)
+        assertEquals(expected.snapshotId, audit.snapshotId); assertEquals(expected.sha256, audit.inventorySha256)
+        assertEquals(1, audit.expectedReadCount); assertEquals(1, audit.matchedReadCount)
+        assertEquals(0, audit.retainedOutsideInventory)
+        assertTrue(audit.declaredInventoryRetained); assertTrue(audit.hazards.isEmpty())
+        assertFalse(audit.pumpBindingVerified); assertFalse(audit.deliveryCompletenessVerified)
+        assertEquals(1L, db.journalDao().totals().reads)
+        assertArrayEquals(raw, store().read(owner, binding, id)!!.rawBytes())
+        assertFalse(audit.toString().contains(id)); assertFalse(audit.toString().contains(binding))
+    }
+
+    @Test fun missingReadIsNotFilledByAnotherOwnerOrBinding() = runBlocking {
+        val raw = readBytes(); val otherRaw = readBytes(otherBinding)
+        store().retain(other, binding, id, hash(raw), raw)
+        store().retain(owner, otherBinding, id, hash(otherRaw), otherRaw)
+        val audit = store().reconcileInventory(owner, catalog())
+        assertEquals(listOf(id), audit.missingReadIds)
+        assertEquals(0, audit.matchedReadCount); assertFalse(audit.declaredInventoryRetained)
+        assertTrue(audit.conflictingReadIds.isEmpty()); assertEquals(2L, db.journalDao().totals().reads)
+    }
+
+    @Test fun partialInventoryReportsExactMissingReadsAndCannotMutateItsResult() = runBlocking<Unit> {
+        retain(readBytes())
+        val expected = catalog(listOf(entry(), entry(readId = other)))
+        val audit = store().reconcileInventory(owner, expected)
+        assertEquals(2, audit.expectedReadCount); assertEquals(1, audit.matchedReadCount)
+        assertEquals(listOf(other), audit.missingReadIds); assertFalse(audit.declaredInventoryRetained)
+        assertThrows(UnsupportedOperationException::class.java) { (audit.missingReadIds as MutableList).clear() }
+        assertThrows(UnsupportedOperationException::class.java) { (audit.conflictingReadIds as MutableList).add(id) }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (audit.hazards as MutableSet).add(AapsV3ComboHistoryHazard.STORAGE_FAILED)
+        }
+    }
+
+    @Test fun conflictingHashOrSizeDoesNotOverwriteStoredIdentity() = runBlocking {
+        retain(readBytes())
+        for (changed in listOf(entry().copy(sha256 = "0".repeat(64)), entry().copy(byteCount = readBytes().size + 1))) {
+            val audit = store().reconcileInventory(owner, catalog(listOf(changed)))
+            assertEquals(listOf(id), audit.conflictingReadIds); assertTrue(audit.missingReadIds.isEmpty())
+            assertEquals(0, audit.matchedReadCount); assertFalse(audit.declaredInventoryRetained)
+            assertArrayEquals(readBytes(), store().read(owner, binding, id)!!.rawBytes())
+        }
+    }
+
+    @Test fun sourceAdverseFlagsRemainVisibleEvenForMissingOrFullyStoredReads() = runBlocking {
+        val declared = entry().copy(closed = false, corrupt = true, adverse = true, readFailed = true)
+        val expected = catalog(listOf(declared), unscoped = 1, writerFailed = true)
+        val before = store().reconcileInventory(owner, expected)
+        retain(readBytes())
+        val after = store().reconcileInventory(owner, expected)
+        assertFalse(before.declaredInventoryRetained); assertTrue(after.declaredInventoryRetained)
+        val hazards = setOf(AapsV3ComboHistoryHazard.UNCLOSED_READ, AapsV3ComboHistoryHazard.CORRUPT_READ,
+            AapsV3ComboHistoryHazard.ADVERSE_READ, AapsV3ComboHistoryHazard.FAILED_READ,
+            AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION, AapsV3ComboHistoryHazard.STORAGE_FAILED)
+        assertEquals(hazards, before.hazards); assertEquals(hazards, after.hazards)
+        assertFalse(after.deliveryCompletenessVerified)
+    }
+
+    @Test fun decoderHazardsAndOlderOmittedReadsSurviveCleanSourceCatalog() = runBlocking {
+        val partial = frame("BEGIN") + frame("BLOCK")
+        retain(partial); retain(readBytes(), other)
+        val audit = store().reconcileInventory(owner, catalog(listOf(entry(readId = other))))
+        assertTrue(audit.declaredInventoryRetained); assertEquals(1, audit.retainedOutsideInventory)
+        assertTrue(audit.hazards.containsAll(setOf(AapsV3ComboHistoryHazard.UNCLOSED_READ,
+            AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK)))
+        assertFalse(audit.deliveryCompletenessVerified)
+        val sameRead = store().reconcileInventory(owner, catalog(listOf(entry(partial))))
+        assertTrue(sameRead.declaredInventoryRetained); assertEquals(audit.hazards, sameRead.hazards)
+    }
+
+    @Test fun emptyCatalogIsNotEvidenceOfNoInsulinOrOfACompleteSource() = runBlocking {
+        val expected = catalog(emptyList())
+        val audit = store().reconcileInventory(owner, expected)
+        assertTrue(audit.declaredInventoryRetained); assertEquals(0, audit.expectedReadCount)
+        assertEquals(0, audit.matchedReadCount); assertFalse(audit.deliveryCompletenessVerified)
+        retain(frame("BEGIN"))
+        val later = store().reconcileInventory(owner, expected)
+        assertTrue(later.declaredInventoryRetained); assertEquals(1, later.retainedOutsideInventory)
+        assertTrue(AapsV3ComboHistoryHazard.UNCLOSED_READ in later.hazards)
+    }
+
+    @Test fun damagedStoredBytesRefuseWholeReconciliationEvenOutsideCurrentCatalog() = runBlocking {
+        retain(readBytes()); retain(readBytes(), other)
+        db.openHelper.writableDatabase.execSQL("UPDATE combo_chunks SET bytes = zeroblob(length(bytes)) WHERE readId = ?", arrayOf(id))
+        rejected(ComboRetentionError.CORRUPT) { store().reconcileInventory(owner, catalog(listOf(entry(readId = other)))) }
+    }
+
+    @Test fun reconciliationCannotEscapeAnExternalOrInheritedTransaction() = runBlocking {
+        retain(readBytes())
+        db.withTransaction {
+            rejected(ComboRetentionError.STORAGE) { store().reconcileInventory(owner, catalog()) }
+            withContext(Dispatchers.IO) {
+                rejected(ComboRetentionError.STORAGE) { store().reconcileInventory(owner, catalog()) }
+            }
+        }
+        assertTrue(store().reconcileInventory(owner, catalog()).declaredInventoryRetained)
+    }
+
+    @Test fun reconciliationRespectsGlobalCapacityWithoutPruningOtherScopes() = runBlocking {
+        retain(readBytes())
+        val raw = readBytes(); store().retain(other, binding, id, hash(raw), raw)
+        rejected(ComboRetentionError.CAPACITY) { store(1).reconcileInventory(owner, catalog()) }
+        rejected(ComboRetentionError.CAPACITY) { store(maximumBytes = raw.size.toLong()).reconcileInventory(owner, catalog()) }
+        assertEquals(2L, db.journalDao().totals().reads)
+    }
 
     @Test fun exactBytesAndTypedEventsSurviveDatabaseCloseAndReopen() = runBlocking {
         val raw = readBytes()

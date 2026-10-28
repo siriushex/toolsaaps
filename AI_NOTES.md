@@ -1,3 +1,18 @@
+# Combo Retention Reconciliation - 2026-10-28
+
+- Add an owned read-only catalog-to-storage audit. Separate missing identities
+  from hash/size conflicts; revalidate all scoped bytes before returning.
+- Preserve source writer/unscoped failures and declared hazards even for missing
+  entries, plus locally decoded hazards from older omitted reads. No pruning,
+  repair, new schema, raw export, acknowledgement or therapy change.
+- Empty/exact catalog matches retain unverified pump/delivery authority. Full
+  transport, clock epochs, basal coverage and clinical safety remain separate.
+- First focused run exposed a JUnit non-void test declaration; corrected the test
+  signature. All45focused tests now pass, including10new synthetic SQLite cases.
+  Full Android quality passed in5m26s:7027passed/six existing private-data skips,
+  zero failures/errors; lint zero errors/383warnings/eight hints. Compile/build
+  and APK size/class checks passed. Exact-head CI/review remain pending.
+
 # Meal Window Observation Audit - 2026-10-28
 
 - Activation review distinguishes the displayed record-plus-onset countdown
