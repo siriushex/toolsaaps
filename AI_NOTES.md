@@ -1,3 +1,21 @@
+# Internet Release 0.1.18 - 2026-10-28
+
+- User requested the internet update after PR59 integration. Prepare0.1.18/code19
+  from verified main6484bacd; preserve package, signer, schema and runtime defaults.
+- Includes explicit minute-test activation/cancellation and validated Combo
+  history-request boundaries. Raw history dispatch and recommended meal time
+  remain closed pending delivery completeness and clinical safety evidence.
+- Only build metadata changes in this release candidate. Full Android quality,
+  release-helper tests, exact-head CI/review and signed artifact gates precede
+  public static-file publication. No phone, AAPS, AI service or therapy changes.
+- Existing public0.1.17 hash/signer independently matched the retained public APK.
+  Rollback preserves old immutable APKs and backs up only page/manifest outside
+  the public directory. No database or credential backup is part of this release.
+- Full local Android quality passed in6m38s:7002passed/six previous private-data
+  skips, zero lint errors/376warnings/eight hints. Release-helper14tests passed.
+  Fresh packaging, signature, metadata and size/class guard passed:39,871,088bytes,
+  7310retained app classes. Exact-source CI/review and public verification pending.
+
 # Forecast Test Explicit Opt-In - 2026-10-27
 
 - Fixed delayed activation after OFF during asynchronous settings validation.
