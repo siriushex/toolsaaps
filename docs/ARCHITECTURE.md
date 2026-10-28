@@ -103,8 +103,14 @@ have received old bytes; native-side priority/revocation checks are still requir
 
 Requests require a fresh current-session pong, current roster and enabled control,
 with clock/admission rechecks before commit or recovered-wire return. Capacity
-admission leaves one journal row and two maximum-size wire documents for a target
-prepare/commit. This reserve does not claim protection against unrelated writers.
+admission budgets a request and reply, leaving one journal row and two maximum-size
+wire documents for target prepare/commit. This reserve does not claim protection
+against unrelated writers.
+The cold inbound method validates the isolated stored history ACK, native HMAC,
+request-bound AEAD and typed body under the same transaction owner. An encrypted
+RECEIVED record is idempotent but still expires/preempts; it is neither a raw-byte
+retention receipt nor a complete-delivery claim. No plaintext escapes, no live
+sender is connected and ordinary target acknowledgements are unchanged.
 See [read outbox](AAPS4_COMBO_READ_OUTBOX.md) for exact scope and remaining gates.
 
 ## Combo Chunk Envelope Candidate

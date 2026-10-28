@@ -1,3 +1,23 @@
+# Combo Response Admission - 2026-10-28
+
+- Add a cold inbound operation to the existing paired journal, not a second
+  counter owner or generic signer. Read only the isolated current-owner ACK row.
+- Validate exact request scope, native ACK signature, typed AEAD body, roster,
+  session, deadline and target priority. Record authenticated ciphertext in the
+  existing encrypted singleton; no raw clinical bytes or target state escape.
+- First receipt wins; duplicate reads do not mutate it. Received records still
+  expire or are preempted, never return a sendable request, and do not acknowledge
+  source retention. Budget both request/reply alongside target headroom.
+- SQLite regressions cover malformed/wrong-context ACKs, first-writer protection,
+  full-size chunks, restart, priority, expiry, revocation, cancellation and rollback.
+  Real pinned native SDK ACK signing oracle passed, with37focused cases overall.
+- Full Android verification passed in3m41s:7043passed, six existing private-data
+  skips, zero failures/errors. Lint zero errors/383warnings/eight hints; native
+  SDK preparation27s, upstream remained pristine. APK40829745bytes retains7319
+  app classes. Exact-head CI/review still required before integration.
+- Native runtime dispatch, raw-retention handoff, pump clock/basal completeness
+  and clinical timer admission are not activated. Phone, server and APK unchanged.
+
 # Combo Retention Reconciliation - 2026-10-28
 
 - Add an owned read-only catalog-to-storage audit. Separate missing identities

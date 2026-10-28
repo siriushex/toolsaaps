@@ -50,9 +50,17 @@
   untrusted settings identifier. Invalid MAC/replay/skew still produce no reply.
 - History refusal advances only the existing replay counter; it grants no
   capability, pairing activation, source read, delivery proof or timer permission.
-- Signed ACK scope and crypto are unchanged. The future receiver must still
+- Signed ACK scope and crypto are unchanged. The paired journal receiver must
   match the pending shared counter and decrypt the expected request context;
   the routing key alone does not authenticate a history response.
+- Receive only from the isolated owned settings row newer than the committed
+  request. Pin the original roster, deadline and session pong; recheck after I/O.
+- Preserve the first authenticated ciphertext receipt without republishing or
+  changing the counter. A different later response cannot replace it.
+- RECEIVED is not retained raw history or permission to ACK/delete source data.
+  It remains preemptible/expiring and cannot authorize delivery or a meal timer.
+- No successful receipt may escape an external/inherited transaction, write
+  failure or cancellation. Validation clears plaintext and returns redacted status.
 
 ## Native Read Source
 

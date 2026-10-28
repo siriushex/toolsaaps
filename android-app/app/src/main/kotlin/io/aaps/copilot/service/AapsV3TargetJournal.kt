@@ -310,16 +310,16 @@ internal class AapsV3TargetJournal(
         }
         // History cannot consume the target's ownership slot, even before target preparation.
         if (root.pending != null || db.actionCommandDao().hasPendingTempTarget()) return@transaction null
-        if (previous != null && comboSnapshot(previous, sessionStartedAt, minimumProbeCounter, now, clock).phase ==
-            AapsV3ComboReadPhase.ISSUED) return@transaction null
+        if (previous != null && comboSnapshot(previous, sessionStartedAt, minimumProbeCounter, now, clock).phase in
+            COMBO_ACTIVE) return@transaction null
         check(sessionStartedAt in 1..now && minimumProbeCounter > 1)
         requireLivePairing(now, sessionStartedAt, minimumProbeCounter)
         val probe = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) }
         if (probe != null && HistoryJson.long(probe.request.getValue("counter")) > pair.pongCounter) return@transaction null
-        // Leave one journal row and two maximum-size wire documents for a target prepare/commit.
+        // Budget the request/reply and leave a journal row plus two wire documents for a target.
         if (dao.count() + (if (previous == null) 1 else 0) >= maximumRows) return@transaction null
         val capacity = checkNotNull(db.localNightscoutV3Dao().clock())
-        if (capacity.documentCount > 100_000 - 3 || capacity.payloadBytes > 64L * 1024 * 1024 - 3L * 65_536)
+        if (capacity.documentCount > 100_000 - 4 || capacity.payloadBytes > 64L * 1024 * 1024 - 4L * 65_536)
             return@transaction null
         val issuedAt = clock().also { check(it >= maxOf(now, root.lastIssuedAt)) }
         requireLivePairing(issuedAt, sessionStartedAt, minimumProbeCounter)
@@ -345,17 +345,57 @@ internal class AapsV3TargetJournal(
         comboReadOrNull()?.let { comboSnapshot(it, sessionStartedAt, minimumProbeCounter, clock(), clock) }
     }
 
+    /** Cold inbound lane: stores only authenticated ciphertext, not a raw-history retention receipt. */
+    suspend fun receiveComboResponse(sessionStartedAt: Long, minimumProbeCounter: Long,
+                                     clock: () -> Long): AapsV3ComboReadSnapshot? = transaction {
+        val record = comboReadOrNull() ?: return@transaction null
+        val now = clock()
+        val current = comboSnapshot(record, sessionStartedAt, minimumProbeCounter, now, clock)
+        if (current.phase !in COMBO_ACTIVE) return@transaction current
+        val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS,
+            "aaps_clientcontrol_ack_history_${record.clientId}") ?: return@transaction current
+        check(!row.deleted && row.source == "local-v3-owner" && row.modifiedRevision > record.publicationRevision)
+        val body = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)
+        check(body["schemaVersion"] == JsonPrimitive(1))
+        val ack = HistoryJson.obj(body.getValue("ack"))
+        val secret = secretBytes(pairing())
+        val phase = try {
+            AapsV3ComboReadProtocol(secret).use { it.response(ack, record.clientId, record.masterInstallId,
+                record.requestId, record.counter, record.issuedAt, record.spec, now) }
+        } finally { secret.fill(0) }
+        val previous = record.response
+        if (previous != null) {
+            check(previous.ack == ack && previous.sourceRevision == row.modifiedRevision && phase == record.phase)
+        }
+        val completedAt = clock()
+        check(completedAt in now until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
+        requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
+        if (previous != null) return@transaction current
+        val accepted = record.copy(phase = phase, response = if (phase == AapsV3ComboReadPhase.RECEIVED)
+            ComboResponse(ack, row.modifiedRevision, completedAt) else null)
+        put(COMBO_READ, json.encodeToString(accepted))
+        val committedAt = clock()
+        check(committedAt in completedAt until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
+        requireLivePairing(committedAt, sessionStartedAt, minimumProbeCounter)
+        accepted.snapshot()
+    }
+
     private suspend fun comboReadOrNull(): ComboRead? = read(COMBO_READ)?.let {
         json.decodeFromJsonElement<ComboRead>(it).also { record ->
             check(record.version == 1 && record.counter > 1 && record.publicationRevision > 0 && record.rosterRevision >= 0)
             listOf(record.clientId, record.masterInstallId, record.requestId).forEach(HistoryJson::uuid)
             check(record.issuedAt in 1..LocalNightscoutV3Store.MAX_TIME - AapsV3ComboReadProtocol.TTL_MS)
+            check((record.phase == AapsV3ComboReadPhase.RECEIVED) == (record.response != null))
+            record.response?.let { response ->
+                check(response.sourceRevision > record.publicationRevision &&
+                    response.receivedAt in record.issuedAt until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
+            }
         }
     }
 
     private suspend fun comboSnapshot(record: ComboRead, sessionStartedAt: Long,
                                       minimumProbeCounter: Long, now: Long, clock: () -> Long): AapsV3ComboReadSnapshot {
-        if (record.phase != AapsV3ComboReadPhase.ISSUED) return record.snapshot()
+        if (record.phase !in COMBO_ACTIVE) return record.snapshot()
         val root = root(); val pair = pairing()
         val phase = when {
             record.clientId != root.clientId || record.masterInstallId != pair.masterInstallId ||
@@ -364,10 +404,10 @@ internal class AapsV3TargetJournal(
             root.pending != null || root.counter > record.counter || db.actionCommandDao().hasPendingTempTarget() ->
                 AapsV3ComboReadPhase.SUPERSEDED
             now >= record.issuedAt + AapsV3ComboReadProtocol.TTL_MS -> AapsV3ComboReadPhase.EXPIRED
-            else -> AapsV3ComboReadPhase.ISSUED
+            else -> record.phase
         }
         if (phase != record.phase) {
-            val retired = record.copy(phase = phase)
+            val retired = record.copy(phase = phase, response = null)
             put(COMBO_READ, json.encodeToString(retired))
             return retired.snapshot()
         }
@@ -387,7 +427,7 @@ internal class AapsV3TargetJournal(
         val completedAt = clock()
         check(completedAt in now until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
         requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
-        return record.snapshot(LocalV3Write(row, false))
+        return record.snapshot(if (record.phase == AapsV3ComboReadPhase.ISSUED) LocalV3Write(row, false) else null)
     }
 
     private suspend fun publish(request: AapsV3TargetRequest): LocalV3Write {
@@ -484,9 +524,12 @@ internal class AapsV3TargetJournal(
     @Serializable private data class ComboRead(val clientId: String, val masterInstallId: String,
         val requestId: String, val counter: Long, val issuedAt: Long, val spec: AapsV3ComboReadSpec,
         val publicationRevision: Long, val phase: AapsV3ComboReadPhase = AapsV3ComboReadPhase.ISSUED,
-        val version: Int = 1, val rosterRevision: Long = 0) {
+        val version: Int = 1, val rosterRevision: Long = 0, val response: ComboResponse? = null) {
         fun snapshot(publication: LocalV3Write? = null) = AapsV3ComboReadSnapshot(requestId, counter, phase, publication)
         override fun toString() = "ComboReadRecord(redacted)"
+    }
+    @Serializable private data class ComboResponse(val ack: JsonObject, val sourceRevision: Long, val receivedAt: Long) {
+        override fun toString() = "ComboResponse(redacted)"
     }
     @Serializable private data class Attempts(val startedAt: Long, val lastAt: Long, val count: Int)
     private companion object {
@@ -496,6 +539,7 @@ internal class AapsV3TargetJournal(
         const val COMBO_READ = "combo-read"
         const val ATTEMPTS = "pin-attempts"
         const val DOC_DATE = 946_684_800_001L
+        val COMBO_ACTIVE = setOf(AapsV3ComboReadPhase.ISSUED, AapsV3ComboReadPhase.RECEIVED)
         val HEX = Regex("[0-9a-f]{64}")
         val COMMAND_KEY = Regex("command:[0-9a-f]{64}")
         val CLIENT_ID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
