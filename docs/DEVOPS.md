@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Native CI Failure Evidence
+
+Always preserve `native-unit-test-reports` for 3 days, restricted to
+`android-app/build/aaps-rc1/**/build/test-results/**/TEST-*.xml`. These are synthetic
+tests in the pinned checkout, not device records. Keep the original failing run
+and inspect its testcase/stdout before diagnosing a timeout. Do not upload the
+whole checkout, credentials, raw device logs or databases. The Copilot XML
+artifact is separate and cannot explain a failure before its tests start.
+
+Main CI 40787591139 hit the 60s watchdog in unchanged long-button-release behavior;
+one pristine isolated run and 30 two-processor repetitions passed locally. Cause
+remains unproven. Artifact retention improves diagnosis; it does not fix that
+timeout or validate pump behavior. No blind retry-to-green or timeout extension.
+
 ## Native Reply Verification
 
 The native recipe now freezes nine compatibility patches, adding the pure reply

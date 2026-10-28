@@ -323,6 +323,17 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual("", self.run_git("diff", "HEAD", "--").stdout)
         self.assertFalse((self.source / "added.txt").exists())
 
+    def test_ci_preserves_native_xml_on_failure_without_raw_artifacts(self):
+        workflow = (RECIPE.parents[2] / ".github/workflows/verify.yml").read_text()
+        marker = "      - name: Preserve native synthetic unit-test reports\n"
+        self.assertEqual(1, workflow.count(marker))
+        block = workflow.split(marker, 1)[1].split("      - name:", 1)[0]
+        self.assertIn("        if: always()\n", block)
+        self.assertIn("          name: native-unit-test-reports\n", block)
+        self.assertIn("          retention-days: 3\n", block)
+        paths = [line.strip() for line in block.splitlines() if line.strip().startswith("path:")]
+        self.assertEqual(["path: android-app/build/aaps-rc1/**/build/test-results/**/TEST-*.xml"], paths)
+
     def test_new_concurrent_source_is_preserved_and_fails_cleanup(self):
         result = self.run_recipe("untracked")
         self.assertNotEqual(0, result.returncode)
