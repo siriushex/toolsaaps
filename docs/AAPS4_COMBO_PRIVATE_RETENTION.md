@@ -55,6 +55,32 @@ refuses the whole inventory, not a truncated successful list. Missing individual
 identities return absent, not proof of complete source history. Public result
 collections/byte copies are immutable and string representations are redacted.
 
+## Declared Inventory Reconciliation
+
+`reconcileInventory` compares one complete catalog with private retained records
+under the exact owner and pump-binding scope. It reuses the existing capacity,
+owned-transaction and byte-integrity checks. Every local scoped read is decoded
+again, including records omitted by the current source catalog. Local corruption
+refuses the whole audit instead of returning partial successful results.
+
+Missing IDs and same-ID size/hash conflicts are separate immutable lists; matched
+and omitted-local counts remain explicit. Source hazards survive even when the
+corresponding bytes are missing. Locally decoded hazards cannot be erased by
+clean source flags or omission from a newer catalog. This comparison never writes,
+repairs, deletes, sends a receipt or authenticates the caller-supplied catalog.
+
+The returned snapshot ID and inventory digest identify the compared declaration,
+not its current validity. `declaredInventoryRetained` means only all declared
+entries have exact retained bytes. Empty catalogs can satisfy that statement with
+zero matched records. Unscoped damage and writer failure remain separate adverse
+evidence; even an exact clean match leaves pump binding and physical delivery
+completeness false. No event-clock conversion or basal coverage is inferred.
+
+Ten new native SQLite tests cover reopen, missing/scoped identities, changed size
+or digest, immutable results, source and decoder hazards, omitted older records,
+empty catalogs, corrupt local bytes, external/inherited transactions and global
+capacity. All inputs are synthetic; no runtime transfer is enabled by this stage.
+
 ## Limits And Privacy
 
 Default capacity is 4096 reads and 32 MiB of raw bytes across all namespaces,

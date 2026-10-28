@@ -1,5 +1,17 @@
 # PLAN
 
+## Combo Retention Reconciliation (2026-10-28)
+
+- [x] Inspect missing raw-transfer, clock and basal coverage prerequisites.
+- [x] Compare declared catalog with exact private retained bytes in one read transaction.
+- [x] Preserve missing/conflicting IDs, older hazards and declared source damage.
+- [x] Verify45focused tests, including10new retention regressions.
+- [x] Full Android7027passed/six prior skips; zero lint errors, compile/build
+      and APK class/size checks passed in5m26s.
+- [ ] Exact-head CI/review and integration.
+- Native dispatch, authenticated receipts and real delivery/clock evidence remain
+  open. No live meal recommendation, timer activation or APK publication here.
+
 ## Meal Window Observation Audit (2026-10-28)
 
 - [x] Inspect displayed onset timer versus disconnected meal-time recommendation.

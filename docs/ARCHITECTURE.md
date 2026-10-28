@@ -1,5 +1,22 @@
 # ARCHITECTURE
 
+## Combo Inventory Retention Reconciliation
+
+The private journal store compares a complete declared inventory with retained
+bytes in one owned read transaction. Exact scoped read ID, byte count and SHA-256
+must match. Missing and conflicting IDs remain separate; no row is repaired,
+overwritten, transferred or acknowledged by reconciliation. All scoped retained
+bytes are revalidated, including older rows absent from the latest catalog.
+Unscoped source damage, writer failure and source-declared hazards are unioned
+with locally decoded hazards, never replaced by a clean summary.
+
+`declaredInventoryRetained` describes only this catalog-to-storage comparison.
+An empty catalog can match an empty store without proving no insulin or complete
+history. Snapshot identity/digest bind the result to that specific input, not the
+current source. Caller authentication, pump/clock epochs, continuous basal history
+and delivery completeness remain unverified. This operation has no runtime sender,
+clinical/AI export or timer-activation path.
+
 ## Native History Query Structure
 
 The candidate `ComboHistoryReadRequest` decodes only the versioned inventory/chunk
