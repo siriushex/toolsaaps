@@ -1,3 +1,28 @@
+# Native Encrypted Reply Candidate - 2026-10-29
+
+- Native requests and Copilot decryption existed, but native response construction
+  still had no implementation. Add a shared SDK codec for bounded immutable
+  catalogs and exact fragments, preserving all adverse source metadata.
+- Use existing native HKDF/AES-GCM provider, fresh per-response salt/nonce and
+  exact domain-separated request context. No stored pairing key, new dependency,
+  raw-source I/O, replay owner, successful runtime handler or therapy action.
+- Extend reversible recipe and exact-source SDK preparation. Native common tests
+  and real native-to-Copilot decrypt/digest tests cover scope, pagination, bounds,
+  caller mutation, short/final fragments, time, key, tampering and failure output.
+- Recipe27tests and platform-JSON6tests passed. Selected native suites736passed,
+  including10new codec cases, with no skips/failures; native source restored pristine.
+  Exact-source SDK preparation passed in16s. Copilot29focused tests passed, including
+  six new native-output interoperability tests. Full Android7104passed/six existing
+  skips, zero failures/errors; lint0errors/383warnings/eight hints, compile/build
+  and APK retention/size guard passed in3m8s. Exact-head CI/review remain pending.
+- Prior PR66 passed six exact-head checks and review without findings; merged
+  main28a24583 has the tested tree and successful Verify40775278107. Downloaded
+  PR/main reports confirm7098passed/six existing skips/0failures/errors. This
+  closes the pending candidate note below without rewriting its original audit.
+- Source mapping, async admission/capability, device I/O/priority, pump clocks,
+  complete delivery and clinical timer safety remain separate gates. No phone,
+  server, live timer, target/dose, APK version or publication change here.
+
 # Authenticated Catalog Retention - 2026-10-29
 
 - Bind one complete authenticated page sequence to the existing private audit,

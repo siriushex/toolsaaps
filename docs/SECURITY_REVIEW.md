@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Native Reply Codec (2026-10-29)
+
+- Catalog inputs remain caller claims, not source authentication. Canonical IDs,
+  strict ordering/count/byte bounds and exact page/chunk matching prevent ambiguous
+  or unbounded response construction. Do not erase source damage flags.
+- Use the already pinned native provider and request-bound HKDF/AES-GCM context,
+  with fresh random salt/nonce per response. No stored pairing-key copy on the
+  catalog; owned transient keys/plaintext are cleared in finally blocks. Provider
+  internals/immutable strings are outside this erasure claim.
+- Fixed failure text omits parser/crypto input and causes; cancellation propagates.
+  The signed request decoder remains structure-only and source fragments cannot
+  independently prove a full-read digest. Owner admission and receiver verification
+  remain mandatory, including post-I/O revocation/priority/deadline checks.
+- Independent native-to-Copilot output tests detect framing/digest/context drift.
+  Native runtime refusal and clinical gates remain closed; no data export occurs.
+
 ## Catalog Retention Session Binding (2026-10-29)
 
 - Bind complete page assembly to the verified handoff's client/master, roster

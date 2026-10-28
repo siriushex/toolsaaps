@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Native Reply Encoding
+
+- A catalog is copied, bounded and ordered, never repaired, pruned or converted
+  to a physical-delivery claim. Preserve all source adverse flags in its digest.
+- Match original request scope, snapshot/cursor and declared fragment geometry.
+  A codec cannot authenticate caller input or prove a fragment's source/hash.
+- Use native provider HKDF/AES-GCM with fresh salt/IV and domain-separated exact
+  request context. Clear owned key/plaintext buffers; do not alter caller arrays.
+- Missing native patch/source must refuse verification, never fall back to an
+  untested copied implementation. Check actual native output in Copilot.
+- Do not connect successful replies to the reserved runtime lane until source,
+  generation, priority, revocation and post-I/O/deadline admission are implemented.
+  No source-delete ACK, transfer capability or clinical permission from encoding.
+
 ## Catalog Handoff Admission
 
 - Carry the paired journal's checked session start and admission observation with
