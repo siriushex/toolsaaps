@@ -1,5 +1,19 @@
 # DEVOPS
 
+## Catalog Retention Verification
+
+Run `AapsV3ComboCatalogRetentionTest` with the read-journal, inventory and private
+store suites, then full Android test/lint/compile/build with the pinned SDK driver.
+Exercise real paired ACK/AEAD receipt and take, fresh-pong session replacement,
+roster OFF/ON, close/cancellation, storage failure, delayed audits and target
+preparation while the private database is blocked. The 4096-entry maximum catalog
+must assemble without partial persistence or a delivery-completeness claim.
+
+Session/admission observations are in-memory handoff fields only; no wire, Room
+or encrypted-record schema migration is introduced. Source rollback preserves
+retained bytes. Native dispatch, device I/O acceptance and clinical activation
+remain separate, with no new phone/server/APK deployment in this source stage.
+
 ## Combo Handoff Verification
 
 Run AapsV3ComboReadJournalTest with protocol/private-store cases, then full Android

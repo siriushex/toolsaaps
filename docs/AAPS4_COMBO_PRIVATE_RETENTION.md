@@ -139,8 +139,16 @@ response after revalidation and successful transaction return. Its terminal
 CONSUMED state frees the read lane without advancing the counter or creating any
 source-retention ACK. Typed content is closeable; caller-held copies must be cleared
 after use. Inventory pages retain immutable metadata; page disposal is not secure
-erasure of immutable JVM objects. The page assembler's production owner must still
-pin/recheck the handoff roster across pages before issuing a complete catalog.
+erasure of immutable JVM objects. Handoffs also carry the checked local session
+start and admission observation, without changing the wire or stored schema.
+
+`AapsV3ComboCatalogRetention` pins those observations and the roster across pages,
+reuses the complete inventory assembler, then runs read-only reconciliation under
+the master installation's private scope. Partial catalogs do not access the store.
+Close/cancellation and late deadline/clock checks suppress an audit result. Its
+missing/conflicting IDs and older adverse evidence remain diagnostic; neither an
+empty match nor a complete stored catalog proves insulin coverage. Production
+runtime/capability and generation ownership are still not connected.
 
 `AapsV3ComboReadRetention` consumes authenticated chunk handoffs into the existing
 bounded assembler, checks scope/roster/counter/geometry, then calls this store with
