@@ -2,6 +2,18 @@
 
 ## Combo Retention Reconciliation
 
+- Audit event continuity across every scoped retained read, including omitted
+  older records. Read ID order is not event chronology; identical copies must not
+  inflate distinct bolus-phase counts or hide conflicts under the same counter.
+- Counter gaps are unsigned interior diagnostics, not missing insulin amounts,
+  resolved wrap/reset epochs or proof of complete history at either boundary.
+- Conflicting events cannot anchor local-time comparisons. Equal local clocks
+  are allowed; backwards times and explicit clock changes remain adverse.
+- History-block acknowledgement is not delivery. Never erase unconfirmed evidence
+  using a later acknowledged copy or match requested/infused boluses by proximity.
+- Bound the entire cross-read accumulator; overflow refuses the complete audit.
+  Clean counts cannot enable pump binding, UTC mapping or meal recommendations.
+
 - A declared catalog is not an authenticated source or delivery timeline. Exact
   local retention cannot grant pump binding or delivery-completeness authority.
 - Match owner, pump binding, read ID, size and full digest; distinguish absent

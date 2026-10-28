@@ -27,7 +27,8 @@ internal class ComboRetentionReceipt(
 internal class ComboInventoryRetentionAudit(
     val snapshotId: String, val inventorySha256: String,
     val expectedReadCount: Int, val matchedReadCount: Int, val retainedOutsideInventory: Int,
-    missingReadIds: List<String>, conflictingReadIds: List<String>, hazards: Set<AapsV3ComboHistoryHazard>
+    missingReadIds: List<String>, conflictingReadIds: List<String>, hazards: Set<AapsV3ComboHistoryHazard>,
+    val events: ComboRetainedEventAudit
 ) {
     val missingReadIds: List<String> = Collections.unmodifiableList(missingReadIds.toList())
     val conflictingReadIds: List<String> = Collections.unmodifiableList(conflictingReadIds.toList())
@@ -110,14 +111,17 @@ internal class AapsV3ComboJournalStore(
                 if (entry.readFailed) hazards += AapsV3ComboHistoryHazard.FAILED_READ
             }
             // Do not lose older adverse evidence just because the latest source catalog omits it.
-            for (row in rows) hazards += load(row).hazards
+            val eventAudit = ComboRetainedEventAuditBuilder()
+            for (row in rows) eventAudit.accept(load(row))
+            val events = eventAudit.finish()
+            hazards += events.hazards
             val missing = expected.reads.filter { it.readId !in retained }.map { it.readId }
             val conflicts = expected.reads.filter { entry -> retained[entry.readId]?.let {
                 it.sha256 != entry.sha256 || it.byteCount != entry.byteCount
             } == true }.map { it.readId }
             ComboInventoryRetentionAudit(expected.snapshotId, expected.sha256, expected.reads.size,
                 expected.reads.size - missing.size - conflicts.size,
-                rows.count { it.readId !in declared }, missing, conflicts, hazards)
+                rows.count { it.readId !in declared }, missing, conflicts, hazards, events)
         }
     }
 
