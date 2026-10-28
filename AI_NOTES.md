@@ -1,3 +1,26 @@
+# Meal Window Observation Audit - 2026-10-28
+
+- Activation review distinguishes the displayed record-plus-onset countdown
+  from the disconnected meal recommender. Observational checks do not establish
+  clinical activation or complete delivery.
+- Add same-context post-registration window audits alongside unchanged exact
+  5/30/60 scores. Intermediate lows, invalid/conflicting observations and absent
+  support stay visible; unfinished windows are not scored. Indexed prefix counts
+  avoid a per-frame full-outcome scan under existing input limits.
+- Fix private report omission of baselineOnlyHorizons. Export explicit unverified
+  observation coverage; overlapping windows are not unique low episodes. No
+  interpolation, new clinical threshold, recommendation, therapy action, runtime
+  producer, schema, AAPS or server change.
+- The isolated no-food scenario assessment also records the requested 5.6 mmol/L
+  crossing interval from the existing glucose/insulin trajectory. Current-below,
+  absent crossing and lower-risk thresholds remain distinct. This is not a safe
+  waiting time, countdown or live meal instruction; runtime admission stays off.
+- All 48 focused tests passed before the additional reference crossing checks.
+  Final full Android quality passed in4m2s:7017passed/six existing private-data
+  skips, zero failures; lint zero errors/383warnings/eight hints. Compile/build
+  and APK retention/size gates passed. Exact-head CI remains pending. Real paired
+  episodes, complete Combo delivery provenance and clinical safety remain open.
+
 # Internet Release 0.1.18 - 2026-10-28
 
 - User requested the internet update after PR59 integration. Prepare0.1.18/code19

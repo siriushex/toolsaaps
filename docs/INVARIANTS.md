@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Prospective Window Observation
+
+- Endpoint forecast error is not whole-window safety. Preserve low observations
+  between checkpoints without synthesizing a forecast, confidence band or wait time.
+- Window evidence must be same source/session/basis/calibration, available by the
+  evaluation cutoff, and occur strictly after registration through the endpoint.
+- Exact duplicates have one vote; conflicting or invalid evidence stays visible
+  and cannot supply a healthy outcome. Do not treat missing evidence as no risk.
+- Count overlapping receipt windows, not unique hypoglycemic episodes. Baseline
+  and paired reports remain separate; coverage and clinical admission stay false.
+- Keep full input bounds and aggregate-only private output; no raw data in CI.
+
 ## History Query Structure
 
 - Structural decode is never MAC verification, replay admission or delivery proof.

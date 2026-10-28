@@ -4,6 +4,7 @@ import com.google.gson.GsonBuilder
 import io.aaps.copilot.domain.meal.MealForecastIdentity
 import io.aaps.copilot.domain.meal.MealProspectiveCandidate
 import io.aaps.copilot.domain.meal.MealProspectiveEvaluator
+import io.aaps.copilot.domain.meal.MealProspectiveEvaluation
 import io.aaps.copilot.domain.meal.MealProspectiveFrame
 import io.aaps.copilot.domain.meal.MealProspectiveModel
 import io.aaps.copilot.domain.meal.MealProspectiveOutcome
@@ -55,18 +56,23 @@ class MealProspectiveEvaluationToolTest {
             registration.frame
         }
         val result = MealProspectiveEvaluator().evaluate(frames, bundle.outcomes, bundle.evaluatedAtMs, bundle.lowThresholdMmol)
-        val report = mapOf(
-            "mode" to "paired_prospective_observational_scores",
-            "receiptCaptureAuthenticatedByTool" to false,
-            "status" to result.status.name, "submittedReceipts" to bundle.receipts.size,
-            "registrationRejections" to rejected, "registeredFrames" to result.registeredFrames,
-            "baselineOnlyFrames" to result.baselineOnlyFrames, "duplicateFrames" to result.duplicateFrames,
-            "conflictingFrames" to result.conflictingFrames, "unregisteredFutureFrames" to result.unregisteredFutureFrames,
-            "evaluatedAtMs" to result.evaluatedAtMs, "lowThresholdMmol" to result.lowThresholdMmol,
-            "horizons" to result.horizons, "clinicalInfluenceAllowed" to result.clinicalInfluenceAllowed,
-            "controlSafetyValidated" to result.controlSafetyValidated)
+        val report = report(result, bundle.receipts.size, rejected)
         requireNotNull(output.parentFile).mkdirs()
         Files.write(output.toPath(), gson.toJson(report).toByteArray(Charsets.UTF_8),
             StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
     }
+
+    internal fun report(result: MealProspectiveEvaluation, submittedReceipts: Int,
+        rejected: Map<MealProspectiveRegistrationStatus, Int>): Map<String, Any> = mapOf(
+            "mode" to "paired_prospective_observational_scores",
+            "receiptCaptureAuthenticatedByTool" to false,
+            "status" to result.status.name, "submittedReceipts" to submittedReceipts,
+            "registrationRejections" to rejected, "registeredFrames" to result.registeredFrames,
+            "baselineOnlyFrames" to result.baselineOnlyFrames, "duplicateFrames" to result.duplicateFrames,
+            "conflictingFrames" to result.conflictingFrames, "unregisteredFutureFrames" to result.unregisteredFutureFrames,
+            "evaluatedAtMs" to result.evaluatedAtMs, "lowThresholdMmol" to result.lowThresholdMmol,
+            "baselineOnlyHorizons" to result.baselineOnlyHorizons,
+            "windowObservationCoverageVerified" to false,
+            "horizons" to result.horizons, "clinicalInfluenceAllowed" to result.clinicalInfluenceAllowed,
+            "controlSafetyValidated" to result.controlSafetyValidated)
 }

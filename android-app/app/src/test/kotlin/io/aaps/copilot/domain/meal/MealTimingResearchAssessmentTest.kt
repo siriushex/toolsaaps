@@ -213,6 +213,46 @@ class MealTimingResearchAssessmentTest {
         assertThrows(IllegalArgumentException::class.java) { firstMealThresholdWindow(listOf(Double.NaN), 4.6) }
     }
 
+    @Test fun requestedReferenceUsesCurrentGlucoseNotJustTimeSinceInsulin() = runBlocking {
+        val evaluator = MealTimingResearchEvaluator()
+        val alreadyBelow = evaluator.evaluate(context(5.5), belief(), episode, telemetry(), 180)
+        val above = evaluator.evaluate(context(8.0), belief(), episode, telemetry(), 180)
+        assertEquals(MealTimingResearchStatus.EVALUATED, alreadyBelow.status)
+        assertEquals(MealTimingResearchStatus.EVALUATED, above.status)
+        assertTrue(alreadyBelow.noFoodPaths.isNotEmpty())
+        assertTrue(alreadyBelow.noFoodPaths.all { it.below56 == MealThresholdWindow(0, 0) })
+        assertTrue(above.noFoodPaths.all { it.below56 != MealThresholdWindow(0, 0) })
+        for (result in listOf(alreadyBelow, above)) {
+            result.noFoodPaths.forEach {
+                assertEquals(firstMealThresholdWindow(it.trajectory.forecast.glucoseMmol, 5.6), it.below56)
+            }
+            assertFalse(result.notificationAllowed)
+            assertFalse(result.therapyAllowed)
+            assertNull(result.recommendedStartAtMs)
+        }
+    }
+
+    @Test fun requestedReferenceNeverSuppressesLowerThresholdsOrChangesWithDeclaredGi() = runBlocking {
+        val evaluator = MealTimingResearchEvaluator()
+        val context = context(2.9)
+        val slow = evaluator.evaluate(context, belief(), episode, telemetry(), 180, gi(20.0))
+        val fast = evaluator.evaluate(context, belief(), episode, telemetry(), 180, gi(80.0))
+        assertTrue(slow.noFoodPaths.isNotEmpty())
+        assertEquals(slow.noFoodPaths.map { it.below56 }, fast.noFoodPaths.map { it.below56 })
+        for (path in slow.noFoodPaths) {
+            assertEquals(MealThresholdWindow(0, 0), path.below56)
+            assertEquals(MealThresholdWindow(0, 0), path.below46)
+            assertEquals(MealThresholdWindow(0, 0), path.below39)
+            assertEquals(MealThresholdWindow(0, 0), path.below30)
+        }
+        assertFalse(slow.notificationAllowed)
+    }
+
+    @Test fun referenceCrossingIsAStrictGridIntervalNotAnInterpolatedCountdown() {
+        assertEquals(MealThresholdWindow(5, 10), firstMealThresholdWindow(listOf(7.0, 5.6, 5.5), 5.6))
+        assertNull(firstMealThresholdWindow(listOf(5.6, 6.0, 6.5), 5.6))
+    }
+
     @Test fun cancelledAssessmentNeverReturnsAPartialResult() = runBlocking {
         val context = context()
         val job = Job().apply { cancel() }
