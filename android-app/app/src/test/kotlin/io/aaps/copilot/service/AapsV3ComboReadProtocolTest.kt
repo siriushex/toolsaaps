@@ -70,4 +70,39 @@ class AapsV3ComboReadProtocolTest {
             }
         } finally { output.delete(); errors.delete() }
     }
+
+    @Test fun pinnedNativeSdkSignsHistorySuccessFailureAndExpiryWithoutTargetSemantics() {
+        val classpath = System.getenv("AAPS_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") check(classpath?.isFile == true && !javaHome.isNullOrBlank())
+        Assume.assumeTrue("Prepare native RC1 test drivers", classpath?.isFile == true && !javaHome.isNullOrBlank())
+        val output = File.createTempFile("response-protocol-", ".out")
+        val errors = File.createTempFile("response-protocol-", ".err")
+        val secret = ByteArray(32) { it.toByte() }
+        try {
+            val spec = chunk.copy(totalBytes = 32_768, offset = 0)
+            val binding = AapsV3ComboChunkBinding(client, master, id, snapshotId, id, spec.pumpBinding,
+                spec.sha256, 3, at, at + 30_000, spec.totalBytes, 0)
+            val wire = AapsV3ComboChunkEnvelope(secret).use { it.seal(binding, ByteArray(32_768), at).decodeToString() }
+            AapsV3ComboReadProtocol(secret).use { protocol ->
+                for ((status, phase) in mapOf("Ok" to AapsV3ComboReadPhase.RECEIVED,
+                    "Failed" to AapsV3ComboReadPhase.REJECTED, "Expired" to AapsV3ComboReadPhase.EXPIRED)) {
+                    val process = ProcessBuilder("$javaHome/bin/java", "-cp", classpath!!.readText(),
+                        "integration.entries.ComboResponseInteropKt").redirectOutput(output).redirectError(errors).start()
+                    try {
+                        val input = buildJsonObject {
+                            put("status", status); put("payload", if (status == "Ok") JsonPrimitive(wire) else JsonNull)
+                        }
+                        process.outputStream.use { it.write(input.toString().toByteArray()) }
+                        assertTrue("Native response check timed out", process.waitFor(30, TimeUnit.SECONDS))
+                        assertEquals("Native response check failed", 0, process.exitValue())
+                        val ack = Json.parseToJsonElement(output.readText()).jsonObject
+                        assertEquals(phase, protocol.response(ack, client, master, id, 3, at, spec, at + 1))
+                    } finally {
+                        if (process.isAlive) { process.destroyForcibly(); check(process.waitFor(10, TimeUnit.SECONDS)) }
+                    }
+                }
+            }
+        } finally { secret.fill(0); output.delete(); errors.delete() }
+    }
 }

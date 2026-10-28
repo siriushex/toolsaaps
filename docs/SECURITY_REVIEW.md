@@ -1,5 +1,24 @@
 # SECURITY REVIEW
 
+## Paired History Response Admission (2026-10-28)
+
+- Inbound scope comes from the committed encrypted request, not from an ACK or
+  caller-selected expected binding. Match the isolated owned settings revision,
+  current pairing/roster/pong and pending shared counter before authenticating.
+- Bound the ACK and native optional fields, verify the stock HMAC with constant-time
+  digest comparison, then verify domain-separated AEAD and the exact page/chunk
+  context. Only terminal failure/expiry without payload or valid encrypted success
+  can complete admission. The native signing oracle is synthetic/offline.
+- Record the first ciphertext receipt atomically. Repeated identical observations
+  do not write; conflicting replies fail without replacing it. No raw chunk leaves
+  validation, no source-delete/retention ACK and no ordinary target ACK mutation.
+- RECEIVED remains subject to original expiry, target/probe preemption and roster
+  revision changes. It cannot be replayed as a sendable request or extend liveness.
+  Interrupted/failed commits cannot return successful admission.
+- Remaining MUST gates: authenticated native capability/async dispatch, durable
+  raw-retention handoff, measured device priority and independent delivery/clock
+  coverage. This cold method is not connected to runtime or clinical admission.
+
 ## Native Query Decoder (2026-10-26)
 
 - Uses the standard JSON parser after bounded ASCII/depth framing, then exact

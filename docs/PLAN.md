@@ -1,5 +1,21 @@
 # PLAN
 
+## Combo Response Admission (2026-10-28)
+
+- [x] Reuse the paired journal/counter and isolated native history ACK key.
+- [x] Authenticate response MAC, expected query AEAD, source revision, session,
+      roster, deadline and target priority without changing target acknowledgements.
+- [x] Persist an idempotent encrypted response receipt with atomic rollback;
+      received state is still expiring/preemptible and grants no delivery authority.
+- [x] Verify37 focused cases, including15new SQLite regressions and native SDK
+      ACK signing interoperability. Pristine SDK preparation passed in27s.
+- [x] Full Android7043passed/six existing private-data skips; no failures/errors.
+      Test/lint/compile/build passed in3m41s, zero lint errors; APK guard passed.
+- [ ] Exact-head CI, independent review and controlled integration.
+- Runtime source dispatch/capability and durable raw-retention handoff remain
+  separate gates, followed by clock/basal coverage and clinical validation.
+  No live recommended meal-time indicator or APK publication in this stage.
+
 ## Combo Retention Reconciliation (2026-10-28)
 
 - [x] Inspect missing raw-transfer, clock and basal coverage prerequisites.
@@ -21,7 +37,8 @@
       preserve lower thresholds and prohibit conversion to a wait/eat instruction.
 - [x] Verify48focused and7017full passed, six prior private-data skips;
       lint has zero errors, compilation/build and APK retention pass.
-- [ ] Verify exact-head CI before integration.
+- [x] PR61 exact b043353a passed six CI checks and independent review;
+      merged as main4f933832 with the same tested tree. Main CI still pending.
 - Actual Combo delivery/clock coverage and prospective clinical validation remain
   incomplete. Observational metrics cannot enable the research recommender.
   No live timer or therapy activation here.

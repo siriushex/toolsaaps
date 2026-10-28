@@ -87,6 +87,218 @@ class AapsV3ComboReadJournalTest {
     private suspend fun queuedTarget() = db.actionCommandDao().upsert(ActionCommandEntity(
         "waiting-target", now, "temp_target", "{}", "{}", "meal-request", "PENDING"))
 
+    private fun encryptedPage(id: String = requestId): String = AapsV3ComboInventoryEnvelope(secret).use { envelope ->
+        val page = AapsV3ComboInventory.create(secondId, "a".repeat(64), emptyList(), writerFailed = true).page(inventory)
+        envelope.seal(AapsV3ComboInventoryBinding(client, master, id, 3, at + 1000, at + 31_000, inventory), page, now)
+            .decodeToString()
+    }
+    private fun ack(payload: String? = encryptedPage(), status: String = "Ok", reason: String? = null,
+                    counter: Long = 3, timestamp: Long = now, identity: String = client, phase: String = "Done") = buildJsonObject {
+        put("clientId", identity); put("commandCounter", counter); put("phase", phase); put("status", status)
+        put("timestamp", timestamp)
+        reason?.let { put("reason", it) }; payload?.let { put("payload", it) }
+        put("signature", sign("$identity|$counter|$phase|$status|${reason.orEmpty()}|${payload.orEmpty()}|$timestamp"))
+    }
+    private suspend fun publishAck(value: JsonObject, key: String = "aaps_clientcontrol_ack_history_$client",
+                                   source: String = "local-v3-owner") {
+        val store = LocalNightscoutV3Store(db, { now })
+        val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, key, source, 946_684_800_001,
+            buildJsonObject { put("schemaVersion", 1); put("ack", value) }.toString())
+        val previous = store.get(LocalV3Collection.SETTINGS, key)
+        if (previous == null) store.create(input) else store.update(input, previous.modifiedRevision)
+    }
+    private suspend fun receive(clock: () -> Long = { now }, journal: AapsV3TargetJournal = owner()) =
+        journal.receiveComboResponse(at, 2, clock)
+    private suspend fun readRow() = db.aapsV3TargetJournalDao().get("combo-read")!!
+
+    @Test fun responseCommitsCiphertextOnlyAndReopensWithoutRepublicationOrCounterChange() = runBlocking {
+        active(); issue()
+        val reply = ack()
+        publishAck(reply)
+        val before = db.localNightscoutV3Dao().clock()
+        val result = receive()!!
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, result.phase)
+        assertNull(result.publication); assertNull(owner().pending())
+        assertFalse(result.toString().contains(client))
+        val retained = readRow()
+        val plain = cipher.open(retained.row, retained.revision, retained.sealed)
+        try {
+            val record = Json.parseToJsonElement(plain.decodeToString()).jsonObject
+            assertEquals(reply, record.getValue("response").jsonObject.getValue("ack"))
+            assertFalse(plain.decodeToString().contains("writerFailed"))
+        } finally { plain.fill(0) }
+        db.close(); db = openDb()
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, snapshot()!!.phase)
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, receive()!!.phase)
+        assertEquals(retained.revision, readRow().revision)
+        assertArrayEquals(retained.sealed, readRow().sealed)
+        assertEquals(before, db.localNightscoutV3Dao().clock())
+        assertNull(issue(secondId))
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        owner().withTargetProtocol { p -> assertEquals(4L, owner().prepare("meal-request", target, p, now) {}.counter) }
+    }
+
+    @Test fun maximumChunkResponseFitsJournalAndRemainsEncryptedAtRest() = runBlocking {
+        active()
+        val spec = AapsV3ComboReadSpec.Chunk(secondId, requestId, "a".repeat(64), "b".repeat(64), 32_768, 0)
+        issue(spec = spec)
+        val raw = ByteArray(32_768) { (it % 127).toByte() }
+        val binding = AapsV3ComboChunkBinding(client, master, requestId, secondId, requestId,
+            spec.pumpBinding, spec.sha256, 3, now, now + 30_000, spec.totalBytes, 0)
+        val wire = AapsV3ComboChunkEnvelope(secret).use { it.seal(binding, raw, now).decodeToString() }
+        publishAck(ack(wire))
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, receive()!!.phase)
+        assertTrue(readRow().sealed.size in 40_000..65_536)
+        assertArrayEquals(ByteArray(32_768) { (it % 127).toByte() }, raw)
+    }
+
+    @Test fun missingAndOrdinaryTargetAckCannotCompleteHistoryRead() = runBlocking {
+        active(); issue()
+        assertEquals(AapsV3ComboReadPhase.ISSUED, receive()!!.phase)
+        publishAck(ack(), key = "aaps_clientcontrol_ack_$client")
+        val before = readRow()
+        assertEquals(AapsV3ComboReadPhase.ISSUED, receive()!!.phase)
+        assertEquals(before.revision, readRow().revision)
+        assertNull(owner().pending())
+    }
+
+    @Test fun wrongSourceAndOlderRowCannotBecomeReceived() = runBlocking {
+        active(); publishAck(ack()); issue()
+        refused { receive() }
+        val store = LocalNightscoutV3Store(db)
+        val row = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_history_$client")!!
+        db.localNightscoutV3Dao().put(row.copy(modifiedRevision = row.modifiedRevision + 100, source = "local-v3-target"))
+        refused { receive() }
+        assertEquals(AapsV3ComboReadPhase.ISSUED, snapshot()!!.phase)
+    }
+
+    @Test fun malformedSignedOrUnauthenticatedRepliesDoNotMutateReceipt() = runBlocking {
+        active(); issue()
+        val before = readRow()
+        val valid = ack()
+        val invalid = listOf(
+            JsonObject(valid + ("signature" to JsonPrimitive("0".repeat(64)))),
+            JsonObject(valid + ("unexpected" to JsonPrimitive(true))),
+            JsonObject(valid + ("commandCounter" to JsonPrimitive("3"))),
+            ack(counter = 4), ack(identity = secondId), ack(phase = "Accepted"), ack(status = "Unknown"),
+            ack(timestamp = now - 5001), ack(timestamp = now + 5001),
+            ack(reason = "unexpected"), ack(payload = null), ack(payload = "{}"),
+            ack(encryptedPage(secondId)), ack(reason = "x".repeat(257), status = "Failed", payload = null),
+            ack(status = "Failed"), ack(payload = "x".repeat(49_153)))
+        for (reply in invalid) {
+            publishAck(reply)
+            refused { receive() }
+            assertArrayEquals(before.sealed, readRow().sealed)
+        }
+        publishAck(valid)
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, receive()!!.phase)
+    }
+
+    @Test fun validSignatureCannotHideChangedAuthenticatedChunkGeometry() = runBlocking {
+        active()
+        val spec = AapsV3ComboReadSpec.Chunk(secondId, requestId, "a".repeat(64), "b".repeat(64), 32_771, 32_768)
+        issue(spec = spec)
+        val binding = AapsV3ComboChunkBinding(client, master, requestId, secondId, requestId,
+            spec.pumpBinding, spec.sha256, 3, now, now + 30_000, spec.totalBytes, spec.offset)
+        val wrong = AapsV3ComboChunkEnvelope(secret).use {
+            it.seal(binding.copy(readId = secondId), byteArrayOf(1, 2, 3), now).decodeToString()
+        }
+        publishAck(ack(wrong)); refused { receive() }
+        val right = AapsV3ComboChunkEnvelope(secret).use { it.seal(binding, byteArrayOf(1, 2, 3), now).decodeToString() }
+        publishAck(ack(right))
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, receive()!!.phase)
+    }
+
+    @Test fun firstAcceptedResponseCannotBeReplacedEvenByAnotherValidEncryption() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        val before = readRow()
+        publishAck(ack())
+        refused { receive() }
+        assertArrayEquals(before.sealed, readRow().sealed)
+    }
+
+    @Test fun signedFailureIsTerminalAndCannotBeResurrectedWithSuccess() = runBlocking {
+        active(); issue(); publishAck(ack(payload = null, status = "Failed", reason = "unsupported"))
+        assertEquals(AapsV3ComboReadPhase.REJECTED, receive()!!.phase)
+        val before = readRow()
+        publishAck(ack())
+        assertEquals(AapsV3ComboReadPhase.REJECTED, receive()!!.phase)
+        assertArrayEquals(before.sealed, readRow().sealed)
+        assertEquals(4L, issue(secondId)!!.counter)
+    }
+
+    @Test fun signedExpiryIsTerminalWithoutRawPayloadOrTargetAck() = runBlocking {
+        active(); issue(); publishAck(ack(payload = null, status = "Expired", reason = "expired"))
+        assertEquals(AapsV3ComboReadPhase.EXPIRED, receive()!!.phase)
+        assertNull(owner().pending())
+        assertNull(snapshot()!!.publication)
+    }
+
+    @Test fun targetPreemptsReceivedReadAndOrdinaryAckIsUntouched() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        publishAck(ack(payload = null), key = "aaps_clientcontrol_ack_$client")
+        val ordinary = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_$client")!!
+        owner().withTargetProtocol { p -> owner().prepare("meal-request", target, p, now) {} }
+        assertEquals(AapsV3ComboReadPhase.SUPERSEDED, receive()!!.phase)
+        assertEquals(AapsV3TargetPhase.PREPARED, owner().pending()!!.phase)
+        assertEquals(ordinary, LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, ordinary.identifier))
+    }
+
+    @Test fun queuedTargetPreemptsLateResponseBeforeParsingUntrustedWire() = runBlocking {
+        active(); issue(); publishAck(buildJsonObject { put("invalid", true) }); queuedTarget()
+        assertEquals(AapsV3ComboReadPhase.SUPERSEDED, receive()!!.phase)
+    }
+
+    @Test fun receivedReadStillExpiresAndNeverReturnsARequestForResend() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        assertNull(issue()!!.publication)
+        now += 30_000
+        assertEquals(AapsV3ComboReadPhase.EXPIRED, receive()!!.phase)
+        assertEquals(4L, issue(secondId)!!.counter)
+        // The isolated ACK still belongs to the old shared counter.
+        refused { receive() }
+    }
+
+    @Test fun receivedReadCannotSurviveUnobservedControlOffOnOrUnverifiedSession() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        refused { owner().receiveComboResponse(at + 500, 2) { now } }
+        refused { owner().receiveComboResponse(at, 3) { now } }
+        roster(false); roster(true)
+        assertEquals(AapsV3ComboReadPhase.REVOKED, receive()!!.phase)
+    }
+
+    @Test fun responseClockExpiryAfterReceiptWriteRollsBackAndCancellationPropagates() = runBlocking {
+        active(); issue(); publishAck(ack())
+        val before = readRow()
+        var calls = 0
+        refused { receive(clock = { if (++calls < 4) now else now + 30_000 }) }
+        assertArrayEquals(before.sealed, readRow().sealed)
+        calls = 0
+        val failure = runCatching { receive(clock = {
+            if (++calls == 4) throw CancellationException("synthetic cancellation") else now
+        }) }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertArrayEquals(before.sealed, readRow().sealed)
+    }
+
+    @Test fun responseStorageFailureAndOuterTransactionCannotExposeSuccessfulReceipt() = runBlocking {
+        active(); issue(); publishAck(ack())
+        val before = readRow()
+        val broken = object : AapsV3JournalCipher by cipher {
+            override fun seal(row: String, revision: Long, plain: ByteArray): ByteArray {
+                if (row == "combo-read") throw java.io.IOException("synthetic storage failure")
+                return cipher.seal(row, revision, plain)
+            }
+        }
+        refused { receive(journal = AapsV3TargetJournal(db, broken)) }
+        db.withTransaction {
+            refused { receive() }
+            withContext(Dispatchers.IO) { refused { receive() } }
+        }
+        assertArrayEquals(before.sealed, readRow().sealed)
+        assertEquals(AapsV3ComboReadPhase.RECEIVED, receive()!!.phase)
+    }
+
     @Test fun readUsesSharedCounterButNeverClaimsTherapySlot() = runBlocking {
         active()
         val read = issue()!!
@@ -278,6 +490,10 @@ class AapsV3ComboReadJournalTest {
         db.localNightscoutV3Dao().putClock(clock.copy(payloadBytes = 64L * 1024 * 1024 - 65_536))
         assertNull(issue())
         db.localNightscoutV3Dao().putClock(clock.copy(documentCount = 99_998))
+        assertNull(issue())
+        db.localNightscoutV3Dao().putClock(clock.copy(documentCount = 99_997))
+        assertNull(issue())
+        db.localNightscoutV3Dao().putClock(clock.copy(payloadBytes = 64L * 1024 * 1024 - 3L * 65_536))
         assertNull(issue())
         db.localNightscoutV3Dao().putClock(clock)
         owner().withTargetProtocol { p -> assertEquals(3L, owner().prepare("meal-request", target, p, now) {}.counter) }

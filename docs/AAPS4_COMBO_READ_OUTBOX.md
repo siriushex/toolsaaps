@@ -34,7 +34,7 @@ never set or clear the target slot, acknowledge a target, or modify action statu
 Target/probe issuance remains independent of low-priority record parsing.
 
 Capacity checks preserve one journal row plus two maximum-sized settings documents
-for target prepare/commit, in addition to the candidate request document. This is
+for target prepare/commit, in addition to the candidate request and reply documents. This is
 headroom against this lane, not an isolation guarantee against other collections.
 There is one outstanding request. New IDs cannot overwrite an admissible one.
 
@@ -65,9 +65,39 @@ again after storage work, before the transaction returns.
   supersession cannot cancel remote work. The native receiver must recheck
   deadlines, revocation and command priority after suspended I/O.
 
-No read completion or retention ACK exists in this stage. Next integration must
-authenticate capability and paged manifest, validate the exact response, retain
-raw bytes privately, then reconcile the committed receipt through this owner.
+## Authenticated Reply Admission
+
+The same paired owner can now receive the isolated history ACK directly from its
+local settings store. No caller supplies the key, pairing secret or arbitrary
+expected scope. The row must be current-owner, nondeleted and newer than the
+request publication. Ordinary target ACKs are never read or changed by this lane.
+
+Before receipt, recovery validates the exact outbox, shared counter, original
+roster revision, session pong, priority and 30-second lifetime. Closed native ACK
+fields, identity/counter, timestamp, bounded optional values and the stock HMAC
+are validated. Success then requires AES-GCM authentication and typed decoding
+against the original request. Inventory pages and exact chunks cannot exchange
+contexts. Signed failure/expiry require no payload; arbitrary reasons are not
+shown to the user or logged. Invalid responses fail without changing the journal.
+
+RECEIVED stores only the encrypted response ACK, local source revision and receive
+time in the existing encrypted singleton. It returns no raw data or sendable
+request. Exact duplicate observations make no writes; changed responses cannot
+replace the first receipt. Validation bytes are cleared. Final clock/liveness
+checks and receipt commit share the owned transaction; cancellation or write
+failure cannot return a successful receipt. No second transaction owner is added.
+
+RECEIVED remains pending: it cannot be overwritten by a new read. Target/probe
+preemption, roster changes and the original deadline still retire it and clear
+its stored response. Recovery cannot extend that deadline or turn receipt into
+physical-delivery authority. There is deliberately no post-deadline content
+recovery or source acknowledgement: the future raw-retention coordinator needs
+an explicit durable handoff before this lane can run continuously.
+
+The native runtime still refuses history reads. This cold receiver is not called
+by the live target channel and does not advertise capability. Next integration must
+authenticate capability, retain raw bytes privately, then reconcile the committed
+retention receipt through this owner before publishing any source acknowledgement.
 It must never delete source history on a mere transport ACK or test success.
 
 ## Validation Boundary
