@@ -1,5 +1,21 @@
 # PLAN
 
+## Authenticated Combo Local Handoff (2026-10-28)
+
+- [x] Consume one committed response after exact ACK/crypto, session/roster,
+      target-priority and deadline checks; close plaintext on failed handoff.
+- [x] Release local read slot without source ACK, target mutation or new counter.
+- [x] Assemble exact scoped chunks outside main transactions and persist only
+      complete reads in the existing private store, preserving adverse evidence.
+- [x] 102 focused tests passed, including 18 new ownership, failure, restart,
+      concurrency, revocation, receipt-clock rewind and 2 MiB/64-fragment cases.
+- [x] Full Android: 7073 passed, six existing skips, no failures/errors; lint,
+      compilation, assembly and APK retention/size guard passed.
+- [ ] Exact-head CI/review and controlled integration.
+- No native dispatch/capability, runtime transfer owner, clinical admission or
+  APK publication. Catalog lifecycle, device costs, pump UTC epochs and physical
+  basal/delivery completeness still require independent verification.
+
 ## Cross-Read Combo Audit And 0.1.19 (2026-10-28)
 
 - [x] Audit counters/local clocks across all retained scoped reads, preserving
@@ -12,7 +28,8 @@
       lint0errors, compile/build passed in3m46s. Release helpers14/publisher6passed.
 - [x] Distribution APK39887472bytes,7322retained app classes, package/version and
       existing signer verified after generated APK recreation.
-- [ ] Exact-head CI/review, authorized main integration and public artifact check.
+- [x] PR64 six checks and exact-head review passed; main1990596e CI40750313241
+      all three jobs passed. Public0.1.19 independently hash/signature/Range checked.
 - Prepare0.1.19/code20 as a diagnostic/safety update. It does not enable the live
   meal-time recommender; native transport, clock epochs and basal coverage remain
   separate gates. AAPS, the phone and therapy are unchanged.
@@ -28,7 +45,8 @@
       ACK signing interoperability. Pristine SDK preparation passed in27s.
 - [x] Full Android7043passed/six existing private-data skips; no failures/errors.
       Test/lint/compile/build passed in3m41s, zero lint errors; APK guard passed.
-- [ ] Exact-head CI, independent review and controlled integration.
+- [x] PR63 exact1c4d605f six checks passed, integrated asfdc9671c with identical
+      tested tree; combined main1990596e CI subsequently passed.
 - Runtime source dispatch/capability and durable raw-retention handoff remain
   separate gates, followed by clock/basal coverage and clinical validation.
   No live recommended meal-time indicator or APK publication in this stage.

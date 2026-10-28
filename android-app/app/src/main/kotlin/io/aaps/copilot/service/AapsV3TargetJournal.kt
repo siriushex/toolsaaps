@@ -352,12 +352,7 @@ internal class AapsV3TargetJournal(
         val now = clock()
         val current = comboSnapshot(record, sessionStartedAt, minimumProbeCounter, now, clock)
         if (current.phase !in COMBO_ACTIVE) return@transaction current
-        val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS,
-            "aaps_clientcontrol_ack_history_${record.clientId}") ?: return@transaction current
-        check(!row.deleted && row.source == "local-v3-owner" && row.modifiedRevision > record.publicationRevision)
-        val body = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)
-        check(body["schemaVersion"] == JsonPrimitive(1))
-        val ack = HistoryJson.obj(body.getValue("ack"))
+        val (ack, sourceRevision) = comboAck(record) ?: return@transaction current
         val secret = secretBytes(pairing())
         val phase = try {
             AapsV3ComboReadProtocol(secret).use { it.response(ack, record.clientId, record.masterInstallId,
@@ -365,19 +360,69 @@ internal class AapsV3TargetJournal(
         } finally { secret.fill(0) }
         val previous = record.response
         if (previous != null) {
-            check(previous.ack == ack && previous.sourceRevision == row.modifiedRevision && phase == record.phase)
+            check(previous.ack == ack && previous.sourceRevision == sourceRevision && phase == record.phase)
         }
         val completedAt = clock()
         check(completedAt in now until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
         requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
         if (previous != null) return@transaction current
         val accepted = record.copy(phase = phase, response = if (phase == AapsV3ComboReadPhase.RECEIVED)
-            ComboResponse(ack, row.modifiedRevision, completedAt) else null)
+            ComboResponse(ack, sourceRevision, completedAt) else null)
         put(COMBO_READ, json.encodeToString(accepted))
         val committedAt = clock()
         check(committedAt in completedAt until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
         requireLivePairing(committedAt, sessionStartedAt, minimumProbeCounter)
         accepted.snapshot()
+    }
+
+    /** Release one committed response after transaction success. CONSUMED never acknowledges source retention. */
+    suspend fun takeComboResponse(sessionStartedAt: Long, minimumProbeCounter: Long,
+                                  clock: () -> Long): ComboResponseHandoff? {
+        var owned: ComboResponseContent? = null
+        var deadline = 0L
+        var admittedAt = 0L
+        try {
+            val handoff = transaction {
+                val record = comboReadOrNull() ?: return@transaction null
+                val now = clock()
+                if (comboSnapshot(record, sessionStartedAt, minimumProbeCounter, now, clock).phase !=
+                    AapsV3ComboReadPhase.RECEIVED) return@transaction null
+                val receipt = checkNotNull(record.response)
+                check(now >= receipt.receivedAt)
+                val (ack, revision) = checkNotNull(comboAck(record))
+                check(ack == receipt.ack && revision == receipt.sourceRevision)
+                val secret = secretBytes(pairing())
+                val content = try {
+                    AapsV3ComboReadProtocol(secret).use { it.openResponse(ack, record.clientId, record.masterInstallId,
+                        record.requestId, record.counter, record.issuedAt, record.spec, now) }
+                } finally { secret.fill(0) }
+                owned = content
+                check(content.phase == AapsV3ComboReadPhase.RECEIVED)
+                deadline = record.issuedAt + AapsV3ComboReadProtocol.TTL_MS
+                val completedAt = clock()
+                check(completedAt in now until deadline)
+                requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
+                put(COMBO_READ, json.encodeToString(record.copy(phase = AapsV3ComboReadPhase.CONSUMED, response = null)))
+                admittedAt = clock()
+                check(admittedAt in completedAt until deadline)
+                requireLivePairing(admittedAt, sessionStartedAt, minimumProbeCounter)
+                ComboResponseHandoff(record.rosterRevision, content)
+            }
+            if (handoff != null) check(clock() in admittedAt until deadline)
+            owned = null
+            return handoff
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { throw AapsV3TargetJournalFailure() }
+        finally { owned?.close() }
+    }
+
+    private suspend fun comboAck(record: ComboRead): Pair<JsonObject, Long>? {
+        val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS,
+            "aaps_clientcontrol_ack_history_${record.clientId}") ?: return null
+        check(!row.deleted && row.source == "local-v3-owner" && row.modifiedRevision > record.publicationRevision)
+        val body = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)
+        check(body["schemaVersion"] == JsonPrimitive(1))
+        return HistoryJson.obj(body.getValue("ack")) to row.modifiedRevision
     }
 
     private suspend fun comboReadOrNull(): ComboRead? = read(COMBO_READ)?.let {

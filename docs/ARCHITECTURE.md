@@ -1,5 +1,31 @@
 # ARCHITECTURE
 
+## Combo Response Handoff
+
+The existing paired journal can consume one previously committed RECEIVED reply.
+It rechecks the original isolated ACK, request, pairing/roster, session, priority,
+deadline and crypto in an owned transaction. Only after that transaction commits
+can a closeable typed page/chunk leave the owner. CONSUMED releases the read slot;
+it is terminal for that identity, never a source-retention ACK or therapy result.
+Secret bytes never leave the owner. Owned raw chunk bytes are cleared on disposal
+and every failed/cancelled handoff; JVM copies are not claimed to be erased.
+
+A per-read consumer pins client/master, roster revision, snapshot, pump binding,
+read ID, size and digest across increasing request counters. It reuses the bounded
+assembly and private store, outside the main journal transaction. Only an exact
+complete read can be retained. No partial buffer is durable; after interruption
+restart at offset zero with fresh requests. Existing exact retention is idempotent.
+The master installation UUID is the private store's owner namespace. This is
+origin scoping, not authentication of a physical pump or clinical delivery.
+
+A failure between slot consumption and private commit can lose the in-memory
+handoff, but cannot delete source data or create a successful retention receipt.
+Revocation prevents subsequent handoffs. Retaining bytes already admitted does
+not grant current access, source acknowledgement or clinical authority. Close
+while private I/O runs suppresses the late receipt; already committed evidence
+is not deleted. Production runtime, paged-catalog owner admission and device
+latency remain unconnected; no transfer capability or timer is enabled here.
+
 ## Combo Inventory Retention Reconciliation
 
 Reconciliation also builds a bounded cross-read event audit from all exact scoped
@@ -116,8 +142,9 @@ against unrelated writers.
 The cold inbound method validates the isolated stored history ACK, native HMAC,
 request-bound AEAD and typed body under the same transaction owner. An encrypted
 RECEIVED record is idempotent but still expires/preempts; it is neither a raw-byte
-retention receipt nor a complete-delivery claim. No plaintext escapes, no live
-sender is connected and ordinary target acknowledgements are unchanged.
+retention receipt nor a complete-delivery claim. Admission itself exposes no
+plaintext; the separate one-time handoff above revalidates before release. No
+live sender is connected and ordinary target acknowledgements are unchanged.
 See [read outbox](AAPS4_COMBO_READ_OUTBOX.md) for exact scope and remaining gates.
 
 ## Combo Chunk Envelope Candidate

@@ -1,5 +1,21 @@
 # SECURITY REVIEW
 
+## Private Response Handoff (2026-10-28)
+
+- Consume only the original committed RECEIVED ciphertext under the existing
+  owner. Recheck ACK routing/revision, native MAC/AEAD and request-bound context,
+  roster, live session, priority and expiry before/after the commit boundary.
+- Release plaintext only after successful transaction return; failure/cancellation
+  closes owned content. CONSUMED is not a data-retention/source-ACK marker. A crash
+  in the gap to private storage requires new requests, not a retry under old scope.
+- One non-waiting consumer per read, at most 2 MiB, with exact identity/snapshot and
+  roster pinning. Close races suppress late receipts; private bytes already committed
+  remain evidence. Raw arrays, parsed prefix hazards and private storage stay outside
+  the main clinical/AI export and ordinary target ACK path.
+- No new production factory/call site, key owner, network endpoint or native patch.
+  Remaining gates include native authenticated capability/async dispatch, catalog
+  owner lifecycle, device ingestion latency, true UTC epochs and basal coverage.
+
 ## Cross-Read Event Audit (2026-10-28)
 
 - Reuse the private retention transaction and exact owner/pump scope. Every read
