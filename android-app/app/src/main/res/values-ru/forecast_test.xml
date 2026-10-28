@@ -1,6 +1,7 @@
 <resources>
     <string name="forecast_test_title">Тест прогноза</string>
     <string name="forecast_test_subtitle">Каждую минуту, до выключения</string>
+    <string name="forecast_test_off">Выключен. Обычный режим</string>
     <string name="forecast_test_warning">Возможны высокая загрузка CPU, нагрев и быстрый расход батареи. Полный локальный прогноз использует доступные данные; точность не гарантируется. Дополнительные циклы не отправляют команды терапии. Работает до ручного выключения, кроме остановки при перегреве, энергосбережении или ограничениях службы Android. Переход между экранами не прерывает тест, перезапуск процесса завершает его.</string>
     <string name="forecast_test_start">Включить тест</string>
     <string name="forecast_test_stop">Остановить тест</string>

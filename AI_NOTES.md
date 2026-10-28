@@ -1,3 +1,21 @@
+# Forecast Test Explicit Opt-In - 2026-10-27
+
+- Fixed delayed activation after OFF during asynchronous settings validation.
+  Reserve a cancellable request before suspension; only the latest request can
+  complete. Cleanup also runs when validation is cancelled before its body starts.
+- Pending state is visible and immediately cancellable in settings, without
+  admitting calculations or the test wake lock. Idle text explicitly says that
+  the test is off and standard mode is selected.
+- Three regressions failed against the previous stop logic. All 87 focused tests
+  now pass, including foreground owner/notification, pending UI, ordinary worker
+  ownership and source wiring. Full Android quality passed in5m46s:7002passed,
+  six existing private-data skips; lint has zero errors/376warnings/eight hints.
+  Compilation, assembly, pristine SDK interoperability and the APK guard passed
+  (41,838,385bytes/7310retained app classes). Exact-head CI/review are pending.
+- Ordinary local five-minute, remote fifteen-minute and input-driven schedules
+  are unchanged. No therapy/alert policy, persistent settings, AAPS, server,
+  device activation, APK version or publication changes.
+
 # Native History Query Validation - 2026-10-26
 
 - Added a pure native decoder for the exact bounded inventory/chunk wire contract.

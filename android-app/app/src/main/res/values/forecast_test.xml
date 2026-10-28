@@ -1,6 +1,7 @@
 <resources>
     <string name="forecast_test_title">Forecast test</string>
     <string name="forecast_test_subtitle">Every minute, until stopped</string>
+    <string name="forecast_test_off">Off. Standard mode</string>
     <string name="forecast_test_warning">High CPU use, heat and battery drain are possible. Full local forecasts use the available inputs; accuracy is not guaranteed. Extra cycles do not send therapy commands. Runs until manually stopped, unless overheating, power saving or Android service limits stop it. Navigation does not stop the test; restarting the process does.</string>
     <string name="forecast_test_start">Start test</string>
     <string name="forecast_test_stop">Stop test</string>

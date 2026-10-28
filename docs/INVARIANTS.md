@@ -124,6 +124,9 @@
 - The opt-in session has no duration limit and is process-local. Manual stop,
   thermal/power refusal or service loss cancels its work and releases its wake
   lock; no queued catch-up, automatic safety-stop resume or boot resume.
+- Manual stop also revokes pending settings validation. A late start completion
+  cannot enable the test after OFF; stale request/session cleanup cannot revoke
+  a newer explicit intent. Pending intent alone never admits a minute cycle.
 - A two-minute wake lease renews only while admission is healthy. Removing session
   expiry must not create an unbounded wake lock or bypass the 45-second attempt cap.
 - More CPU and more frequent calculation are not evidence of clinical accuracy.

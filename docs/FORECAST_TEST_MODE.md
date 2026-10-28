@@ -8,6 +8,13 @@ It is off by default, survives screen navigation, and does not survive process
 restart. The switch or the silent foreground notification stops only this test.
 There is no settings migration, new permission, server request or AAPS change.
 
+The settings switch says "Off. Standard mode" while idle. Confirming ON reserves
+a process-local start request before asynchronous settings validation. This pending
+state can be switched OFF immediately, but cannot run calculations or acquire the
+test wake lock. OFF, owner loss, rejected settings or cancellation revoke the
+request. Late validation cannot reactivate it; only the latest explicit request
+can complete. Cleanup from an older request/session cannot cancel a newer one.
+
 The existing foreground owner runs a complete local `FORECAST_TEST` cycle every
 60 seconds. The ordinary five-minute local-service cycle, fifteen-minute remote
 worker and input-driven recalculation retain their existing cadence. A test-only
@@ -69,6 +76,10 @@ restart isolation and no catch-up. Policy tests cover all arming/kill-switch
 combinations and publication without extra therapy writers. Notification tests
 exercise the actual Android notification and stop action without sound. Wake-lock
 tests cover renewal, single-release cleanup and timeout without renewal.
+Deferred-validation regressions cover OFF before settings return, owner loss,
+replacement requests and cancellation before the validation coroutine starts.
+UI tests require confirmation for ON and allow immediate OFF while pending;
+wiring checks preserve separate five-minute ordinary and sixty-second test loops.
 
 Run focused tests, the full Android unit suite, lint, Kotlin compilation and APK
 assembly, then exact-head CI and review. On-device verification remains separate:

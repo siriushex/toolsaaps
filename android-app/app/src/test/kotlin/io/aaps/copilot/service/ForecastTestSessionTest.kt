@@ -2,6 +2,7 @@ package io.aaps.copilot.service
 
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -12,6 +13,92 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ForecastTestSessionTest {
+
+    @Test fun cancelledValidationJobRevokesIntentEvenIfBodyNeverStarts() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val request = checkNotNull(session.requestStart())
+        val validation = launch {
+            error("cancelled validation must not run")
+        }.also { job -> job.invokeOnCompletion { session.cancelStart(request) } }
+        validation.cancel()
+        runCurrent()
+        assertThat(session.completeStart(request)).isNull()
+        assertThat(session.state.value.pendingStart).isFalse()
+        assertThat(session.state.value.active).isFalse()
+    }
+    @Test fun offWhileSettingsArePendingCannotRestartMinuteWork() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val ready = CompletableDeferred<Unit>()
+        val request = checkNotNull(session.requestStart())
+        var started = false
+        val activation = launch {
+            ready.await()
+            started = session.completeStart(request) != null
+        }
+        runCurrent()
+        session.stop()
+        ready.complete(Unit)
+        activation.join()
+        assertThat(started).isFalse()
+        assertThat(session.state.value.active).isFalse()
+        assertThat(session.state.value.pendingStart).isFalse()
+    }
+
+    @Test fun inactiveAndPendingSessionsDoNotRunAdmissionOrCalculations() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        session.run(0, { error("idle watchdog") }) { error("idle calculation") }
+        session.requestStart()
+        session.run(0, { error("pending watchdog") }) { error("pending calculation") }
+        advanceTimeBy(180_001)
+        assertThat(session.state.value.active).isFalse()
+        assertThat(session.state.value.completedCycles).isEqualTo(0)
+        session.stop()
+        assertThat(session.state.value.pendingStart).isFalse()
+    }
+
+    @Test fun serviceLossRevokesPendingStartEvenBeforeFirstCycle() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val request = checkNotNull(session.requestStart())
+        session.stop(ForecastTestStatus.UNAVAILABLE)
+        assertThat(session.completeStart(request)).isNull()
+        assertThat(session.state.value.pendingStart).isFalse()
+        assertThat(session.state.value.active).isFalse()
+    }
+
+    @Test fun onlyLatestExplicitStartCanCompleteOrBeCancelled() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val old = checkNotNull(session.requestStart())
+        val current = checkNotNull(session.requestStart())
+        assertThat(session.completeStart(old)).isNull()
+        assertThat(session.cancelStart(old)).isFalse()
+        assertThat(session.completeStart(current)).isNotNull()
+        assertThat(session.completeStart(current)).isNull()
+        assertThat(session.requestStart()).isNull()
+        assertThat(session.state.value.pendingStart).isFalse()
+        assertThat(session.state.value.active).isTrue()
+        session.stop()
+    }
+
+    @Test fun staleTaggedStopDoesNotRevokeNewPendingIntent() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val oldId = session.start()
+        session.stop()
+        val request = checkNotNull(session.requestStart())
+        session.stop(ForecastTestStatus.UNAVAILABLE, oldId)
+        assertThat(session.completeStart(request)).isNotNull()
+        session.stop()
+    }
+
+    @Test fun refusedValidationDoesNotEnableAndCannotBeReused() = runTest {
+        val session = ForecastTestSession { testScheduler.currentTime }
+        val request = checkNotNull(session.requestStart())
+        assertThat(session.cancelStart(request, ForecastTestStatus.POWER_SAVE)).isTrue()
+        assertThat(session.completeStart(request)).isNull()
+        assertThat(session.state.value.active).isFalse()
+        assertThat(session.state.value.pendingStart).isFalse()
+        assertThat(session.state.value.status).isEqualTo(ForecastTestStatus.POWER_SAVE)
+    }
+
     @Test fun disabledByDefaultAndNewProcessDoesNotResume() = runTest {
         val session = ForecastTestSession { testScheduler.currentTime }
         assertThat(session.state.value.active).isFalse()
