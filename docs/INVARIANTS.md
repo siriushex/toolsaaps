@@ -1,5 +1,29 @@
 # INVARIANTS
 
+## Combo Local Handoff
+
+- Only a committed RECEIVED reply may be consumed. Revalidate current request,
+  original ACK/revision, native MAC/AEAD, owner/roster/session and target priority.
+- Refuse wall-clock rewind behind the committed receipt observation. A valid
+  original request window must not make a future receipt eligible early.
+- No plaintext may escape an external/inherited, failed or cancelled transaction.
+  Check the deadline after commit too; late failure closes content even if the
+  slot is already CONSUMED. No same-identity reactivation or automatic resend.
+- CONSUMED releases only the local slot. It is not stored raw history, a source
+  acknowledgement, deletion permission or completed therapy. Keep counters and
+  ordinary ACKs unchanged; fresh requests use the existing shared counter owner.
+- Clear owned chunks and close content on failure/cancellation/use completion.
+  Typed content and caller construction do not confer authentication by themselves.
+- Pin complete read scope and roster across fragments; reject mixed identities,
+  snapshots, geometry, hashes or nonincreasing counters. Maximum read is 2 MiB.
+- Complete hash-verified assembly precedes private retention, outside the main
+  transaction. Never persist partial buffers or erase source adverse evidence.
+- An interrupted consumer restarts from zero with fresh requests. Existing exact
+  records remain idempotent; conflicts never overwrite. A cancelled/closed late
+  write cannot expose a success receipt, even if its private bytes already committed.
+- No source-delete ACK, runtime owner, authenticated capability or live timer is
+  created. Pump-clock epochs and complete physical delivery remain unverified.
+
 ## Combo Retention Reconciliation
 
 - Audit event continuity across every scoped retained read, including omitted

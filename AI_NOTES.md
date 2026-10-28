@@ -1,3 +1,38 @@
+# Authenticated Combo Local Handoff - 2026-10-28
+
+- The paired owner can consume one previously committed ciphertext response
+  after revalidating ACK identity/revision, native crypto, roster/session, target
+  priority and deadline. Closeable plaintext leaves only after commit; post-commit
+  expiry suppresses it even though the read slot remains terminal CONSUMED.
+- Reuse the existing assembly/private store for bounded full-read retention,
+  outside main database transactions. Pin master/client, roster, snapshot, binding,
+  read, size/hash and increasing counters. Partial reads never persist. Interrupted
+  consumers restart with fresh requests; exact retained records stay idempotent.
+- 18 new synthetic tests cover one-time/concurrent release, reopen, ACK replacement,
+  priority, revocation, rollback/cancellation, late expiry, scope mixing, private
+  storage failure/close and 64 authenticated chunks for a 2 MiB adverse read.
+  102 focused tests passed. Full Android quality: 7073 passed, six existing skips,
+  no failures/errors; lint (383 warnings/eight hints, no errors), compile, assembly
+  and APK retention/size guard passed. Exact-source CI/review are pending.
+- Additional review reproduced a receipt-clock rewind defect with a failing
+  regression. Refuse handoff before the committed receipt timestamp; the original
+  request lifetime is not extended. The regression passed after the fix.
+  A target request can also prepare while private retention is waiting on its
+  separate database; final full quality passed this strengthened assertion.
+- No native AAPS patch, runtime sender/factory, source-delete ACK, clinical export,
+  live timer, phone/server update or APK version change. Complete physical delivery,
+  UTC epochs, catalog-owner lifecycle and device measurements remain unverified.
+
+## Previous Stage Closure
+
+- PR63 and64 passed exact-head CI; release PR64 review found no major issues.
+  Main1990596e has the tested tree and successful CI40750313241.
+- Copilot0.1.19/code20 published:39887472bytes, SHA256
+  3f0d752f41ad9c224d1b0d157a60284e99fdebe062356709953dadde8960e7cf.
+  Public manifest/page/APK, unchanged signer and Range206 verified independently.
+  Old APK retained; no phone/AAPS/AI-service/therapy changes. This closure supersedes
+  the pending publication status in the original candidate entry below.
+
 # Cross-Read Combo Audit And 0.1.19 Candidate - 2026-10-28
 
 - Reconcile event counters and local timestamps across all privately retained

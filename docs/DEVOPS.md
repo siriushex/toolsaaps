@@ -1,5 +1,20 @@
 # DEVOPS
 
+## Combo Handoff Verification
+
+Run AapsV3ComboReadJournalTest with protocol/private-store cases, then full Android
+quality and the actual pristine SDK/TLS fixture. Native SQLite tests cover consume
+rollback, external/inherited transactions, concurrent take, post-commit expiry,
+scope changes, private-write cancellation/close and 64 authenticated fragments for a
+2 MiB retained read. No main transaction may span private database I/O; test target
+preparation while the private database is blocked, without issuing real therapy.
+
+CONSUMED is a new terminal encrypted journal enum, not a Room schema migration.
+An older binary may reject that disconnected read record; it must not be repaired
+or deleted to force recovery. Ordinary target operations do not parse it. No live
+owner is connected in this stage. Rollback is source revert with retained evidence
+preserved; no phone/server deployment or clinical activation is implied.
+
 ## Native Query Verification
 
 `combo-history-query.patch` adds a pure shared SDK decoder and common tests. The

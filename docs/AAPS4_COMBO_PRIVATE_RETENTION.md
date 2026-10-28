@@ -132,6 +132,29 @@ or bindings to logs, CI or public reports.
 
 ## Verification And Next Gates
 
+### Authenticated Local Handoff
+
+`takeComboResponse` in the existing paired journal releases one original committed
+response after revalidation and successful transaction return. Its terminal
+CONSUMED state frees the read lane without advancing the counter or creating any
+source-retention ACK. Typed content is closeable; caller-held copies must be cleared
+after use. Inventory pages retain immutable metadata; page disposal is not secure
+erasure of immutable JVM objects. The page assembler's production owner must still
+pin/recheck the handoff roster across pages before issuing a complete catalog.
+
+`AapsV3ComboReadRetention` consumes authenticated chunk handoffs into the existing
+bounded assembler, checks scope/roster/counter/geometry, then calls this store with
+the master installation as owner. Main journal transactions are not held across
+private I/O. Complete corrupted/unclosed scoped reads remain original diagnostic
+evidence. No partial record is persisted or successful receipt returned on failure.
+
+Consumption and private storage are intentionally separate commits. A crash after
+CONSUMED may lose an unsaved fragment; restart the read at zero with fresh request
+identities. No source file was acknowledged or removed. An exact already-retained
+read returns the existing idempotent receipt. Close during private I/O can suppress
+the receipt after bytes commit, without deleting those bytes. There is no durable
+partial-resume record or background transfer owner in this stage.
+
 Use native SQLite Robolectric tests for exact reopen, all chunk boundaries,
 duplicate/concurrent writes, scope isolation, mid-write abort, capacity, modified
 bytes, missing/invalid chunks, same-byte diagnostic damage, private location and

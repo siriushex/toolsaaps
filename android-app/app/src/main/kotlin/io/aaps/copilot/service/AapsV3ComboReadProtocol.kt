@@ -29,7 +29,7 @@ internal sealed class AapsV3ComboReadSpec {
     }
 }
 
-@Serializable internal enum class AapsV3ComboReadPhase { ISSUED, RECEIVED, REJECTED, SUPERSEDED, EXPIRED, REVOKED }
+@Serializable internal enum class AapsV3ComboReadPhase { ISSUED, RECEIVED, CONSUMED, REJECTED, SUPERSEDED, EXPIRED, REVOKED }
 internal class AapsV3ComboReadSnapshot(val requestId: String, val counter: Long, val phase: AapsV3ComboReadPhase,
                                       val publication: LocalV3Write? = null) {
     override fun toString() = "ComboReadSnapshot($phase)"
@@ -86,6 +86,12 @@ internal class AapsV3ComboReadProtocol(secret: ByteArray) : AutoCloseable {
     /** Validate against the locally committed request, never response-supplied scope. */
     fun response(ack: JsonObject, clientId: String, masterInstallId: String, requestId: String,
                  counter: Long, issuedAt: Long, spec: AapsV3ComboReadSpec, now: Long): AapsV3ComboReadPhase {
+        return openResponse(ack, clientId, masterInstallId, requestId, counter, issuedAt, spec, now).use { it.phase }
+    }
+
+    /** Owned plaintext for the paired journal only; callers must close it on every path. */
+    fun openResponse(ack: JsonObject, clientId: String, masterInstallId: String, requestId: String,
+                     counter: Long, issuedAt: Long, spec: AapsV3ComboReadSpec, now: Long): ComboResponseContent {
         request(clientId, masterInstallId, requestId, counter, issuedAt, spec)
         require(now in issuedAt until issuedAt + TTL_MS)
         val required = setOf("clientId", "commandCounter", "phase", "status", "timestamp", "signature")
@@ -113,24 +119,25 @@ internal class AapsV3ComboReadProtocol(secret: ByteArray) : AutoCloseable {
         finally { expected.fill(0); supplied.fill(0) }
         if (status != "Ok") {
             require(payload == null)
-            return if (status == "Expired") AapsV3ComboReadPhase.EXPIRED else AapsV3ComboReadPhase.REJECTED
+            return ComboResponseContent.Refused(if (status == "Expired") AapsV3ComboReadPhase.EXPIRED else AapsV3ComboReadPhase.REJECTED)
         }
         require(reason == null && payload != null)
         val wire = HistoryJson.encodeUtf8(payload)
         try {
-            when (spec) {
+            return when (spec) {
                 is AapsV3ComboReadSpec.Inventory -> AapsV3ComboInventoryEnvelope(key).use {
-                    it.open(AapsV3ComboInventoryBinding(clientId, masterInstallId, requestId, counter,
-                        issuedAt, issuedAt + TTL_MS, spec), wire, now)
+                    val binding = AapsV3ComboInventoryBinding(clientId, masterInstallId, requestId, counter,
+                        issuedAt, issuedAt + TTL_MS, spec)
+                    ComboResponseContent.Inventory(binding, it.open(binding, wire, now))
                 }
                 is AapsV3ComboReadSpec.Chunk -> AapsV3ComboChunkEnvelope(key).use {
-                    it.open(AapsV3ComboChunkBinding(clientId, masterInstallId, requestId, spec.snapshotId,
+                    val binding = AapsV3ComboChunkBinding(clientId, masterInstallId, requestId, spec.snapshotId,
                         spec.readId, spec.pumpBinding, spec.sha256, counter, issuedAt, issuedAt + TTL_MS,
-                        spec.totalBytes, spec.offset), wire, now).fill(0)
+                        spec.totalBytes, spec.offset)
+                    ComboResponseContent.Chunk(binding, it.open(binding, wire, now))
                 }
             }
         } finally { wire.fill(0) }
-        return AapsV3ComboReadPhase.RECEIVED
     }
     override fun close() { key.fill(0); closed = true }
     override fun toString() = "ComboReadProtocol(redacted)"

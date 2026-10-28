@@ -1,15 +1,20 @@
 package io.aaps.copilot.service
 
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.room.Room
 import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.ComboJournalDatabase
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.util.zip.CRC32
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.*
@@ -18,6 +23,8 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -27,6 +34,7 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3ComboReadJournalTest {
+    @get:Rule val temporary = TemporaryFolder()
     private lateinit var db: CopilotDatabase
     private lateinit var path: File
     private val client = "11111111-2222-4333-8444-555555555555"
@@ -110,6 +118,348 @@ class AapsV3ComboReadJournalTest {
     private suspend fun receive(clock: () -> Long = { now }, journal: AapsV3TargetJournal = owner()) =
         journal.receiveComboResponse(at, 2, clock)
     private suspend fun readRow() = db.aapsV3TargetJournalDao().get("combo-read")!!
+    private suspend fun take(clock: () -> Long = { now }, journal: AapsV3TargetJournal = owner()) =
+        journal.takeComboResponse(at, 2, clock)
+
+    @Test fun handoffConsumesCommittedPageOnceAndAllowsNextRequestWithoutAdvancingCounter() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        val before = db.localNightscoutV3Dao().clock()
+        val handoff = take()!!
+        assertTrue(handoff.rosterRevision > 0)
+        val content = handoff.content as ComboResponseContent.Inventory
+        assertEquals(client, content.binding.clientId)
+        assertEquals(master, content.binding.masterInstallId)
+        assertTrue(content.page().writerFailed)
+        assertFalse(handoff.toString().contains(client))
+        assertFalse(content.toString().contains(master))
+        assertEquals(before, db.localNightscoutV3Dao().clock())
+        assertEquals(AapsV3ComboReadPhase.CONSUMED, snapshot()!!.phase)
+        assertNull(snapshot()!!.publication); assertNull(take()); assertNull(owner().pending())
+        handoff.close()
+        assertTrue(runCatching { content.page() }.isFailure)
+        db.close(); db = openDb()
+        assertNull(take())
+        assertEquals(AapsV3ComboReadPhase.CONSUMED, issue()!!.phase)
+        assertEquals(4L, issue(secondId)!!.counter)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
+    @Test fun onlyOneConcurrentConsumerCanReleaseACommittedResponse() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        val results = List(4) { async(Dispatchers.IO) { take() } }.awaitAll()
+        assertEquals(1, results.count { it != null })
+        results.filterNotNull().forEach { it.close() }
+    }
+
+    @Test fun handoffRequiresPreviouslyCommittedReceiptAndOriginalAck() = runBlocking {
+        assertNull(take())
+        active(); issue(); publishAck(ack())
+        assertNull(take())
+        assertEquals(AapsV3ComboReadPhase.ISSUED, snapshot()!!.phase)
+        receive()
+        val before = readRow()
+        publishAck(ack())
+        refused { take() }
+        assertArrayEquals(before.sealed, readRow().sealed)
+    }
+
+    @Test fun queuedTargetPreemptsHandoffAndRetainsOrdinaryAck() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        publishAck(ack(payload = null), key = "aaps_clientcontrol_ack_$client")
+        val ordinary = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_$client")
+        queuedTarget()
+        assertNull(take())
+        assertEquals(AapsV3ComboReadPhase.SUPERSEDED, snapshot()!!.phase)
+        assertEquals(ordinary, LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_$client"))
+    }
+
+    @Test fun revokedAndExpiredReceiptsCannotBeHandedOff() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        roster(false); roster(true)
+        assertNull(take()); assertEquals(AapsV3ComboReadPhase.REVOKED, snapshot()!!.phase)
+        issue(secondId)
+        val binding = AapsV3ComboInventoryBinding(client, master, secondId, 4, now, now + 30_000, inventory)
+        val wire = AapsV3ComboInventoryEnvelope(secret).use {
+            it.seal(binding, AapsV3ComboInventory.create(requestId, "a".repeat(64), emptyList()).page(inventory), now)
+                .decodeToString()
+        }
+        publishAck(ack(wire, counter = 4)); receive()
+        now += 30_000
+        assertNull(take()); assertEquals(AapsV3ComboReadPhase.EXPIRED, snapshot()!!.phase)
+    }
+
+    @Test fun handoffRefusesWrongSessionAndExternalTransactions() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        val before = readRow()
+        refused { owner().takeComboResponse(at + 500, 2) { now } }
+        refused { owner().takeComboResponse(at, 3) { now } }
+        db.withTransaction {
+            refused { take() }
+            withContext(Dispatchers.IO) { refused { take() } }
+        }
+        assertArrayEquals(before.sealed, readRow().sealed)
+        take()!!.close()
+    }
+
+    @Test fun failedConsumeWriteAndLateClockRollBackWithoutExposingContent() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        val before = readRow()
+        val broken = object : AapsV3JournalCipher by cipher {
+            override fun seal(row: String, revision: Long, plain: ByteArray): ByteArray {
+                if (row == "combo-read") throw java.io.IOException("synthetic write failure")
+                return cipher.seal(row, revision, plain)
+            }
+        }
+        refused { take(journal = AapsV3TargetJournal(db, broken)) }
+        var calls = 0
+        refused { take(clock = { if (++calls < 4) now else now + 30_000 }) }
+        assertArrayEquals(before.sealed, readRow().sealed)
+        calls = 0
+        assertTrue(runCatching { take(clock = {
+            if (++calls == 4) throw CancellationException("synthetic cancellation") else now
+        }) }.exceptionOrNull() is CancellationException)
+        assertArrayEquals(before.sealed, readRow().sealed)
+        take()!!.close()
+    }
+
+    @Test fun expiryAfterConsumeCommitStillSuppressesHandoffAndDoesNotReactivateRequest() = runBlocking {
+        active(); issue(); publishAck(ack()); receive()
+        var calls = 0
+        refused { take(clock = { if (++calls < 5) now else now + 30_000 }) }
+        assertEquals(AapsV3ComboReadPhase.CONSUMED, snapshot()!!.phase)
+        assertNull(take())
+        assertEquals(4L, issue(secondId)!!.counter)
+    }
+
+    @Test fun clockRewindBehindCommittedReceiptCannotReleaseItsContent() = runBlocking {
+        active(); issue()
+        now += 1000
+        publishAck(ack()); receive()
+        val before = readRow()
+        now--
+        refused { take() }
+        assertArrayEquals(before.sealed, readRow().sealed)
+        now++
+        take()!!.close()
+    }
+
+    private fun retainedBytes(size: Int): ByteArray {
+        val body = buildJsonObject {
+            put("version", 1); put("binding", "a".repeat(64)); put("phase", "BEGIN")
+            put("observation", buildJsonObject {
+                put("version", 1); put("scope", "reader_session"); put("coverage", "unverified")
+                put("state", "READING"); put("readStartedAt", 1000)
+                listOf("validatedBlocks", "confirmedBlocks", "parsedEvents", "unmappedEvents").forEach { put(it, 0) }
+                listOf("gapObserved", "clockChangeObserved", "unmappedEventObserved", "interruptedReadObserved",
+                    "malformedBlockObserved", "journalWriteFailed").forEach { put(it, false) }
+            })
+        }.toString().toByteArray()
+        val prefix = ByteArrayOutputStream().also { output -> DataOutputStream(output).use {
+            it.writeInt(body.size); it.write(body); it.writeInt(CRC32().apply { update(body) }.value.toInt())
+        } }.toByteArray()
+        return prefix + ByteArray(size - prefix.size)
+    }
+    private suspend fun chunkHandoff(raw: ByteArray, offset: Int): ComboResponseHandoff {
+        val id = java.util.UUID.randomUUID().toString()
+        val spec = AapsV3ComboReadSpec.Chunk(secondId, requestId, "a".repeat(64),
+            AapsV3ComboJournalAssembly.digest(raw), raw.size, offset)
+        val request = issue(id, spec)!!
+        val binding = AapsV3ComboChunkBinding(client, master, id, spec.snapshotId, spec.readId, spec.pumpBinding,
+            spec.sha256, request.counter, now, now + 30_000, raw.size, offset)
+        val plain = raw.copyOfRange(offset, offset + binding.chunkBytes)
+        val wire = try { AapsV3ComboChunkEnvelope(secret).use { it.seal(binding, plain, now).decodeToString() } }
+        finally { plain.fill(0) }
+        publishAck(ack(wire, counter = request.counter))
+        receive()
+        return take()!!
+    }
+    private suspend fun withPrivateStore(block: suspend (ComboJournalDatabase, AapsV3ComboJournalStore) -> Unit) {
+        val directory = temporary.newFolder("retained")
+        val context = object : ContextWrapper(ApplicationProvider.getApplicationContext<Context>()) {
+            override fun getNoBackupFilesDir() = directory
+            override fun getApplicationContext(): Context = this
+        }
+        val privateDb = ComboJournalDatabase.create(context)
+        try { block(privateDb, AapsV3ComboJournalStore(privateDb)) } finally { privateDb.close() }
+    }
+
+    @Test fun authenticatedMultiChunkHandoffRetainsExactAdverseBytesOutsideMainTransaction() = runBlocking {
+        active()
+        val raw = retainedBytes(70_000)
+        withPrivateStore { privateDb, store ->
+            AapsV3ComboReadRetention(store).use { receiver ->
+                for (offset in raw.indices step 32_768) {
+                    val handoff = chunkHandoff(raw, offset)
+                    val chunk = handoff.content as ComboResponseContent.Chunk
+                    val copy = chunk.copyBytes()
+                    copy.fill(0)
+                    val clock = db.localNightscoutV3Dao().clock()
+                    val receipt = receiver.accept(handoff, now)
+                    assertEquals(clock, db.localNightscoutV3Dao().clock())
+                    assertTrue(runCatching { chunk.copyBytes() }.isFailure)
+                    if (offset + 32_768 < raw.size) {
+                        assertNull(receipt); assertEquals(0L, privateDb.journalDao().totals().reads)
+                    } else {
+                        assertEquals(raw.size, receipt!!.byteCount)
+                        assertFalse(receipt.deliveryCompletenessVerified)
+                        assertFalse(receipt.pumpBindingVerified)
+                    }
+                    now++
+                }
+            }
+            val retained = store.read(master, "a".repeat(64), requestId)!!
+            assertArrayEquals(raw, retained.rawBytes())
+            assertTrue(AapsV3ComboHistoryHazard.CORRUPT_READ in retained.hazards)
+            assertNull(store.read(client, "a".repeat(64), requestId))
+            assertTrue(db.therapyDao().since(0).isEmpty()); assertNull(owner().pending())
+        }
+    }
+
+    @Test fun interruptedPartialAssemblyCanRestartWithFreshRequestsAndExactRetainIsIdempotent() = runBlocking {
+        active(); val raw = retainedBytes(40_000)
+        withPrivateStore { _, store ->
+            AapsV3ComboReadRetention(store).use { assertNull(it.accept(chunkHandoff(raw, 0), now)) }
+            db.close(); db = openDb()
+            repeat(2) { pass ->
+                AapsV3ComboReadRetention(store).use {
+                    assertNull(it.accept(chunkHandoff(raw, 0), now))
+                    assertEquals(pass == 0, it.accept(chunkHandoff(raw, 32_768), now)!!.newlyStored)
+                }
+            }
+            assertArrayEquals(raw, store.read(master, "a".repeat(64), requestId)!!.rawBytes())
+        }
+    }
+
+    @Test fun changingRosterBetweenChunksInvalidatesAssemblyEvenWithFreshAuthenticatedReplies() = runBlocking {
+        active(); val raw = retainedBytes(40_000)
+        withPrivateStore { privateDb, store ->
+            AapsV3ComboReadRetention(store).use {
+                assertNull(it.accept(chunkHandoff(raw, 0), now))
+                roster(extraClient = secondId)
+                val handoff = chunkHandoff(raw, 32_768)
+                val failure = runCatching { it.accept(handoff, now) }.exceptionOrNull()
+                assertTrue(failure is AapsV3ComboChunkFailure)
+                assertTrue(runCatching { (handoff.content as ComboResponseContent.Chunk).copyBytes() }.isFailure)
+            }
+            assertEquals(0L, privateDb.journalDao().totals().reads)
+        }
+    }
+
+    @Test fun privateStorageFailureDoesNotCreateReceiptOrSourceAcknowledgement() = runBlocking {
+        active(); val raw = retainedBytes(1000)
+        withPrivateStore { privateDb, _ ->
+            val before = db.localNightscoutV3Dao().clock()
+            val handoff = chunkHandoff(raw, 0)
+            val afterHandoff = db.localNightscoutV3Dao().clock()
+            assertNotEquals(before, afterHandoff)
+            AapsV3ComboReadRetention(AapsV3ComboJournalStore(privateDb, maximumBytes = 999)).use {
+                val failure = runCatching { it.accept(handoff, now) }.exceptionOrNull()
+                assertEquals(ComboRetentionError.CAPACITY, (failure as ComboRetentionFailure).reason)
+            }
+            assertEquals(0L, privateDb.journalDao().totals().reads)
+            assertEquals(afterHandoff, db.localNightscoutV3Dao().clock())
+            assertEquals(AapsV3ComboReadPhase.CONSUMED, snapshot()!!.phase)
+        }
+    }
+
+    @Test fun continuationRefusesMixedIdentitySnapshotGeometryAndCounterWithoutPartialReceipt() = runBlocking {
+        val raw = retainedBytes(40_000)
+        val first = AapsV3ComboChunkBinding(client, master, requestId, secondId, requestId, "a".repeat(64),
+            AapsV3ComboJournalAssembly.digest(raw), 3, now, now + 30_000, raw.size, 0)
+        val second = first.copy(requestId = secondId, counter = 4, offset = 32_768)
+        val third = "00000000-0000-4000-8000-000000000003"
+        val invalid = listOf(second.copy(clientId = third), second.copy(masterInstallId = third),
+            second.copy(snapshotId = third), second.copy(readId = third), second.copy(pumpBinding = "b".repeat(64)),
+            second.copy(sha256 = "b".repeat(64)), second.copy(totalBytes = raw.size + 1), second.copy(counter = 3),
+            second.copy(issuedAt = now - 1, validUntil = now + 29_999))
+        fun packet(binding: AapsV3ComboChunkBinding) = ComboResponseHandoff(1,
+            ComboResponseContent.Chunk(binding, raw.copyOfRange(binding.offset, minOf(raw.size, binding.offset + binding.chunkBytes))))
+        withPrivateStore { privateDb, store ->
+            for (binding in invalid) AapsV3ComboReadRetention(store).use { receiver ->
+                assertNull(receiver.accept(packet(first), now))
+                val incoming = packet(binding)
+                val failure = runCatching { receiver.accept(incoming, now) }.exceptionOrNull()
+                assertTrue(failure is AapsV3ComboChunkFailure)
+                assertNull(failure!!.cause)
+                assertTrue(runCatching { (incoming.content as ComboResponseContent.Chunk).copyBytes() }.isFailure)
+            }
+            assertEquals(0L, privateDb.journalDao().totals().reads)
+        }
+    }
+
+    @Test fun expiredChunkAndClosedConsumerCannotPersistReceivedBytes() = runBlocking {
+        active(); val raw = retainedBytes(1000)
+        withPrivateStore { privateDb, store ->
+            val expired = chunkHandoff(raw, 0)
+            AapsV3ComboReadRetention(store).use {
+                assertTrue(runCatching { it.accept(expired, now + 30_000) }.exceptionOrNull() is AapsV3ComboChunkFailure)
+            }
+            val closed = AapsV3ComboReadRetention(store)
+            closed.close()
+            assertTrue(runCatching { closed.accept(chunkHandoff(raw, 0), now) }.exceptionOrNull() is AapsV3ComboChunkFailure)
+            assertEquals(0L, privateDb.journalDao().totals().reads)
+        }
+    }
+
+    @Test fun cancellationDuringPrivateStorageWaitClosesAssemblyWithoutReceipt() = runBlocking {
+        active(); val raw = retainedBytes(1000)
+        withPrivateStore { privateDb, store ->
+            val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            val lock = launch(Dispatchers.IO) { privateDb.withTransaction { entered.complete(Unit); release.await() } }
+            entered.await()
+            val handoff = chunkHandoff(raw, 0)
+            val receiver = AapsV3ComboReadRetention(store)
+            val consumer = async(start = CoroutineStart.UNDISPATCHED) { receiver.accept(handoff, now) }
+            try {
+                consumer.cancelAndJoin()
+                assertTrue(consumer.isCancelled)
+                assertTrue(runCatching { (handoff.content as ComboResponseContent.Chunk).copyBytes() }.isFailure)
+            } finally { release.complete(Unit); lock.join(); receiver.close() }
+            assertEquals(0L, privateDb.journalDao().totals().reads)
+            assertEquals(AapsV3ComboReadPhase.CONSUMED, snapshot()!!.phase)
+        }
+    }
+
+    @Test fun closeDuringPrivateWriteSuppressesLateReceiptAndBusyInputDoesNotInvalidateCurrentRead() = runBlocking {
+        active(); val raw = retainedBytes(1000)
+        withPrivateStore { privateDb, store ->
+            val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+            val lock = launch(Dispatchers.IO) { privateDb.withTransaction { entered.complete(Unit); release.await() } }
+            entered.await()
+            val handoff = chunkHandoff(raw, 0)
+            val receiver = AapsV3ComboReadRetention(store)
+            val consumer = async(start = CoroutineStart.UNDISPATCHED) { runCatching { receiver.accept(handoff, now) } }
+            try {
+                val next = chunkHandoff(raw, 0)
+                assertTrue(runCatching { receiver.accept(next, now) }.exceptionOrNull() is AapsV3ComboChunkFailure)
+                assertTrue(runCatching { (next.content as ComboResponseContent.Chunk).copyBytes() }.isFailure)
+                val targetCounter = withTimeout(10_000) { owner().withTargetProtocol { protocol ->
+                    owner().prepare("meal-request", target, protocol, now) {}.counter
+                } }
+                assertEquals(5L, targetCounter)
+                receiver.close()
+            } finally { release.complete(Unit); lock.join() }
+            assertTrue(consumer.await().exceptionOrNull() is AapsV3ComboChunkFailure)
+            // A committed private record is retained evidence, never a source-delete acknowledgement.
+            assertEquals(1L, privateDb.journalDao().totals().reads)
+            assertArrayEquals(raw, store.read(master, "a".repeat(64), requestId)!!.rawBytes())
+            assertEquals(5L, owner().pending()!!.counter)
+        }
+    }
+
+    @Test fun fullTwoMiBReadRemainsBoundedAndHashVerifiedAcrossSixtyFourHandoffs() = runBlocking {
+        active(); val raw = retainedBytes(AapsV3ComboJournalRead.MAX_READ_BYTES)
+        withPrivateStore { privateDb, store ->
+            AapsV3ComboReadRetention(store).use { receiver ->
+                for (offset in raw.indices step 32_768) {
+                    val receipt = receiver.accept(chunkHandoff(raw, offset), now)
+                    assertEquals(offset == raw.size - 32_768, receipt != null)
+                }
+            }
+            assertEquals(raw.size.toLong(), privateDb.journalDao().totals().bytes)
+            assertArrayEquals(raw, store.read(master, "a".repeat(64), requestId)!!.rawBytes())
+        }
+    }
 
     @Test fun responseCommitsCiphertextOnlyAndReopensWithoutRepublicationOrCounterChange() = runBlocking {
         active(); issue()
