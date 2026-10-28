@@ -57,8 +57,9 @@ checks whole-catalog digest and flags, full/short/max-size fragments, tampering,
 wrong request context, empty/max pages and source mismatches. No manually copied
 native encoder is used by that oracle. CI requires the native driver fixture.
 
-The reversible recipe includes an eighth frozen patch and restores only its own
-unchanged edits. SDK preparation extracts both protocol files in an owned
+The codec is the eighth frozen patch; a ninth, isolated error-timeout patch fixes
+the upstream lifecycle race exposed by this stage's CI. The recipe restores only
+its own unchanged edits. SDK preparation extracts both protocol files in an owned
 temporary directory; missing/wrong sources refuse before Gradle. No production
 runtime, database, APK version or therapy change follows from a passing test.
 

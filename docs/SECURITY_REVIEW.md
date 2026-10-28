@@ -1,5 +1,17 @@
 # SECURITY REVIEW
 
+## Combo Timeout Race Found During CI (2026-10-29)
+
+PR67 CI 40781360339 failed the second-expiration assertion in the pinned upstream
+Combo lockout test. A deterministic cleanup callback reproduces the cause: the
+flag becomes false while the previous job remains active, so a new error starts
+no timer. Serialize transitions, publish the job before starting it, retire its
+identity before unlock, and check current identity/cancellation at expiration.
+No delay or pump command changes. Virtual-time tests cover repeated errors,
+cleanup re-entry, manual clear and an already-due cancelled predecessor. This
+is a source-only compatibility patch; device delivery and meal safety remain
+unverified and are not enabled by its passing tests.
+
 ## Native Reply Codec (2026-10-29)
 
 - Catalog inputs remain caller claims, not source authentication. Canonical IDs,

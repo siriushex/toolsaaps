@@ -14,6 +14,16 @@
   generation, priority, revocation and post-I/O/deadline admission are implemented.
   No source-delete ACK, transfer capability or clinical permission from encoding.
 
+## Combo Error Timeout Ownership
+
+- Retire the expired timer before publishing the unlocked state or callbacks.
+  A new error during cleanup must get its own full lockout timer.
+- Serialize error, manual clear and expiration transitions. Only the current
+  active timer may clear the flag; a cancelled predecessor cannot clear a new error.
+- Repeated errors within an active lockout do not extend its existing deadline.
+  Keep the configured timeout and pump commands unchanged; no wall-clock sleeps
+  in lifecycle tests and no suppression of failing regressions.
+
 ## Catalog Handoff Admission
 
 - Carry the paired journal's checked session start and admission observation with

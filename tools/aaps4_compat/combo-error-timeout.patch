@@ -1,0 +1,237 @@
+diff --git a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+index 453a623..85a4d8a 100644
+--- a/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
++++ b/pump/combov2/src/main/kotlin/info/nightscout/pump/combov2/ComboV2Plugin.kt
+@@ -83,6 +83,7 @@ import info.nightscout.pump.combov2.keys.ComboLongNonKey
+ import info.nightscout.pump.combov2.keys.ComboStringNonKey
+ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.CoroutineStart
+ import kotlinx.coroutines.Deferred
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+@@ -221,6 +222,7 @@ class ComboV2Plugin(
+     @get:VisibleForTesting
+     internal var pumpErrorObserved = false
+         private set
++    private val pumpErrorTimeoutLock = Any()
+     private var pumpErrorTimeoutJob: Job? = null
+ 
+     // A var only so that a test can make it short.
+@@ -1410,7 +1412,7 @@ class ComboV2Plugin(
+         commandQueue.readStatus(reason)
+     }
+ 
+-    fun clearPumpErrorObservedFlag() {
++    fun clearPumpErrorObservedFlag() = synchronized(pumpErrorTimeoutLock) {
+         stopPumpErrorTimeout()
+         if (pumpErrorObserved) {
+             aapsLogger.info(LTag.PUMP, "Clearing pumpErrorObserved flag")
+@@ -1829,19 +1831,25 @@ class ComboV2Plugin(
+     }
+ 
+     private fun startPumpErrorTimeout() {
+-        // isActive, not != null: a timer that already ran stays in the field. With != null, a second
+-        // error in the same session started no timer, so the pump stayed locked until the user
+-        // pressed Refresh, and the loop did not run.
++        // Caller holds pumpErrorTimeoutLock. Repeated errors do not extend this lockout.
+         if (pumpErrorTimeoutJob?.isActive == true)
+             return
+ 
+-        pumpErrorTimeoutJob = pumpCoroutineScope.launch {
++        // Publish ownership before the coroutine can run, including with an immediate dispatcher.
++        pumpErrorTimeoutJob = pumpCoroutineScope.launch(start = CoroutineStart.LAZY) {
+             delay(pumpErrorTimeoutMillis)
+-            aapsLogger.info(LTag.PUMP, "Clearing pumpErrorObserved flag after timeout was reached")
+-            pumpErrorObserved = false
+-            notificationManager.dismiss(NotificationId.COMBO_PUMP_ERROR_LOCKOUT)
++            synchronized(pumpErrorTimeoutLock) {
++                val timer = coroutineContext.job
++                if (pumpErrorTimeoutJob !== timer || !timer.isActive) return@launch
++                aapsLogger.info(LTag.PUMP, "Clearing pumpErrorObserved flag after timeout was reached")
++                // Retire this timer before exposing the unlocked state or invoking callbacks.
++                pumpErrorTimeoutJob = null
++                pumpErrorObserved = false
++                notificationManager.dismiss(NotificationId.COMBO_PUMP_ERROR_LOCKOUT)
++            }
+             commandQueue.readStatus(rh.gs(R.string.combov2_refresh_pump_status_after_error))
+         }
++        pumpErrorTimeoutJob?.start()
+     }
+ 
+     private fun stopPumpErrorTimeout() {
+@@ -2307,16 +2315,17 @@ class ComboV2Plugin(
+         )
+ 
+         if (alert is AlertScreenContent.Error) {
+-            aapsLogger.info(LTag.PUMP, "Error screen observed - setting pumpErrorObserved flag")
+-            pumpErrorObserved = true
+-            startPumpErrorTimeout()
+-            // Once per error, on its own id, so the card above keeps naming the error. It goes away by
+-            // itself when the flag is cleared (Refresh or timeout).
+-            notificationManager.post(
+-                NotificationId.COMBO_PUMP_ERROR_LOCKOUT,
+-                TextRef.AndroidRes(R.string.combov2_cannot_connect_pump_error_observed),
+-                validityCheck = { pumpErrorObserved }
+-            )
++            synchronized(pumpErrorTimeoutLock) {
++                aapsLogger.info(LTag.PUMP, "Error screen observed - setting pumpErrorObserved flag")
++                pumpErrorObserved = true
++                startPumpErrorTimeout()
++                // Keep the named error card; this separate hint ends with the lockout.
++                notificationManager.post(
++                    NotificationId.COMBO_PUMP_ERROR_LOCKOUT,
++                    TextRef.AndroidRes(R.string.combov2_cannot_connect_pump_error_observed),
++                    validityCheck = { pumpErrorObserved }
++                )
++            }
+         }
+     }
+ 
+diff --git a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+index 95aad98..b69e4d5 100644
+--- a/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
++++ b/pump/combov2/src/test/kotlin/info/nightscout/pump/combov2/ComboV2PluginErrorLockoutTest.kt
+@@ -17,6 +17,12 @@ import info.nightscout.comboctl.main.Pump
+ import info.nightscout.comboctl.main.PumpManager
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.test.TestScope
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runCurrent
++import org.junit.jupiter.api.AfterEach
+ import org.junit.jupiter.api.BeforeEach
+ import org.junit.jupiter.api.Test
+ import org.mockito.kotlin.any
+@@ -35,6 +41,7 @@ import kotlinx.serialization.json.jsonObject
+  * stay, the "cannot connect" hint is posted once and goes away with the lockout, and every error
+  * ends its lockout after the timeout, not only the first one.
+  */
++@OptIn(ExperimentalCoroutinesApi::class)
+ class ComboV2PluginErrorLockoutTest {
+ 
+     private data class Post(val id: NotificationId, val level: NotificationLevel, val validityCheck: (() -> Boolean)?)
+@@ -43,6 +50,7 @@ class ComboV2PluginErrorLockoutTest {
+ 
+         val posts = mutableListOf<Post>()
+         val dismissed = mutableListOf<NotificationId>()
++        var onDismiss: (() -> Unit)? = null
+ 
+         override val notifications: StateFlow<List<AapsNotification>> = MutableStateFlow(emptyList())
+ 
+@@ -65,6 +73,7 @@ class ComboV2PluginErrorLockoutTest {
+ 
+         override fun dismiss(id: NotificationId) {
+             dismissed += id
++            onDismiss?.invoke()
+         }
+ 
+         override fun dismiss(handle: NotificationHandle) {}
+@@ -79,6 +88,7 @@ class ComboV2PluginErrorLockoutTest {
+ 
+     private val notificationManager = RecordingNotificationManager()
+     private lateinit var plugin: ComboV2Plugin
++    private val timerScope = TestScope()
+     @TempDir lateinit var files: java.io.File
+     private val sp: app.aaps.core.interfaces.sharedPreferences.SP = mock()
+     private val context: android.content.Context = mock()
+@@ -103,8 +113,15 @@ class ComboV2PluginErrorLockoutTest {
+             pumpEnactResultProvider = { mock() },
+             bolusProgressData = mock()
+         )
++        ComboV2Plugin::class.java.getDeclaredField("pumpCoroutineScope").apply {
++            isAccessible = true
++            set(plugin, timerScope)
++        }
+     }
+ 
++    @AfterEach
++    fun cancelTimers() = timerScope.cancel()
++
+     @Test
+     fun pluginWritesPrivateCheckpointsAndExposesOnlyScopedCounts() {
+         val address = "12:34:56:78:9A:BC".toBluetoothAddress()
+@@ -314,16 +331,75 @@ class ComboV2PluginErrorLockoutTest {
+         plugin.pumpErrorTimeoutMillis = 50
+ 
+         plugin.notifyAboutComboAlert(occlusion)
+-        assertThat(waitUntilUnlocked()).isTrue()
++        expireTimer()
++        assertThat(plugin.pumpErrorObserved).isFalse()
+ 
+         plugin.notifyAboutComboAlert(occlusion)
+         assertThat(plugin.pumpErrorObserved).isTrue()
+-        assertThat(waitUntilUnlocked()).isTrue()
++        expireTimer()
++        assertThat(plugin.pumpErrorObserved).isFalse()
++    }
++
++    @Test
++    fun errorDuringExpiredTimerCleanupGetsItsOwnTimeout() {
++        plugin.pumpErrorTimeoutMillis = 50
++        notificationManager.onDismiss = {
++            notificationManager.onDismiss = null
++            plugin.notifyAboutComboAlert(occlusion)
++        }
++        plugin.notifyAboutComboAlert(occlusion)
++        expireTimer()
++        assertThat(plugin.pumpErrorObserved).isTrue()
++        expireTimer()
++        assertThat(plugin.pumpErrorObserved).isFalse()
++    }
++
++    @Test
++    fun repeatedErrorDuringLockoutDoesNotExtendItsDeadline() {
++        plugin.pumpErrorTimeoutMillis = 50
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.runCurrent()
++        timerScope.advanceTimeBy(25)
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.advanceTimeBy(25)
++        timerScope.runCurrent()
++        assertThat(plugin.pumpErrorObserved).isFalse()
++    }
++
++    @Test
++    fun manuallyClearedTimerCannotClearALaterError() {
++        plugin.pumpErrorTimeoutMillis = 50
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.runCurrent()
++        timerScope.advanceTimeBy(25)
++        plugin.clearPumpErrorObservedFlag()
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.runCurrent()
++        timerScope.advanceTimeBy(25)
++        timerScope.runCurrent()
++        assertThat(plugin.pumpErrorObserved).isTrue()
++        timerScope.advanceTimeBy(25)
++        timerScope.runCurrent()
++        assertThat(plugin.pumpErrorObserved).isFalse()
++    }
++
++    @Test
++    fun cancelledExpirationAlreadyDueCannotClearANewLockout() {
++        plugin.pumpErrorTimeoutMillis = 50
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.runCurrent()
++        timerScope.advanceTimeBy(50)
++        plugin.clearPumpErrorObservedFlag()
++        plugin.notifyAboutComboAlert(occlusion)
++        timerScope.runCurrent()
++        assertThat(plugin.pumpErrorObserved).isTrue()
++        expireTimer()
++        assertThat(plugin.pumpErrorObserved).isFalse()
+     }
+ 
+-    private fun waitUntilUnlocked(): Boolean {
+-        val deadline = System.currentTimeMillis() + 5000
+-        while (plugin.pumpErrorObserved && System.currentTimeMillis() < deadline) Thread.sleep(10)
+-        return !plugin.pumpErrorObserved
++    private fun expireTimer() {
++        timerScope.runCurrent()
++        timerScope.advanceTimeBy(plugin.pumpErrorTimeoutMillis)
++        timerScope.runCurrent()
+     }
+ }

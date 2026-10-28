@@ -1,5 +1,26 @@
 # Native Encrypted Reply Candidate - 2026-10-29
 
+## CI Follow-up
+
+- Exact-head PR CI40781360339 failed the second expiration in upstream
+  `everyErrorEndsItsLockoutAfterTheTimeout`; native reply tests passed. Bytecode
+  line mapping and a deterministic callback regression reproduced a real race:
+  unlocked flag with an active finishing job prevents the next timer from starting.
+- Add isolated `combo-error-timeout.patch` to the reversible native recipe.
+  Serialize transitions, lazily publish timer ownership, retire before unlock/
+  callbacks and refuse obsolete/cancelled expiration. Keep lockout duration and
+  delivery commands unchanged. Replace wall-clock sleeps with a test scheduler;
+  clean up all test timers, test re-entry and cancellation including due work.
+- The new regression failed on unchanged production code, preserved in private
+  `lockout-red.log/xml`. After the fix all740selected native tests passed, including
+  four new lifecycle cases; 28recipe tests passed. Native source restored pristine
+  and SDK prepared again in10s. Unchanged Android quality tasks were up-to-date
+  (7104passed/six existing skips, zero failures/errors); APK size/retention guard
+  passed. Renewed exact-head CI/review pending. No AAPS/phone install, server,
+  live recommendation or APK publication.
+
+## Initial Candidate
+
 - Native requests and Copilot decryption existed, but native response construction
   still had no implementation. Add a shared SDK codec for bounded immutable
   catalogs and exact fragments, preserving all adverse source metadata.

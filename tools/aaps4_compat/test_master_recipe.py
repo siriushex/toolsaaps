@@ -105,6 +105,11 @@ class MasterRecipeTest(unittest.TestCase):
             f"diff --git a/{self.reply_source} b/{self.reply_source}\nnew file mode 100644\n"
             f"--- /dev/null\n+++ b/{self.reply_source}\n@@ -0,0 +1 @@\n+synthetic reply codec\n"
         )
+        self.timeout_patch = tools / "combo-error-timeout.patch"
+        self.timeout_patch.write_text(
+            "diff --git a/control.txt b/control.txt\n--- a/control.txt\n+++ b/control.txt\n"
+            "@@ -1 +1 @@\n-isolated response\n+isolated response with timer\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -212,6 +217,13 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertFalse((self.source / ".gradle-invoked").exists())
         self.assertEqual("", self.run_git("status", "--porcelain").stdout)
         self.assertEqual([], list(self.scratch.glob("query-interop.*")))
+
+    def test_missing_timeout_patch_refuses_before_changing_source(self):
+        self.timeout_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
 
     def test_prepare_requires_exact_reply_source(self):
         self.reply_patch.write_text(self.control_patch.read_text())
