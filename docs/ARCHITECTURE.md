@@ -1373,8 +1373,18 @@ Mean and lower-bound missed lows, interval support/coverage, worst overpredictio
 and missingness are reported. Explicit bounds reject oversized input, not sample
 it. Every result denies clinical/control-safety admission.
 
+Each horizon also audits same-context observations strictly after the recorded
+registration and through its endpoint. Prefix counts and timestamp lookups keep
+this bounded without scanning every outcome for every receipt. It separately
+counts windows with observed lows, lows outside the 5/30/60 checkpoints, rejected
+or conflicting observations, and no usable observations. Unfinished windows are
+not scored. These overlapping windows are not unique low episodes; sparse samples
+cannot attest coverage or safe waiting, and no forecast is interpolated between
+checkpoints. Baseline-only and paired cohorts both retain this audit.
+
 The optional private tool reconstructs receipts through the same registration
-checks and exports aggregates only. A supplied file cannot authenticate original
+checks and exports aggregates only, including baseline-only horizons and explicit
+unverified window coverage. A supplied file cannot authenticate original
 capture. The original contract stage has no personalized candidate or clinical
 input changes; the subsequent journal above adds observation, not therapy. See
 superpowers/specs/2026-10-13-meal-prospective-validation.md for remaining gates.

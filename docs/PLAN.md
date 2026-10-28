@@ -1,5 +1,19 @@
 # PLAN
 
+## Meal Window Observation Audit (2026-10-28)
+
+- [x] Inspect displayed onset timer versus disconnected meal-time recommendation.
+- [x] Add between-checkpoint low observation audit without changing point scores.
+- [x] Preserve baseline-only scores and unverified coverage in private JSON reports.
+- [x] Add the requested 5.6 crossing diagnostic to isolated no-food trajectories;
+      preserve lower thresholds and prohibit conversion to a wait/eat instruction.
+- [x] Verify48focused and7017full passed, six prior private-data skips;
+      lint has zero errors, compilation/build and APK retention pass.
+- [ ] Verify exact-head CI before integration.
+- Actual Combo delivery/clock coverage and prospective clinical validation remain
+  incomplete. Observational metrics cannot enable the research recommender.
+  No live timer or therapy activation here.
+
 ## Native History Query Validation (2026-10-26)
 
 - [x] Match candidate query fields and bounds to actual Copilot request generation.

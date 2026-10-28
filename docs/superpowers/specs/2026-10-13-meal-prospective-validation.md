@@ -64,6 +64,36 @@ support/coverage and missed lows in the lower bounds. No interval is invented or
 inherited when the candidate only supplies a mean. Coverage does not establish
 calibration or safety of a changed control policy.
 
+### Interval Observation Audit (2026-10-28)
+
+Endpoint error alone cannot describe lows between 5/30/60-minute checkpoints.
+For each non-conflicting unique receipt and completed horizon, audit observations
+strictly after registration up to and including that horizon's endpoint. Retain
+the same identity, availability, value, quality and duplicate/conflict rules.
+Do not score observations occurring before registration, even if they arrived
+later. Future-availability evidence remains excluded at the evaluation cutoff.
+
+Report evaluated windows, windows without usable observations, with an observed
+low, with a low outside forecast checkpoints, with conflicting observations and
+with rejected observations. These categories may overlap. Counts describe receipt
+windows, not distinct low episodes: one low can occur in multiple windows. The
+audit does not invent intermediate predictions, missed-low forecast scores,
+interpolated glucose or confidence bands. Missing endpoint observations do not
+hide valid intermediate lows. Sparse or absent readings never prove complete
+coverage, and observationCoverageVerified remains false.
+
+The private aggregate report includes both horizons and baselineOnlyHorizons,
+plus windowObservationCoverageVerified=false. A baseline-only dataset must not
+export an empty score list merely because no candidate was registered.
+
+Separately, MealTimingResearchAssessment reports below56 alongside below46,
+below39 and below30 for every retained no-food insulin scenario. This diagnostic
+uses the frozen simulated glucose trajectory, including its current value, not
+elapsed time alone. The first strictly lower sampled value produces a five-minute
+grid interval; already-below is [0,0], no crossing is null. It is neither an exact
+crossing nor a safe interval to wait. Declared new-food GI cannot affect a no-food
+path. No notification, clinical admission or recommended start follows from it.
+
 ## Limits And Meaning
 
 - At most7000 receipt frames,24000 outcomes and256 distinct model/context cohorts.

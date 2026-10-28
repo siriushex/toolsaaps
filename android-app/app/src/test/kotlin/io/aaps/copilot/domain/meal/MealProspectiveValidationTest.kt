@@ -42,6 +42,125 @@ class MealProspectiveValidationTest {
         samples: List<MealProspectiveOutcome> = outcomes(), cutoff: Long = now + 61 * minute) =
         MealProspectiveEvaluator().evaluate(frames, samples, cutoff, 3.9)
 
+    private fun intermediate(at: Long = now + 15 * minute, actual: Double = 3.5) =
+        outcomes(actual = actual).first().copy(timestampMs = at, availableAtMs = at + 100)
+
+    @Test fun lowBetweenForecastCheckpointsRemainsVisibleWithoutInventingPointScores() {
+        val report = evaluate(samples = outcomes() + intermediate())
+        assertTrue(report.horizons.all { it.actualLowSamples == 0 && it.candidateMissedLows == 0 })
+        assertEquals(0, report.horizons.first().windowAudit.windowsWithObservedLow)
+        report.horizons.drop(1).forEach {
+            assertEquals(1, it.windowAudit.evaluatedWindows)
+            assertEquals(1, it.windowAudit.windowsWithObservedLow)
+            assertEquals(1, it.windowAudit.windowsWithLowOutsideCheckpoints)
+            assertFalse(it.windowAudit.observationCoverageVerified)
+        }
+        assertFalse(report.clinicalInfluenceAllowed)
+        assertFalse(report.controlSafetyValidated)
+    }
+
+    @Test fun intervalAuditDoesNotRequireAnExactEndpointObservation() {
+        val report = evaluate(samples = listOf(intermediate()))
+        assertTrue(report.horizons.all { it.pairedSamples == 0 && it.baseline == null })
+        assertEquals(1, report.horizons.first().windowAudit.windowsWithoutUsableObservations)
+        assertTrue(report.horizons.drop(1).all { it.windowAudit.windowsWithObservedLow == 1 &&
+            it.windowAudit.windowsWithoutUsableObservations == 0 })
+    }
+
+    @Test fun checkpointLowsAreNotMislabelledAsIntermediateLows() {
+        val result = evaluate(samples = outcomes(actual = 3.5))
+        assertTrue(result.horizons.all { it.windowAudit.windowsWithObservedLow == 1 &&
+            it.windowAudit.windowsWithLowOutsideCheckpoints == 0 })
+    }
+
+    @Test fun windowStartsStrictlyAfterReceiptAndIncludesItsEndpoint() {
+        val receiptAt = now + 4 * minute
+        val delayed = registration(at = receiptAt).frame!!
+        val early = listOf(intermediate(now), intermediate(receiptAt - 1), intermediate(receiptAt))
+        assertTrue(evaluate(listOf(delayed), early).horizons.all {
+            it.windowAudit.windowsWithoutUsableObservations == 1 && it.windowAudit.windowsWithObservedLow == 0
+        })
+        val justAfter = evaluate(listOf(delayed), early + intermediate(receiptAt + 1))
+        assertTrue(justAfter.horizons.all { it.windowAudit.windowsWithLowOutsideCheckpoints == 1 })
+        val endpoint = evaluate(samples = listOf(intermediate(now + 30 * minute)))
+        assertEquals(1, endpoint.horizons[1].windowAudit.windowsWithObservedLow)
+        assertEquals(0, endpoint.horizons[1].windowAudit.windowsWithLowOutsideCheckpoints)
+    }
+
+    @Test fun windowAuditRespectsCutoffAndDoesNotScoreUnfinishedWindows() {
+        val later = intermediate().copy(availableAtMs = now + 61 * minute)
+        val result = evaluate(samples = listOf(later), cutoff = now + 30 * minute)
+        assertEquals(1, result.horizons[1].windowAudit.windowsWithoutUsableObservations)
+        assertEquals(0, result.horizons[2].windowAudit.evaluatedWindows)
+        assertEquals(0, result.horizons[2].windowAudit.windowsWithoutUsableObservations)
+        assertEquals(1, evaluate(samples = listOf(later)).horizons[1].windowAudit.windowsWithObservedLow)
+    }
+
+    @Test fun invalidOrConflictingWindowObservationsCannotBeSelectedAsHealthy() {
+        val low = intermediate()
+        for (other in listOf(low.copy(mmol = 7.0), low.copy(quality = DataQuality.SENSOR_ERROR))) {
+            val audit = evaluate(samples = listOf(low, other)).horizons[1].windowAudit
+            assertEquals(1, audit.windowsWithConflictingObservations)
+            assertEquals(1, audit.windowsWithoutUsableObservations)
+            assertEquals(0, audit.windowsWithObservedLow)
+        }
+        for (bad in listOf(low.copy(availableAtMs = null), low.copy(availableAtMs = low.timestampMs - 1),
+            low.copy(quality = DataQuality.SENSOR_ERROR), low.copy(mmol = Double.NaN), low.copy(mmol = 0.0))) {
+            val audit = evaluate(samples = listOf(bad)).horizons[1].windowAudit
+            assertEquals(1, audit.windowsWithRejectedObservations)
+            assertEquals(1, audit.windowsWithoutUsableObservations)
+            assertEquals(0, audit.windowsWithObservedLow)
+        }
+    }
+
+    @Test fun unknownAvailabilityDuplicateIsRejectedAndExactDuplicateDoesNotAddWindows() {
+        val low = intermediate()
+        val duplicated = evaluate(samples = listOf(low, low)).horizons[1].windowAudit
+        assertEquals(1, duplicated.windowsWithObservedLow)
+        assertEquals(1, duplicated.evaluatedWindows)
+        val unknown = evaluate(samples = listOf(low, low.copy(availableAtMs = null))).horizons[1].windowAudit
+        assertEquals(1, unknown.windowsWithRejectedObservations)
+        assertEquals(0, unknown.windowsWithObservedLow)
+    }
+
+    @Test fun windowAuditDoesNotBorrowAnotherSensorOrCalibration() {
+        val low = intermediate()
+        for (other in listOf(low.copy(source = "other"), low.copy(sensorSessionKey = "other"),
+            low.copy(glucoseBasisId = "other"), low.copy(calibrationModelId = "other"))) {
+            val audit = evaluate(samples = listOf(other)).horizons[1].windowAudit
+            assertEquals(1, audit.windowsWithoutUsableObservations)
+            assertEquals(0, audit.windowsWithObservedLow)
+        }
+    }
+
+    @Test fun baselineOnlyWindowsRemainSeparateAndDuplicateFramesHaveOneVote() {
+        val baseline = frame(cand = null)
+        val result = evaluate(frames = listOf(baseline, baseline, frame()), samples = listOf(intermediate()))
+        assertEquals(1, result.duplicateFrames)
+        assertEquals(1, result.baselineOnlyHorizons[1].windowAudit.windowsWithObservedLow)
+        assertEquals(1, result.horizons[1].windowAudit.windowsWithObservedLow)
+        val conflict = evaluate(frames = listOf(baseline, frame(base = 7.0, cand = null)))
+        assertTrue(conflict.baselineOnlyHorizons.all { it.windowAudit.evaluatedWindows == 0 })
+    }
+
+    @Test fun auditCountsOverlappingWindowsNotUniqueLowEpisodes() {
+        val other = identity(now + minute)
+        val result = evaluate(frames = listOf(frame(), frame(other)), samples = listOf(intermediate()))
+        assertEquals(2, result.horizons[1].windowAudit.evaluatedWindows)
+        assertEquals(2, result.horizons[1].windowAudit.windowsWithObservedLow)
+    }
+
+    @Test fun sparseOrEmptyObservationsNeverAttestWindowCoverage() {
+        assertTrue(evaluate(samples = emptyList()).horizons.all {
+            it.windowAudit.evaluatedWindows == 1 && it.windowAudit.windowsWithoutUsableObservations == 1 &&
+                !it.windowAudit.observationCoverageVerified
+        })
+        assertTrue(evaluate().horizons.all { !it.windowAudit.observationCoverageVerified })
+        assertTrue(evaluate(samples = listOf(intermediate(actual = 3.9))).horizons.all {
+            it.windowAudit.windowsWithObservedLow == 0
+        })
+    }
+
     @Test fun baselineOnlyScoresAreSeparateAndNeverPretendToBeCandidatePairs() {
         val result = evaluate(frames = listOf(frame(cand = null)), samples = outcomes(actual = 3.5))
         assertTrue(result.horizons.isEmpty())

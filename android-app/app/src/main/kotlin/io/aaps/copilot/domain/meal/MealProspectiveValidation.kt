@@ -142,6 +142,7 @@ internal data class MealProspectiveHorizon(
     val actualLowSamples: Int, val baselineMissedLows: Int, val candidateMissedLows: Int,
     val pairedLowerBoundLowSamples: Int, val baselineLowerBoundMissedLows: Int, val candidateLowerBoundMissedLows: Int,
     val pairedIntervalSamples: Int, val baselineIntervalCoverage: Double?, val candidateIntervalCoverage: Double?,
+    val windowAudit: MealProspectiveWindowAudit,
     val observedSamples: Int = pairedSamples, val baselineObservedIntervalSamples: Int = pairedIntervalSamples
 )
 
@@ -175,13 +176,14 @@ internal class MealProspectiveEvaluator {
         val baselineOnly = availableFrames.count { it.candidate == null }
         val grouped = availableFrames.groupBy { cohort(it) }
         if (grouped.size > 256) return report(MealProspectiveEvaluationStatus.OVERFLOW)
-        val byTime = outcomes.filter { it.availableAtMs == null || it.availableAtMs <= evaluatedAtMs }
-            .groupBy { it.timestampMs }
+        val availableOutcomes = outcomes.filter { it.availableAtMs == null || it.availableAtMs <= evaluatedAtMs }
+        val byTime = availableOutcomes.groupBy { it.timestampMs }
         var duplicates = 0
         var conflicts = 0
         val horizons = mutableListOf<MealProspectiveHorizon>()
         val baselineHorizons = mutableListOf<MealProspectiveHorizon>()
         for ((context, cohortFrames) in grouped) {
+            val windowIndex = MealProspectiveWindowIndex(availableOutcomes.filter { it.matches(context) }, lowThresholdMmol)
             // Repeated cycles for one anchor cannot vote multiple times or select the best forecast.
             val uniqueFrames = cohortFrames.groupBy { it.identity.predictionAtMs }.mapNotNull { (_, sameAnchor) ->
                 if (sameAnchor.map { it.signature() }.distinct().size != 1) {
@@ -199,8 +201,7 @@ internal class MealProspectiveEvaluator {
                     val target = frame.identity.predictionAtMs + horizon * MINUTE_MS
                     if (target > evaluatedAtMs) { pending++; continue }
                     val all = byTime[target].orEmpty()
-                    val same = all.filter { it.source == context.source && it.sensorSessionKey == context.sensorSessionKey &&
-                        it.glucoseBasisId == context.glucoseBasisId && it.calibrationModelId == context.calibrationModelId }
+                    val same = all.filter { it.matches(context) }
                     if (same.isEmpty()) {
                         if (all.isEmpty()) missing++ else mismatch++
                         continue
@@ -229,7 +230,8 @@ internal class MealProspectiveEvaluator {
                     intervalLows.count { it.baseline.lowerMmol!! >= lowThresholdMmol },
                     intervalLows.count { it.candidate!!.lowerMmol!! >= lowThresholdMmol }, intervals.size,
                     coverage(if (context.model == null) baselineIntervals else intervals, false),
-                    coverage(intervals, true), pairs.size, baselineIntervals.size)
+                    coverage(intervals, true), windowIndex.summarize(uniqueFrames, horizon, evaluatedAtMs),
+                    pairs.size, baselineIntervals.size)
             }
         }
         return report(if (horizons.isEmpty() && baselineHorizons.isEmpty()) MealProspectiveEvaluationStatus.EMPTY
@@ -241,6 +243,10 @@ internal class MealProspectiveEvaluator {
         MealProspectiveCohort(settingsRevision, source, sensorSessionKey, glucoseBasisId,
             calibrationModelId, basis, recordedZoneId, frame.candidate?.model, baselineModelVersion)
     }
+
+    private fun MealProspectiveOutcome.matches(context: MealProspectiveCohort): Boolean =
+        source == context.source && sensorSessionKey == context.sensorSessionKey &&
+            glucoseBasisId == context.glucoseBasisId && calibrationModelId == context.calibrationModelId
 
     private data class PairScore(val day: String, val actual: Double,
         val baseline: MealProspectiveValue, val candidate: MealProspectiveValue?)

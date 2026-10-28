@@ -36,6 +36,7 @@ internal fun firstMealThresholdWindow(values: List<Double>, threshold: Double): 
 
 internal data class MealNoFoodPathRisk(
     val trajectory: MealConditionalTrajectory,
+    val below56: MealThresholdWindow?,
     val below46: MealThresholdWindow?,
     val below39: MealThresholdWindow?,
     val below30: MealThresholdWindow?
@@ -167,7 +168,8 @@ internal class MealTimingResearchEvaluator {
         val absentIds = simulation.expansion.belief.scenarios.filter { it.kind in setOf(MealHypothesisKind.NOT_HAPPENING,
             MealHypothesisKind.NO_NEW_MEAL) }.map { it.id }.toSet()
         val risks = batch.trajectories.filter { it.scenarioId in absentIds }.map {
-            MealNoFoodPathRisk(it, firstMealThresholdWindow(it.forecast.glucoseMmol, 4.6),
+            MealNoFoodPathRisk(it, firstMealThresholdWindow(it.forecast.glucoseMmol, 5.6),
+                firstMealThresholdWindow(it.forecast.glucoseMmol, 4.6),
                 firstMealThresholdWindow(it.forecast.glucoseMmol, 3.9), firstMealThresholdWindow(it.forecast.glucoseMmol, 3.0))
         }
         require(risks.isNotEmpty())
