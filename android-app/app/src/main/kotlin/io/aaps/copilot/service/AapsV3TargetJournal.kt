@@ -406,7 +406,7 @@ internal class AapsV3TargetJournal(
                 admittedAt = clock()
                 check(admittedAt in completedAt until deadline)
                 requireLivePairing(admittedAt, sessionStartedAt, minimumProbeCounter)
-                ComboResponseHandoff(record.rosterRevision, content)
+                ComboResponseHandoff(record.rosterRevision, content, sessionStartedAt, admittedAt)
             }
             if (handoff != null) check(clock() in admittedAt until deadline)
             owned = null

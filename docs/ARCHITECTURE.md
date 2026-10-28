@@ -1,5 +1,28 @@
 # ARCHITECTURE
 
+## Authenticated Catalog Retention
+
+`AapsV3ComboCatalogRetention` consumes the paired journal's one-time page handoffs
+through the existing bounded inventory assembler. It pins roster revision and
+the supplied, verified session start in addition to the assembler's client,
+master, snapshot, cursor, count and digest checks. Issue/observation times cannot
+go backwards, and a page cannot be consumed before its committed admission time.
+Each request retains its own original deadline; this creates no longer-lived token.
+
+Only a complete catalog triggers the existing private-store reconciliation.
+That read-only transaction is outside the paired journal and target locks.
+Missing/conflicting reads and omitted older adverse evidence stay visible.
+A complete audit is returned once; cancellation, close, storage failure or a late
+clock/deadline check suppresses it. Busy input is closed without invalidating an
+already admitted audit. Partial catalogs do not touch private storage or persist.
+
+Handoffs now carry session/admission observations in memory only. Raw-read retention
+also refuses cross-session fragments and pre-admission consumption. These fields
+are not wire metadata, a new key/epoch, or proof supplied by caller construction.
+Production lifecycle/generation and capability checks still belong to the future
+runtime owner. This local consumer does not activate background transfer or grant
+source-delete permission, physical delivery coverage or meal-time advice.
+
 ## Combo Response Handoff
 
 The existing paired journal can consume one previously committed RECEIVED reply.

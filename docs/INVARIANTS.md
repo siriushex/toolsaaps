@@ -1,5 +1,24 @@
 # INVARIANTS
 
+## Catalog Handoff Admission
+
+- Carry the paired journal's checked session start and admission observation with
+  every handoff. Retention must not consume it before that observation or combine
+  fragments/pages from different sessions, even if pairing/roster are unchanged.
+- Pin roster, client/master, catalog identity/cursor and digest across pages.
+  Counters strictly increase; issue and consumption observations never rewind.
+- No partial catalog audit, durable partial resume, source acknowledgement or
+  private-store write. Only the whole verified catalog reaches reconciliation.
+- Do not hold a main-journal/target transaction across private audit I/O. Preserve
+  missing/conflicting entries and older retained hazards; never repair or prune.
+- Recheck cancellation, closure, clock and the final page deadline after private
+  reconciliation. A late read result cannot revive a closed consumer or be reused.
+- Check cancellation around non-suspending partial assembly too; an interrupted
+  page/read must not continue from another coroutine before the first I/O wait.
+- Successful local audit is historical catalog-to-storage evidence, not current
+  source access or clinical coverage. Runtime generation, native capability and
+  actual pump/UTC epoch validation are not inferred from the session timestamp.
+
 ## Combo Local Handoff
 
 - Only a committed RECEIVED reply may be consumed. Revalidate current request,

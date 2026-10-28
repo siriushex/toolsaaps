@@ -1,3 +1,32 @@
+# Authenticated Catalog Retention - 2026-10-29
+
+- Bind one complete authenticated page sequence to the existing private audit,
+  preserving missing/conflicting/omitted evidence without target or source-ACK
+  mutation. Use the existing bounded assembler and read-only store transaction.
+- Handoffs carry checked local session/admission observations; both catalog and
+  raw retention refuse a new-session continuation or pre-admission consumption.
+  This is in-memory context, not a new wire/schema or physical pump clock epoch.
+- Add synthetic native-SQLite catalog lifecycle tests and actual paired-journal
+  encrypted-page integration. Cover 4096 entries, session/roster replacement,
+  cancellation/close/late clock, private storage failure and target independence.
+- Initial focused run: 129 passed, one fixture failure. Closing a never-opened
+  Room database did not induce the intended I/O failure; initialize it first so
+  the test exercises a genuinely closed store. All 130 focused checks then passed.
+- Additional review reproduced two cancellation defects with failing regressions:
+  a partial page or fragment could survive cancellation before the first I/O wait
+  and continue from a fresh coroutine. Check cancellation before/after bounded CPU
+  work and before returning a receipt; the failure path disposes the consumer.
+  The first full run passed 7096 tests with six existing skips. After the fix,
+  133 focused tests passed; full quality passed 7098 tests with six existing skips,
+  zero failures/errors. Lint has no errors (383 warnings/eight hints); compile,
+  assembly and APK retention/size guard passed. Exact-head CI/review are pending.
+- Native runtime capability/dispatch, production transfer ownership and clinical
+  timer activation remain disconnected. No AAPS, phone/server, therapy, APK version
+  or publication change in this source stage.
+- Previous PR65 passed six exact-head checks and review without findings; merged
+  main fb9f2697 has the tested tree and successful Verify 40764553065. This closes
+  the original candidate's pending CI/review note below.
+
 # Authenticated Combo Local Handoff - 2026-10-28
 
 - The paired owner can consume one previously committed ciphertext response

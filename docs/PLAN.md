@@ -1,5 +1,21 @@
 # PLAN
 
+## Authenticated Catalog Retention (2026-10-29)
+
+- [x] Bind complete authenticated paged catalogs to the existing private audit,
+      pinning client/master, roster, session, counters, observations and digest.
+- [x] Carry checked session/admission observations in local handoffs; reject
+      cross-session raw fragments and consumption before the committed observation.
+- [x] Add synthetic page/SQLite lifecycle and authenticated paired-journal tests,
+      including missing/conflicting/omitted history and independent target progress.
+- [x] 133 focused tests passed, including 25 new cases; two partial-cancellation
+      regressions failed before the fix and passed afterward.
+- [x] Full Android: 7098 passed, six existing skips, no failures/errors; lint,
+      compile/assembly and APK retention/size guard passed.
+- [ ] Exact-head CI/review and main integration.
+- Native capability/dispatch and production transfer lifecycle remain separate;
+  this stage does not activate the live timer, change AAPS or publish an APK.
+
 ## Authenticated Combo Local Handoff (2026-10-28)
 
 - [x] Consume one committed response after exact ACK/crypto, session/roster,
@@ -11,7 +27,8 @@
       concurrency, revocation, receipt-clock rewind and 2 MiB/64-fragment cases.
 - [x] Full Android: 7073 passed, six existing skips, no failures/errors; lint,
       compilation, assembly and APK retention/size guard passed.
-- [ ] Exact-head CI/review and controlled integration.
+- [x] PR65 exact-head CI/review passed; main fb9f2697 has the tested tree and
+      successful Verify 40764553065. No APK published in that source stage.
 - No native dispatch/capability, runtime transfer owner, clinical admission or
   APK publication. Catalog lifecycle, device costs, pump UTC epochs and physical
   basal/delivery completeness still require independent verification.

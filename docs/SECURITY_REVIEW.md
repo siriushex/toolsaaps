@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Catalog Retention Session Binding (2026-10-29)
+
+- Bind complete page assembly to the verified handoff's client/master, roster
+  and session start. Keep the original query/digest checks in the existing
+  assembler; no second authenticator or private-store implementation is added.
+- Session/admission observations are copied by the paired owner after its checks,
+  not decoded from peer fields. Constructing an internal handoff alone still does
+  not authenticate it. Raw chunks now also reject cross-session continuation.
+- Refuse consumption before admission, backwards issue/observation times and
+  late audit completion. Close/cancellation suppresses late output; failed/busy
+  input is disposed. An invalid catalog never returns a partial reconciliation.
+- Reconciliation is read-only outside the target journal, preserving conflicts,
+  omitted hazards and all original bytes. It does not acknowledge source retention.
+- This is not a persistent epoch, running synchronization service or current-source
+  authorization. Native async/capability, actual driver lifecycle and physical
+  delivery/clock coverage remain required before production or clinical use.
+
 ## Private Response Handoff (2026-10-28)
 
 - Consume only the original committed RECEIVED ciphertext under the existing
