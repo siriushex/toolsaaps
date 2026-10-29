@@ -30,6 +30,11 @@ internal class ComboJournalEvent private constructor(
     private val original: ByteArray
 ) {
     fun rawBytes(): ByteArray = original.copyOf()
+    /** A local-clock contradiction, not a UTC mapping or a delivery-start estimate. */
+    fun precedesPreviousClockSetting(previous: ComboJournalEvent): Boolean {
+        val setting = previous.detail as? ComboEventDetail.ClockChange ?: return false
+        return counter == previous.counter + 1 && localTime.isBefore(setting.replacementLocalTime)
+    }
     override fun toString() = "ComboJournalEvent(redacted)"
 
     companion object {

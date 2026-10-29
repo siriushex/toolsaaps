@@ -14,6 +14,7 @@ internal class ComboRetainedEventAudit(
     val interiorCounterGaps: Int,
     val missingInteriorCounterValues: Long,
     val backwardsLocalTimePairs: Int,
+    val postClockChangeRewinds: Int,
     val clockChangeCounters: Int,
     val unknownEventCounters: Int,
     bolusPhaseCounts: Map<ComboRecordedBolusPhase, Int>,
@@ -77,6 +78,7 @@ internal class ComboRetainedEventAuditBuilder(private val maximumCounters: Int =
         var gaps = 0
         var missing = 0L
         var backwards = 0
+        var postClockChangeRewinds = 0
         val phases = ComboRecordedBolusPhase.entries.associateWith { 0 }.toMutableMap()
         for ((counter, entry) in counters) {
             previousCounter?.let { before ->
@@ -85,6 +87,8 @@ internal class ComboRetainedEventAuditBuilder(private val maximumCounters: Int =
             if (!entry.conflicting) {
                 if (previous?.let { !it.conflicting && entry.first.localTime.isBefore(it.first.localTime) } == true)
                     backwards++
+                if (previous?.let { !it.conflicting && entry.first.precedesPreviousClockSetting(it.first) } == true)
+                    postClockChangeRewinds++
                 (entry.first.detail as? ComboEventDetail.Bolus)?.let { phases[it.phase] = phases.getValue(it.phase) + 1 }
             }
             previousCounter = counter
@@ -96,12 +100,13 @@ internal class ComboRetainedEventAuditBuilder(private val maximumCounters: Int =
         if (conflicts > 0) hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_REUSED
         if (gaps > 0) hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP
         if (backwards > 0) hazards += AapsV3ComboHistoryHazard.EVENT_TIME_REWIND
+        if (postClockChangeRewinds > 0) hazards += AapsV3ComboHistoryHazard.POST_CLOCK_CHANGE_REWIND
         if (clockChanges > 0) hazards += AapsV3ComboHistoryHazard.CLOCK_CHANGE
         if (unknown > 0) hazards += AapsV3ComboHistoryHazard.UNMAPPED_EVENT
         if (unacknowledged > 0) hazards += AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK
         return ComboRetainedEventAudit(observations, counters.size,
             counters.values.filter { !it.conflicting }.sumOf { it.count - 1 }, conflicts,
             unacknowledged, counters.values.count { !it.acknowledged }, gaps, missing, backwards,
-            clockChanges, unknown, phases, hazards)
+            postClockChangeRewinds, clockChanges, unknown, phases, hazards)
     }
 }

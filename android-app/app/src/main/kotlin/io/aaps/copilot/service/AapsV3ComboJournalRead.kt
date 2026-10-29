@@ -171,6 +171,7 @@ internal class AapsV3ComboJournalRead private constructor(
             private val seen = mutableMapOf<Long, ByteArray>()
             private var previousCounter: Long? = null
             private var previousTime: LocalDateTime? = null
+            private var previousEvent: ComboJournalEvent? = null
 
             fun observe(events: List<ComboJournalEvent>): Set<AapsV3ComboHistoryHazard> {
                 val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
@@ -186,8 +187,11 @@ internal class AapsV3ComboJournalRead private constructor(
                         hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_REWIND
                     if (previousTime?.let(time::isBefore) == true)
                         hazards += AapsV3ComboHistoryHazard.EVENT_TIME_REWIND
+                    if (previousEvent?.let(event::precedesPreviousClockSetting) == true)
+                        hazards += AapsV3ComboHistoryHazard.POST_CLOCK_CHANGE_REWIND
                     previousCounter = counter
                     previousTime = time
+                    previousEvent = event
                 }
                 return hazards
             }
