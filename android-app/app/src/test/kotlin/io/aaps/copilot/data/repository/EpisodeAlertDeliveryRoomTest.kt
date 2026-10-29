@@ -258,10 +258,17 @@ class EpisodeAlertDeliveryRoomTest {
         val deliveryCleaned = CompletableDeferred<Unit>()
         val muteStarted = CompletableDeferred<Unit>()
         val resumeStarted = CompletableDeferred<Unit>()
-        val completionOrder = Collections.synchronizedList(mutableListOf<String>())
+        val commitOrder = Collections.synchronizedList(mutableListOf<String>())
         val first = machine()
-        val second = machine()
-        val third = machine()
+        fun committed(action: String) {
+            val lock = EpisodeAlertOperationLocks.forDeliveryIdentity(db)
+            val acquired = lock.tryLock()
+            if (acquired) lock.unlock()
+            assertThat(acquired).isFalse()
+            commitOrder += action
+        }
+        val second = machine(clearRiskSideEffects = { committed("mute") })
+        val third = machine(clearRiskSideEffects = { committed("resume") })
         val delivery = async(Dispatchers.Default) {
             first.coordinate(low(nowTs = 20_000L)) {
                 deliveryEntered.complete(Unit)
@@ -272,26 +279,51 @@ class EpisodeAlertDeliveryRoomTest {
 
         val mute = async(Dispatchers.Default) {
             muteStarted.complete(Unit)
-            second.muteFor(20_001L, GlucoseAlertMuteOption.MINUTES_30.durationMs).also {
-                completionOrder += "mute"
-            }
+            second.muteFor(20_001L, GlucoseAlertMuteOption.MINUTES_30.durationMs)
         }
         val resume = async(Dispatchers.Default) {
             resumeStarted.complete(Unit)
             third.resume(20_002L)
-            completionOrder += "resume"
         }
         muteStarted.await()
         resumeStarted.await()
         val mutedUntil = withTimeout(2_000L) { mute.await().also { resume.await(); delivery.await() } }
         assertThat(deliveryCleaned.isCompleted).isTrue()
         assertThat(delivery.await().receiptResult).isEqualTo(AlertReceiptResult.FAILED)
-        val expectedFinalMute = if (completionOrder.last() == "resume") 0L else mutedUntil
+        // Caller continuations may resume in another order after the lock is released.
+        assertThat(commitOrder).containsExactly("mute", "resume")
+        val expectedFinalMute = if (commitOrder.last() == "resume") 0L else mutedUntil
         assertThat(mutedUntil).isEqualTo(20_001L + GlucoseAlertMuteOption.MINUTES_30.durationMs)
         assertThat(first.currentMutedUntil()).isEqualTo(expectedFinalMute)
         assertThat(db.alertDeliveryReceiptDao().byEpisodeId(
             db.alertEventDao().latestUnresolvedGlucoseEpisode()!!.episodeId
         )).hasSize(1)
+    }
+
+    @Test
+    fun callerCompletionCanBeReversedWithoutChangingSerializedRoomState() = runBlocking {
+        val muteReturned = CompletableDeferred<Unit>()
+        val resumeReturned = CompletableDeferred<Unit>()
+        val commitOrder = Collections.synchronizedList(mutableListOf<String>())
+        val completionOrder = Collections.synchronizedList(mutableListOf<String>())
+        val first = machine(clearRiskSideEffects = { commitOrder += "mute" })
+        val second = machine(clearRiskSideEffects = { commitOrder += "resume" })
+        val mute = async(Dispatchers.Default) {
+            first.muteFor(20_001L, GlucoseAlertMuteOption.MINUTES_30.durationMs)
+            muteReturned.complete(Unit)
+            resumeReturned.await()
+            completionOrder += "mute"
+        }
+        val resume = async(Dispatchers.Default) {
+            muteReturned.await()
+            second.resume(20_002L)
+            completionOrder += "resume"
+            resumeReturned.complete(Unit)
+        }
+        withTimeout(2_000L) { mute.await(); resume.await() }
+        assertThat(commitOrder).containsExactly("mute", "resume").inOrder()
+        assertThat(completionOrder).containsExactly("resume", "mute").inOrder()
+        assertThat(first.currentMutedUntil()).isEqualTo(0L)
     }
 
     @Test
@@ -411,9 +443,9 @@ class EpisodeAlertDeliveryRoomTest {
         }
     }
 
-    private fun machine(database: CopilotDatabase = db) = EpisodeAlertDeliveryStateMachine(
+    private fun machine(database: CopilotDatabase = db, clearRiskSideEffects: () -> Unit = {}) = EpisodeAlertDeliveryStateMachine(
         store = RoomEpisodeAlertReceiptStore(database),
-        clearRiskSideEffects = {}
+        clearRiskSideEffects = clearRiskSideEffects
     )
 
     private fun low(nowTs: Long) = EpisodeAlertSignal(

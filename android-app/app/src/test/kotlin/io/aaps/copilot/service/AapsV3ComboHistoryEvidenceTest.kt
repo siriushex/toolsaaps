@@ -117,6 +117,29 @@ class AapsV3ComboHistoryEvidenceTest {
         assertEquals(0, limited.observedSnapshots)
     }
 
+    @Test fun readFinishingAfterPublicationCannotLookLikeCleanHistory() = runBlocking {
+        upload(value = observation("readFinishedAt" to JsonPrimitive(at + 1)), key = "ComboHistoryRead")
+        upload(at + 2, observation(), "ComboHistoryRead")
+        db.close(); db = open()
+        val result = read()
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, result.status)
+        assertEquals(setOf(AapsV3ComboHistoryHazard.READER_TIME_INCONSISTENT), result.hazards)
+        assertEquals(2, result.observedSnapshots)
+        assertFalse(result.deliveryCompletenessVerified)
+    }
+
+    @Test fun inProgressReaderStartingAfterPublicationIsAlsoAdverse() = runBlocking {
+        upload(value = JsonObject(observation("state" to JsonPrimitive("READING"),
+            "readStartedAt" to JsonPrimitive(at + 1)) - "readFinishedAt"), key = "ComboHistoryRead")
+        assertTrue(AapsV3ComboHistoryHazard.READER_TIME_INCONSISTENT in read().hazards)
+    }
+
+    @Test fun completedReadAtPublicationIsNotInventedIntoAClockError() = runBlocking {
+        upload(value = observation("readStartedAt" to JsonPrimitive(at)), key = "ComboHistoryRead")
+        assertTrue(read().hazards.isEmpty())
+        assertFalse(read().deliveryCompletenessVerified)
+    }
+
     @Test fun malformedFutureDiagnosticsCannotDisappearOutsideWindow() = runBlocking {
         upload()
         upload(at + 86_400_000, journal("coverage" to JsonPrimitive("complete")))

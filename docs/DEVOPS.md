@@ -1,5 +1,25 @@
 # DEVOPS
 
+## Android Test Runtime Resolution
+
+Resolve `:app:prepareRobolectricSdks` before tests. Robolectric4.16.1 uses pinned
+instrumented Android runtimes for API31,34,35 and the target/default API36.
+Each version has its own non-transitive Gradle configuration; a shared
+configuration would silently select only the newest version of this module.
+The Sync task writes to `app/build/robolectric-sdks`. Unit tests use that directory
+with `robolectric.offline=true`, including local runs. These configurations are
+test infrastructure only and must not join the application runtime classpath.
+When adding an SDK annotation or updating Robolectric, verify every selected SDK
+is resolved. A missing jar must fail, not trigger a download inside a testcase.
+
+PR69 push CI40825424192 failed while lazily downloading the API35 runtime with
+a connection reset. Resolve/download failure is now a separate CI preparation
+step, without test retries, skips or a changed Robolectric version.
+PR CI40825434795 instead exposed an alert test oracle race: caller continuation
+order after releasing a mutex is not the database commit order. Observe the
+existing callback under the shared delivery lock and exercise deliberately
+reversed caller completion. Production alert behavior is unchanged.
+
 ## Native CI Failure Evidence
 
 Always preserve `native-unit-test-reports` for 3 days, restricted to
@@ -16,8 +36,8 @@ timeout or validate pump behavior. No blind retry-to-green or timeout extension.
 
 ## Native Reply Verification
 
-The native recipe now freezes nine compatibility patches, adding the pure reply
-codec and common tests. SDK preparation extracts the exact decoder and encoder
+The native recipe now freezes ten compatibility patches, including the pure reply
+codec and test-only structured-child watchdog fix. SDK preparation extracts the exact decoder and encoder
 beside the external driver without patching upstream. Run recipe tests, native
 verification/restoration, sequential pristine SDK preparation, then Copilot's
 AapsV3ComboNativeReplyTest and full Android quality/APK guard.

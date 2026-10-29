@@ -1,5 +1,30 @@
 # PLAN
 
+## Combo Clock Boundaries And Test Watchdog (2026-10-29)
+
+- [x] Verify main a9daf781 CI40792766094 passed; PR67/68 are integrated.
+- [x] Retain post-clock-setting contradictions and reader/publication date
+      inconsistencies without converting local pump clocks into UTC.
+- [x] Reproduce the premature watchdog cancellation in two finite child-work
+      tests; keep the watchdog armed for structured children and preserve failures.
+- [x] Add fixed phase markers to the intermittent double-release test, without
+      changing its timeout, pump behavior, skipping or retrying it to green.
+- [x] Focused Android67 and selected native746 tests passed; native source restored.
+- [x] Full Android7111passed/six existing skips, no failures/errors; lint has
+      zero errors, compile/build and APK retention check pass. Recipe30passed.
+- [x] Diagnose the two initial CI failures without blind retries: test-only alert
+      ordering oracle and lazy Robolectric SDK download connection reset.
+- [x] Correct the oracle, add reversed-continuation coverage, and resolve four
+      pinned SDKs before offline test execution; focused16/recipe30passed.
+- [x] Full Android checks for the CI follow-up:7112passed/six existing skips,
+      zero failures/errors; lint/compile/build/APK guard pass in4m6s.
+- [ ] Renewed exact-head CI/review and controlled main integration.
+- The prior 60-second release timeout remains unexplained. This watchdog defect
+  is independently reproduced, not evidence of that timeout's root cause.
+- Native runtime history transfer, physical basal/delivery coverage, pump UTC
+  epochs and prospective meal-time validation remain prerequisites. No clinical
+  recommendation or APK release is authorized by these synthetic checks alone.
+
 ## Native Encrypted Reply Codec (2026-10-29)
 
 - [x] Inspect native source/query/refusal and Copilot decryption contracts.
@@ -10,7 +35,8 @@
 - [x] Recipe27/platform-JSON6/native736/focused29tests passed; full Android
       7104passed/six existing skips, no failures/errors. Lint/compile/build and
       APK guard passed; native checkout restored pristine.
-- [ ] Exact-head CI/review and controlled main integration.
+- [x] PR67/68 exact-head CI/review and controlled main integration; main
+      a9daf781 Verify40792766094 passed with740native/7104Android passed tests.
 - Source mapping, async runtime/capability, device validation and clinical gates
   remain separate. No phone/server/therapy or APK publication in this stage.
 

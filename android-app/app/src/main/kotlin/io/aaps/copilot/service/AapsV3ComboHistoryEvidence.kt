@@ -12,7 +12,8 @@ enum class AapsV3ComboHistoryStatus { UNCHECKED, NOT_OBSERVED, RETAINED_UNVERIFI
 internal enum class AapsV3ComboHistoryHazard {
     STORAGE_FAILED, UNCLOSED_READ, CORRUPT_READ, UNSCOPED_CORRUPTION, ADVERSE_READ, FAILED_READ,
     FIFO_GAP, CLOCK_CHANGE, UNMAPPED_EVENT, INTERRUPTED_READ, MALFORMED_BLOCK, UNCONFIRMED_BLOCK,
-    EVENT_DUPLICATE, EVENT_COUNTER_REUSED, EVENT_COUNTER_REWIND, EVENT_TIME_REWIND, EVENT_COUNTER_GAP
+    EVENT_DUPLICATE, EVENT_COUNTER_REUSED, EVENT_COUNTER_REWIND, EVENT_TIME_REWIND, EVENT_COUNTER_GAP,
+    POST_CLOCK_CHANGE_REWIND, READER_TIME_INCONSISTENT
 }
 
 /** These are retained uploader diagnostics, not current-pump identity or delivery receipts. */
@@ -57,7 +58,15 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
                 val journal = extended["ComboHistoryJournal"]
                 if (read == null && journal == null) return@mapNotNull null
                 val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
-                read?.let { hazards += AapsV3ComboObservation.parse(HistoryJson.obj(it)).hazards }
+                read?.let {
+                    val observation = AapsV3ComboObservation.parse(HistoryJson.obj(it))
+                    hazards += observation.hazards
+                    // Reader and status dates share the producer clock. Never move either date
+                    // to hide a rewind or a read that claims to finish after its publication.
+                    if (observation.startedAtMs?.let { start -> start > at } == true ||
+                        observation.finishedAtMs?.let { end -> end > at } == true)
+                        hazards += AapsV3ComboHistoryHazard.READER_TIME_INCONSISTENT
+                }
                 journal?.let { journalStatus(HistoryJson.obj(it), hazards) }
                 Entry(at, hazards.toSet())
             } catch (_: Exception) {

@@ -1,0 +1,134 @@
+diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
+index 38aceef..9d384b7 100644
+--- a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
++++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/PumpIOTest.kt
+@@ -358,13 +358,17 @@ class PumpIOTest : TestBase() {
+         // calls. The second call here should be ignored.
+ 
+         runBlockingWithWatchdog(60000) {
++            println("[STEP] double-release: construct test state")
+             val testStates = TestStates(true)
+             val pumpIO = testStates.pumpIO
+ 
++            println("[STEP] double-release: feed handshake")
+             testStates.feedInitialPackets()
+ 
++            println("[STEP] double-release: connect")
+             pumpIO.connect(runHeartbeat = false)
+ 
++            println("[STEP] double-release: start press")
+             var counter = 0
+             pumpIO.startLongRTButtonPress(ApplicationLayer.RTButton.UP) {
+                 // Return true the first time, false the second time.
+@@ -375,11 +379,15 @@ class PumpIOTest : TestBase() {
+                 counter <= 1
+             }
+ 
++            println("[STEP] double-release: first wait")
+             pumpIO.waitForLongRTButtonPressToFinish()
++            println("[STEP] double-release: second wait")
+             pumpIO.waitForLongRTButtonPressToFinish()
+ 
++            println("[STEP] double-release: disconnect")
+             pumpIO.disconnect()
+ 
++            println("[STEP] double-release: verify packets")
+             testStates.checkAndRemoveInitialSentPackets()
+             testStates.checkLongRTButtonPressPacketSequence(ApplicationLayer.RTButton.UP)
+         }
+diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/UtilityFunctions.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/UtilityFunctions.kt
+index 2d5afaa..642bc96 100644
+--- a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/UtilityFunctions.kt
++++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/UtilityFunctions.kt
+@@ -59,7 +59,9 @@ fun runBlockingWithWatchdog(
+                 // to access the CoroutineScope via the "this" value.
+                 // This is important, otherwise test code cannot
+                 // launch coroutines easily.
+-                this.block()
++                // A returned body may still have running children. Keep the watchdog armed
++                // until structured work finishes, including cancellation and child failures.
++                coroutineScope { block() }
+             } finally {
+                 // Disabling the watchdog here makes sure
+                 // that it is disabled no matter if the block
+@@ -89,7 +91,7 @@ suspend fun coroutineScopeWithWatchdog(
+                 // to access the CoroutineScope via the "this" value.
+                 // This is important, otherwise test code cannot
+                 // launch coroutines easily.
+-                this.block()
++                coroutineScope { block() }
+             } finally {
+                 // Disabling the watchdog here makes sure
+                 // that it is disabled no matter if the block
+diff --git a/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/WatchdogTest.kt b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/WatchdogTest.kt
+new file mode 100644
+index 0000000..e16542e
+--- /dev/null
++++ b/pump/combov2/comboctl/src/jvmTest/kotlin/info/nightscout/comboctl/base/testUtils/WatchdogTest.kt
+@@ -0,0 +1,66 @@
++package info.nightscout.comboctl.base.testUtils
++
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.runBlocking
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFailsWith
++import kotlin.test.assertTrue
++
++class WatchdogTest {
++    @Test fun blockingWatchdogRemainsArmedForChildrenAfterBodyReturns() {
++        var childCancelled = false
++        val error = assertFailsWith<AssertionError> {
++            runBlockingWithWatchdog(50) {
++                launch {
++                    try { delay(250) } finally { childCancelled = true }
++                }
++            }
++        }
++        assertEquals("Test run timeout reached", error.message)
++        assertTrue(childCancelled)
++    }
++
++    @Test fun suspendingWatchdogRemainsArmedForChildrenAfterBodyReturns() = runBlocking {
++        var childCancelled = false
++        assertFailsWith<WatchdogTimeoutException> {
++            coroutineScopeWithWatchdog(50) {
++                launch {
++                    try { delay(250) } finally { childCancelled = true }
++                }
++            }
++        }
++        assertTrue(childCancelled)
++    }
++
++    @Test fun blockingWatchdogWaitsForSuccessfulChildren() {
++        var completed = false
++        runBlockingWithWatchdog(5000) {
++            launch { delay(1); completed = true }
++        }
++        assertTrue(completed)
++    }
++
++    @Test fun suspendingWatchdogWaitsForSuccessfulChildren() = runBlocking {
++        var completed = false
++        coroutineScopeWithWatchdog(5000) {
++            launch { delay(1); completed = true }
++        }
++        assertTrue(completed)
++    }
++
++    @Test fun originalFailureIsNotReplacedByTimeout() {
++        val error = assertFailsWith<IllegalArgumentException> {
++            runBlockingWithWatchdog(5000) { throw IllegalArgumentException("synthetic failure") }
++        }
++        assertEquals("synthetic failure", error.message)
++    }
++
++    @Test fun suspendingOriginalFailureIsNotReplacedByTimeout() = runBlocking {
++        val error = assertFailsWith<IllegalArgumentException> {
++            coroutineScopeWithWatchdog(5000) { throw IllegalArgumentException("synthetic failure") }
++        }
++        assertEquals("synthetic failure", error.message)
++    }
++}

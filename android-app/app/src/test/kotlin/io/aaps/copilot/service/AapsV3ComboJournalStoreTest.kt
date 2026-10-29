@@ -104,7 +104,7 @@ class AapsV3ComboJournalStoreTest {
         AapsV3ComboInventory.create("44444444-4444-4444-8444-444444444444", scope,
             entries.sortedBy { it.readId }, unscoped, writerFailed)
 
-    private fun event(counter: Long, hour: Int = 12, type: Int = 7, amount: Int = 22): ByteArray =
+    private fun event(counter: Long, hour: Int = 12, type: Int = 7, amount: Int = 22, replacementHour: Int = 9): ByteArray =
         ByteArray(18).also { bytes ->
             fun time(offset: Int, h: Int) {
                 // 2026-10-24 at hh:30:15; packed native local clock, without a zone.
@@ -114,7 +114,7 @@ class AapsV3ComboJournalStoreTest {
                 bytes[offset + 3] = (2 or (26 shl 2)).toByte()
             }
             time(0, hour)
-            if (type == 24) time(4, 9) else { bytes[4] = amount.toByte(); bytes[5] = (amount ushr 8).toByte() }
+            if (type == 24) time(4, replacementHour) else { bytes[4] = amount.toByte(); bytes[5] = (amount ushr 8).toByte() }
             bytes[8] = type.toByte(); bytes[9] = (type ushr 8).toByte()
             repeat(4) { bytes[12 + it] = (counter ushr (8 * it)).toByte() }
             for ((start, end, dest) in listOf(Triple(0, 10, 10), Triple(12, 16, 16))) {
@@ -193,6 +193,57 @@ class AapsV3ComboJournalStoreTest {
             readBytes(events = listOf(event(11, hour = 12))), readBytes(events = listOf(event(11, hour = 10))),
             readBytes(events = listOf(event(12, hour = 11))))
         assertEquals(1, audit.conflictingCounters); assertEquals(0, audit.backwardsLocalTimePairs)
+        assertFalse(audit.clockMappingVerified)
+    }
+
+    @Test fun forwardClockSettingCannotHideSubsequentRewindWithinOrBetweenReads() {
+        val setting = event(10, hour = 12, type = 24, replacementHour = 15)
+        val following = event(11, hour = 14)
+        val together = AapsV3ComboJournalRead.read(readBytes(events = listOf(setting, following)), binding)
+        assertEquals(ComboJournalIssue.NONE, together.issue)
+        assertTrue(AapsV3ComboHistoryHazard.POST_CLOCK_CHANGE_REWIND in together.hazards)
+        val first = readBytes(events = listOf(setting))
+        val second = readBytes(events = listOf(following))
+        for (audit in listOf(eventAudit(first, second), eventAudit(second, first), eventAudit(first, first, second))) {
+            assertEquals(0, audit.backwardsLocalTimePairs)
+            assertEquals(1, audit.postClockChangeRewinds)
+            assertTrue(AapsV3ComboHistoryHazard.POST_CLOCK_CHANGE_REWIND in audit.hazards)
+            assertFalse(audit.clockMappingVerified); assertFalse(audit.deliveryCompletenessVerified)
+        }
+    }
+
+    @Test fun nextClockBoundaryUsesReplacementWithoutRepairingRawTimes() {
+        val setting = event(10, hour = 13, type = 24, replacementHour = 9)
+        for (hour in listOf(9, 10)) {
+            val following = event(11, hour = hour)
+            val raw = readBytes(events = listOf(setting, following))
+            val parsed = AapsV3ComboJournalRead.read(raw, binding)
+            assertArrayEquals(raw, parsed.rawBytes())
+            assertEquals(hour, parsed.events.last().event.localTime.hour)
+            val audit = eventAudit(raw)
+            assertEquals(0, audit.postClockChangeRewinds)
+            assertTrue(AapsV3ComboHistoryHazard.CLOCK_CHANGE in audit.hazards)
+            assertTrue(AapsV3ComboHistoryHazard.EVENT_TIME_REWIND in audit.hazards)
+            assertFalse(audit.clockMappingVerified)
+        }
+    }
+
+    @Test fun gapsAndConflictingSettingsCannotSupplyAnAdjacentClockBoundary() {
+        val first = readBytes(events = listOf(event(10, type = 24, replacementHour = 15)))
+        val conflicting = readBytes(events = listOf(event(10, type = 24, replacementHour = 16)))
+        val next = readBytes(events = listOf(event(11, hour = 14)))
+        assertEquals(0, eventAudit(first, conflicting, next).postClockChangeRewinds)
+        assertEquals(0, eventAudit(first, readBytes(events = listOf(event(12, hour = 14)))).postClockChangeRewinds)
+        assertEquals(0, eventAudit(readBytes(events = listOf(event(0xffff_ffffL, type = 24, replacementHour = 15))),
+            readBytes(events = listOf(event(0, hour = 14)))).postClockChangeRewinds)
+    }
+
+    @Test fun consecutiveClockSettingsCheckTheIncomingClockButDoNotGrantAnEpoch() {
+        val audit = eventAudit(readBytes(events = listOf(event(10, type = 24, replacementHour = 15))),
+            readBytes(events = listOf(event(11, hour = 14, type = 24, replacementHour = 9))),
+            readBytes(events = listOf(event(12, hour = 8))))
+        assertEquals(2, audit.postClockChangeRewinds)
+        assertEquals(2, audit.clockChangeCounters)
         assertFalse(audit.clockMappingVerified)
     }
 

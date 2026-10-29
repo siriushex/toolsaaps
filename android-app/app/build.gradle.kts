@@ -73,6 +73,30 @@ kotlin {
     }
 }
 
+// Resolve pinned test SDKs before execution; never download Android jars inside a test.
+// Separate configurations prevent Gradle from selecting only the newest version
+// of the same module. API31,34,35 and target/default36 match Robolectric4.16.1.
+val robolectricSdkConfigurations = mapOf(
+    31 to "12-robolectric-7732740-i7", 34 to "14-robolectric-10818077-i7",
+    35 to "15-robolectric-13954326-i7", 36 to "16-robolectric-13921718-i7"
+).map { (api, version) ->
+    configurations.create("robolectricSdk$api") {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        isTransitive = false
+    }.also { dependencies.add(it.name, "org.robolectric:android-all-instrumented:$version") }
+}
+val robolectricSdkDirectory = layout.buildDirectory.dir("robolectric-sdks")
+val prepareRobolectricSdks = tasks.register<Sync>("prepareRobolectricSdks") {
+    from(robolectricSdkConfigurations)
+    into(robolectricSdkDirectory)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareRobolectricSdks)
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", robolectricSdkDirectory.get().asFile.absolutePath)
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
     implementation(composeBom)

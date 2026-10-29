@@ -1,3 +1,50 @@
+# Combo Clock Boundaries And Watchdog - 2026-10-29
+
+## CI Follow-up
+
+- Exact8163f2b review completed without findings. PR CI40825434795 and push
+  CI40825424192 failed different Android checks; native stages passed. Retained
+  PR native reports confirm746passed, no skips/failures/errors.
+- Fix a test-only oracle in concurrent alert mute/resume: observe commit order
+  inside the delivery lock, not caller continuation order after release. Add a
+  deterministic reversed-continuation regression. No production alert changes.
+- Prepare four pinned Robolectric SDKs with separate Gradle configurations and
+  force offline resolution during tests. The push failure was a connection reset
+  in a lazy API35 download. No test retry, skip or timeout increase.
+- An initial shared-configuration attempt resolved only API36; offline tests
+  correctly failed for missing API35. Separate configurations now retain all
+  four runtimes and the16focused tests pass. Recipe30tests pass. Full Android
+  checks passed in4m6s:7112passed/six existing skips, zero failures/errors;
+  lint, compile/build and APK guard pass. APK40846133bytes,7334retained app classes.
+  Renewed exact-head CI/review remain pending.
+- Redmi read-only check found AAPS3.4.2.3 and no new native Combo history journal.
+  This is not device evidence for the AAPS4 path. No phone changes or data export.
+
+## Initial Candidate
+
+- Prior PR68 is merged at main a9daf781; Verify40792766094 passed all three jobs.
+  Retained reports confirm740native and7104Android passed, six existing Android
+  skips, zero failures/errors. This closes the preceding pending-CI note.
+- Audit a consecutive event against the preceding clock-change replacement time,
+  not just its old timestamp. Keep the old rewind observations and raw bytes;
+  gaps, wrap and conflicting counters cannot establish an adjacent clock boundary.
+  This adds adverse evidence, never a UTC offset or delivery-start assignment.
+- Retain reader start/end dates after their containing status date as an explicit
+  hazard. Later clean publications and DB reopen do not erase that contradiction.
+- Two new watchdog tests fail on pinned upstream: returning the test body cancels
+  the watchdog while launched children remain running. Await structured children
+  before disarming both watchdog variants. Six watchdog regressions now pass;
+  original exceptions and timeout duration remain unchanged.
+- Add fixed synthetic phase markers around double-release setup/connect/waits/
+  disconnect/verification. Its earlier60s timeout remains unproven; this change is
+  not a claimed fix for that failure and does not increase or retry the timeout.
+- Focused Android67 and selected native746 tests pass with no failures/skips.
+  The combined reversible native recipe restores the pinned source unchanged.
+  Full Android7111passed/six existing skips, no failures/errors; lint has zero
+  errors, compile/build and APK retention checks pass. Recipe30tests pass.
+  Exact-head CI/review are pending. No pump commands, clinical
+  timer admission, phone install, server change or APK publication in this stage.
+
 # Native CI Evidence Retention - 2026-10-29
 
 - PR67 exact36be9a92 passed all6CIchecks and review without findings; merged
