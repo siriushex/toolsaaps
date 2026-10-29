@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Combined RC1 Package Boundary
+
+The reversible RC1 recipe now includes scoped system/user CA trust for literal
+loopback hosts and an explicit full-APK verification mode. It retains every
+current Combo/uploader/admission patch and restores pristine SDK sources before
+interop tests. No clinical projection or target gate changes. See
+AAPS4_LOOPBACK_TRUST.md for packaging versus device-migration admission.
+
 ## Combo Retained Tail Audit
 
 The existing raw journal decoder also audits remaining-event headers after full

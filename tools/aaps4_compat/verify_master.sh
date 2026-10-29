@@ -5,13 +5,22 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${AAPS_RC1_DIR:?Set AAPS_RC1_DIR to the pristine upstream checkout}"
 : "${JAVA_HOME:?Use Java 21 for the upstream build}"
 expected=d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0
+if [ "$#" -eq 1 ] && [ "$1" = --package ]; then
+    set -- -I "$root/tools/aaps4_compat/android-platform-json.init.gradle" \
+        -PandroidPlatformJsonIsolation=true :app:checkAndroidPlatformJsonIsolation \
+        :app:testFullDebugUnitTest :app:compileFullDebugAndroidTestKotlin \
+        :app:lintFullRelease :app:assembleFullRelease
+elif [ "$#" -ne 0 ]; then
+    printf '%s\n' 'Usage: verify_master.sh [--package]' >&2
+    exit 2
+fi
 test "$(git -C "$AAPS_RC1_DIR" rev-parse HEAD)" = "$expected"
 git -C "$AAPS_RC1_DIR" diff --quiet HEAD --
 test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)"
 
 temp="$(mktemp -d "${TMPDIR:-/tmp}/master-admission.XXXXXX")"
 applied=false
-patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query combo-history-reply combo-error-timeout combo-test-watchdog combo-history-owner)
+patches=(master-admission transport-privacy loopback-trust upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query combo-history-reply combo-error-timeout combo-test-watchdog combo-history-owner)
 cleanup() {
     status=$?
     trap - EXIT INT TERM
@@ -56,6 +65,7 @@ git -C "$AAPS_RC1_DIR" diff --binary HEAD -- > "$temp/applied.diff"
 git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard > "$temp/applied.untracked"
 cd "$AAPS_RC1_DIR"
 ./gradlew --no-daemon --max-workers=2 --console=plain \
+    "$@" \
     :plugins:sync:testAndroidHostTest \
     --tests '*.clientcontrol.ClientControlReceiverTest' \
     --tests '*.clientcontrol.ComboHistoryReadOwnerTest' \

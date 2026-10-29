@@ -1,5 +1,20 @@
 # PLAN
 
+## Combined RC1 USB Preparation (2026-10-29)
+
+- [x] PR75 exact-head push/PR CI passed; downloaded reports show7158Android
+      passed/six prior skips and772native passed, no failures/errors.
+- [x] Identify missing PR19 loopback integration and the still-closed native
+      clinical projection. Do not replace AAPS by bypassing that guard.
+- [x] Integrate narrow TLS policy with all current patches; reproduce absent
+      packaging and ignored-option checks, then pass49tooling tests.
+- [x] Combined local full-APK verification passed900tests, lint/assembly and
+      exact binary loopback policy; pristine RC1 source restored.
+- [ ] Exact-head CI and source integration.
+- [ ] Stable intended-phone identity/signing, fresh settings export, CGM/TLS and
+      clinical compatibility before AAPS replacement; inspect journal afterward.
+- No therapy tests or live meal recommendation activation in this stage.
+
 ## Combo Remaining-Event Audit (2026-10-29)
 
 - [x] Main973c0917/Verify40920901933 passed;0.1.20 published and independently
@@ -10,7 +25,8 @@
       focused tests passed. Add unsigned/unknown/damaged-tail/clock combinations.
 - [x] Full Android7158passed/six prior skips; lint/compile/build and APK guard
       passed. No new lint warnings. Manual focused code/diff review completed.
-- [ ] Exact-head CI and source integration.
+- [x] Exact-head PR75/push CI passed:7158Android/six skips and772native tests.
+- [ ] Source integration.
 - [ ] Real Redmi source verification, historical UTC epochs and basal/delivery
       continuity; prospective meal-time safety remains separate. No activation.
 

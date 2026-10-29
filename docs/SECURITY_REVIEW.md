@@ -1,5 +1,14 @@
 # SECURITY REVIEW
 
+## Combined RC1 Loopback Policy (2026-10-29)
+
+Integrate the four-line PR19 resource exception with current Combo patches, not
+its obsolete build script. The only added trust anchors are system/user stores
+inside the two exact loopback domains. Tests forbid global/debug/pinning overrides
+and preserve existing cleartext policy without authorizing its use for Copilot.
+No certificates, credentials, clinical guard or dosing code are changed. Inspect
+the combined artifact and actual Android TLS separately before migration.
+
 ## Meal Planner Clock Consistency (2026-10-29)
 
 Matching revisions do not prove causal evidence. Reject observations newer than

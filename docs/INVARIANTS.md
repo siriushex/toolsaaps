@@ -1,5 +1,14 @@
 # INVARIANTS
 
+## RC1 Package Admission
+
+- Trust user CAs only for exact localhost/127.0.0.1; retain hostname verification,
+  external-host policy and HTTPS. No automatic CA enrollment or trust-all fallback.
+- Full packaging must include the complete current patch set and native suites.
+  Reject unknown options instead of silently running a smaller verification.
+- Reverse only owned unchanged patch copies, in reverse dependency order. A
+  concurrent edit must survive failure. Packaging does not grant clinical admission.
+
 ## Combo Remaining-Event Evidence
 
 - A returned/acknowledged read may still declare an unconsumed tail. Preserve

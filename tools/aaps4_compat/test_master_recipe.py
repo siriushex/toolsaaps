@@ -28,7 +28,8 @@ class MasterRecipeTest(unittest.TestCase):
         (self.source / "transport.txt").write_text("original transport\n")
         (self.source / "upload.txt").write_text("original upload\n")
         (self.source / "combo.txt").write_text("original combo\n")
-        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n.upload-invoked\n.combo-invoked\n.reader-invoked\n")
+        (self.source / "trust.txt").write_text("original trust\n")
+        (self.source / ".gitignore").write_text(".gradle-invoked\n.transport-invoked\n.upload-invoked\n.combo-invoked\n.reader-invoked\n.trust-invoked\n")
         wrapper = self.source / "gradlew"
         wrapper.write_text(
             "#!/usr/bin/env bash\nset -eu\n"
@@ -36,6 +37,7 @@ class MasterRecipeTest(unittest.TestCase):
             "cp transport.txt .transport-invoked\n"
             "cp upload.txt .upload-invoked\n"
             "cp combo.txt .combo-invoked\n"
+            "cp trust.txt .trust-invoked\n"
             "if [ -f added.txt ]; then cp added.txt .reader-invoked; fi\n"
             "if [ -n \"${AAPS_INTEROP_CLASSPATH:-}\" ]; then\n"
             "  mkdir -p \"$(dirname \"$AAPS_INTEROP_CLASSPATH\")\"\n"
@@ -52,12 +54,14 @@ class MasterRecipeTest(unittest.TestCase):
             "  printf '%s\\n' 'other edit' >> upload.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = combo-edit ]; then\n"
             "  printf '%s\\n' 'other edit' >> combo.txt\nfi\n"
+            "if [ \"${FIXTURE_MODE:-}\" = trust-edit ]; then\n"
+            "  printf '%s\\n' 'other edit' >> trust.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = reader-edit ]; then\n"
             "  printf '%s\\n' 'other edit' >> added.txt\nfi\n"
             "if [ \"${FIXTURE_MODE:-}\" = failure ]; then exit 9; fi\n"
         )
         wrapper.chmod(0o755)
-        self.run_git("add", "receiver.txt", "transport.txt", "upload.txt", "combo.txt", "gradlew", ".gitignore")
+        self.run_git("add", "receiver.txt", "transport.txt", "upload.txt", "combo.txt", "trust.txt", "gradlew", ".gitignore")
         self.run_git("commit", "-qm", "Synthetic initial state")
         tools = self.root / "project" / "tools" / "aaps4_compat"
         tools.mkdir(parents=True)
@@ -75,6 +79,10 @@ class MasterRecipeTest(unittest.TestCase):
         self.transport_patch = tools / "transport-privacy.patch"
         self.transport_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "transport.txt").stdout)
         (self.source / "transport.txt").write_text("original transport\n")
+        (self.source / "trust.txt").write_text("scoped loopback trust\n")
+        self.trust_patch = tools / "loopback-trust.patch"
+        self.trust_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "trust.txt").stdout)
+        (self.source / "trust.txt").write_text("original trust\n")
         (self.source / "upload.txt").write_text("patched upload\n")
         self.upload_patch = tools / "upload-profile-retry.patch"
         self.upload_patch.write_text(self.run_git("diff", "--binary", "HEAD", "--", "upload.txt").stdout)
@@ -145,8 +153,8 @@ class MasterRecipeTest(unittest.TestCase):
         return subprocess.run([self.git, "-C", str(self.source), *args],
                               text=True, capture_output=True, check=True)
 
-    def run_recipe(self, mode="", pin=PIN):
-        return subprocess.run(["bash", str(self.recipe)],
+    def run_recipe(self, mode="", pin=PIN, args=()):
+        return subprocess.run(["bash", str(self.recipe), *args],
                               env=dict(self.env, FIXTURE_MODE=mode, FIXTURE_PIN=pin),
                               text=True, capture_output=True, timeout=30)
 
@@ -165,6 +173,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
         self.assertEqual("patched upload\n", (self.source / ".upload-invoked").read_text())
         self.assertEqual("patched combo\n", (self.source / ".combo-invoked").read_text())
+        self.assertEqual("scoped loopback trust\n", (self.source / ".trust-invoked").read_text())
         self.assertEqual("new test with reader\n", (self.source / ".reader-invoked").read_text())
         arguments = (self.source / ".gradle-invoked").read_text().splitlines()
         self.assertIn(":plugins:sync:testAndroidHostTest", arguments)
@@ -178,6 +187,48 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertIn(":core:nssdk:jvmTest", arguments)
         self.assertIn(":pump:combov2:comboctl:testDebugUnitTest", arguments)
         self.assertIn(":pump:combov2:testDebugUnitTest", arguments)
+        self.assertNotIn(":app:assembleFullRelease", arguments)
+
+    def test_missing_trust_patch_refuses_before_changing_source(self):
+        self.trust_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+
+    def test_concurrent_trust_edit_is_preserved(self):
+        result = self.run_recipe("trust-edit")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("preserving the checkout", result.stderr)
+        self.assertEqual("scoped loopback trust\nother edit\n", (self.source / "trust.txt").read_text())
+
+    def test_package_runs_app_checks_and_all_native_checks(self):
+        result = self.run_recipe(args=("--package",))
+        self.assertEqual(0, result.returncode, result.stderr)
+        arguments = (self.source / ".gradle-invoked").read_text().splitlines()
+        for task in (":app:checkAndroidPlatformJsonIsolation", ":app:testFullDebugUnitTest",
+                     ":app:compileFullDebugAndroidTestKotlin", ":app:lintFullRelease",
+                     ":app:assembleFullRelease", ":pump:combov2:testDebugUnitTest",
+                     ":pump:combov2:comboctl:testDebugUnitTest", ":core:nssdk:jvmTest",
+                     "*.clientcontrol.ComboHistoryReadOwnerTest", "*.TargetAdmissionTransactionTest"):
+            self.assertIn(task, arguments)
+        self.assertIn("-PandroidPlatformJsonIsolation=true", arguments)
+        self.assertEqual("-I", arguments[arguments.index("-PandroidPlatformJsonIsolation=true") - 2])
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+
+    def test_package_failure_restores_all_patches(self):
+        result = self.run_recipe("failure", args=("--package",))
+        self.assertEqual(9, result.returncode, result.stderr)
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+        self.assertEqual("original trust\n", (self.source / "trust.txt").read_text())
+
+    def test_unknown_options_refuse_before_changes(self):
+        for args in (("--unknown",), ("--package", "--unknown"), ("--package", "--package")):
+            with self.subTest(args=args):
+                result = self.run_recipe(args=args)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertFalse((self.source / ".gradle-invoked").exists())
+                self.assertEqual("", self.run_git("status", "--porcelain").stdout)
 
     def test_missing_combo_patch_refuses_before_changing_source(self):
         self.combo_patch.unlink()
@@ -335,7 +386,7 @@ class MasterRecipeTest(unittest.TestCase):
 
     def test_ci_prepares_stock_sdk_after_reversing_temporary_patches(self):
         workflow = (RECIPE.parents[2] / ".github/workflows/verify.yml").read_text()
-        patch_step = "        run: bash tools/aaps4_compat/verify_master.sh\n"
+        patch_step = "        run: bash tools/aaps4_compat/verify_master.sh --package\n"
         prepare_step = "        run: bash tools/aaps4_compat/prepare.sh\n"
         test_step = "        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain\n"
         for step in (patch_step, prepare_step, test_step):
