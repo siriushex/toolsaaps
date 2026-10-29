@@ -1,5 +1,21 @@
 # PLAN
 
+## Diagnostic Update 0.1.20 (2026-10-29)
+
+- [x] Main91bcd48a/Verify40908185065 verified successful; published0.1.19/code20
+      matches the preceding release record. Redmi remains unavailable.
+- [x] Prepare0.1.20/code21 from checked main, with no further clinical changes.
+- [x] Full local quality7149passed/six prior skips, lint/compile/build passed;
+      release-helper14tests passed. Recreated distribution APK39946241bytes,
+      version/package/minSdk, original signer and7357retained app classes checked.
+- [ ] Exact-head CI and source integration.
+- [ ] Atomic HTTPS publication, retained previous pointer/page and independent
+      public metadata/hash/signature/Range checks. No service restart required.
+- This update distributes bounded native history transfer/readiness diagnostics
+  and the causal-clock refusal. Matching history still cannot prove delivery or
+  historical UTC mapping. Live meal recommendations remain disabled; no AAPS
+  installation, dosing/target change or phone installation is part of this release.
+
 ## Meal Planner Observation Clock (2026-10-29)
 
 - [x] Recheck main54620a5e/Verify40883762041 successful; Redmi still absent.
@@ -8,7 +24,10 @@
 - [x] Reject noncausal observation timestamps without changing notification gates.
 - [x] Focused44 and full7149Android tests passed, six prior skips; lint unchanged,
       compile/build and APK size/class checks passed.
-- [ ] Exact-head CI/review and controlled integration.
+- [x] PR73/push CI and manual exact-head review passed; main91bcd48a preserves
+      the reviewed tree. Verify40908185065 passed7149Android/six prior skips and
+      772native tests. Automated review did not complete and was not counted as
+      approval; manual review and lack of a bot-review requirement were recorded.
 - No real-device evidence, clinical activation or APK publication in this fix.
 
 ## Combo Readiness Diagnostics (2026-10-29)

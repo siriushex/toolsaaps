@@ -1,3 +1,22 @@
+# Diagnostic Update 0.1.20 Candidate - 2026-10-29
+
+- Main91bcd48a/Verify40908185065 successful:7149Android tests passed, six prior
+  skips,772native passed. PR73 had successful exact-head CI and a disclosed manual
+  re-review; its pending automated review was not treated as approval. This closes
+  the preceding source-stage integration notes.
+- Public manifest remains0.1.19/code20 with the recorded SHA256. Prepare0.1.20/code21
+  to distribute the checked source, without enabling live meal-time advice.
+- Scope: static APK/manifest/page only, original signer and old artifacts retained.
+  No AAPS, AI service/configuration, credentials, device installation, targets or
+  doses changed. Redmi unavailable; this is not real-device or clinical validation.
+- Full local quality passed in3m13s:7149tests passed/six prior skips, zero failures;
+  lint unchanged at383warnings/eight hints, zero errors. Release-helper14tests passed.
+- Recreated only generated APK. Package/version21/0.1.20/minSdk31 and unchanged
+  signing certificate verified against independently downloaded public0.1.19.
+  APK guard:39946241bytes/7357retained app classes. CandidateSHA256:
+  595030427460dabc9f93e2385ef02334b71ebc79bb2343eb0b45c748cfe3810f.
+  Exact-head CI and public publication checks remain pending.
+
 # Meal Planner Observation Clock - 2026-10-29
 
 - Main54620a5e/Verify40883762041 verified successful after the identified Gradle
