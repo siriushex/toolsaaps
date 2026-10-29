@@ -12,7 +12,13 @@
 - [x] Focused Android67 and selected native746 tests passed; native source restored.
 - [x] Full Android7111passed/six existing skips, no failures/errors; lint has
       zero errors, compile/build and APK retention check pass. Recipe30passed.
-- [ ] Exact-head CI/review and controlled main integration.
+- [x] Diagnose the two initial CI failures without blind retries: test-only alert
+      ordering oracle and lazy Robolectric SDK download connection reset.
+- [x] Correct the oracle, add reversed-continuation coverage, and resolve four
+      pinned SDKs before offline test execution; focused16/recipe30passed.
+- [x] Full Android checks for the CI follow-up:7112passed/six existing skips,
+      zero failures/errors; lint/compile/build/APK guard pass in4m6s.
+- [ ] Renewed exact-head CI/review and controlled main integration.
 - The prior 60-second release timeout remains unexplained. This watchdog defect
   is independently reproduced, not evidence of that timeout's root cause.
 - Native runtime history transfer, physical basal/delivery coverage, pump UTC
