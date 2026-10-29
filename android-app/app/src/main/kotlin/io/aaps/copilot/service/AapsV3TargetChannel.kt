@@ -31,7 +31,8 @@ data class AapsV3ConnectionState(
     val comboBolusStartUnverifiedCount: Int = 0,
     val insulinMissingUtcOffsetCount: Int = 0,
     val retainedComboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED,
-    val retainedComboHazardKindCount: Int = 0
+    val retainedComboHazardKindCount: Int = 0,
+    val comboTransfer: ComboTransferState = ComboTransferState()
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -216,15 +217,22 @@ internal class AapsV3TargetChannel(
                 !it.invalidated && it.recordedUtcOffsetMinutes == null
             } ?: 0 else 0,
             if (showEvidence) evidence?.comboHistory?.status ?: AapsV3ComboHistoryStatus.UNCHECKED else AapsV3ComboHistoryStatus.UNCHECKED,
-            if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0)
-            if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch) else stopHistory()
+            if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0,
+            mutableHistoryState.value)
+            if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch)
+            else stopHistory(clearAudit = status != AapsV3ConnectionStatus.VERIFYING)
         }
     }
 
-    @Synchronized private fun stopHistory() {
+    @Synchronized private fun publishHistory(value: ComboTransferState) {
+        mutableHistoryState.value = value
+        mutableState.value = mutableState.value.copy(comboTransfer = value)
+    }
+
+    @Synchronized private fun stopHistory(clearAudit: Boolean = true) {
         historyGeneration.incrementAndGet()
         historyJob?.cancel(); historyJob = null
-        mutableHistoryState.value = ComboTransferState()
+        publishHistory(ComboTransferState(lastAudit = if (clearAudit) null else mutableHistoryState.value.lastAudit))
     }
 
     @Synchronized private fun startHistory(epoch: Long) {
@@ -248,18 +256,20 @@ internal class AapsV3TargetChannel(
                 admit()
                 synchronized(this@AapsV3TargetChannel) {
                     if (generation.get() == epoch && historyGeneration.get() == readEpoch)
-                        mutableHistoryState.value = ComboTransferState(ComboTransferPhase.READING)
+                        publishHistory(ComboTransferState(ComboTransferPhase.READING,
+                            lastAudit = mutableHistoryState.value.lastAudit))
                 }
                 val result = AapsV3ComboTransfer(db, journal, factory(), clock).run(session, probe, ::admit)
                 admit()
                 synchronized(this@AapsV3TargetChannel) {
-                    if (generation.get() == epoch && historyGeneration.get() == readEpoch) mutableHistoryState.value = result
+                    if (generation.get() == epoch && historyGeneration.get() == readEpoch) publishHistory(result)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 synchronized(this@AapsV3TargetChannel) {
                     if (generation.get() == epoch && historyGeneration.get() == readEpoch)
-                        mutableHistoryState.value = ComboTransferState(ComboTransferPhase.UNAVAILABLE)
+                        publishHistory(ComboTransferState(ComboTransferPhase.UNAVAILABLE,
+                            lastAudit = mutableHistoryState.value.lastAudit))
                 }
             }
         }
@@ -270,7 +280,7 @@ internal class AapsV3TargetChannel(
     }
 
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {
-        stopHistory()
+        stopHistory(clearAudit = false)
         val epoch = generation.get()
         try {
             check(command.type == "temp_target")

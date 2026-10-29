@@ -110,8 +110,10 @@ class AapsV3TargetChannelTest {
         val read = request(AapsV3ComboReadProtocol.TYPE)
         assertEquals(3L, read.getValue("counter").jsonPrimitive.long)
         assertEquals(1, opened.get())
+        assertEquals(ComboTransferPhase.READING, channel.state.value.comboTransfer.phase)
         channel.stop()
         assertEquals(ComboTransferPhase.IDLE, channel.historyState.value.phase)
+        assertNull(channel.state.value.comboTransfer.lastAudit)
         assertEquals(0L, privateDb!!.journalDao().totals().reads)
         assertTrue(db.therapyDao().since(0).isEmpty())
     }
@@ -147,7 +149,78 @@ class AapsV3TargetChannelTest {
         enableHistory { error("synthetic storage failure") }; connected()
         withTimeout(4000) { channel.historyState.first { it.phase == ComboTransferPhase.UNAVAILABLE } }
         assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        assertEquals(ComboTransferPhase.UNAVAILABLE, channel.state.value.comboTransfer.phase)
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_${AapsV3ComboReadProtocol.TYPE}_$client"))
+    }
+
+    private suspend fun completeEmptyAudit(): ComboTransferAudit {
+        val request = request(AapsV3ComboReadProtocol.TYPE)
+        val query = Json.parseToJsonElement(request.getValue("payload").jsonPrimitive.content).jsonObject
+        val issuedAt = request.getValue("timestamp").jsonPrimitive.long
+        val count = request.getValue("counter").jsonPrimitive.long
+        val spec = AapsV3ComboReadSpec.Inventory()
+        val inventory = AapsV3ComboInventory.create("00000000-0000-4000-8000-000000000001", "a".repeat(64), emptyList())
+        val payload = AapsV3ComboInventoryEnvelope(secret).use {
+            it.seal(AapsV3ComboInventoryBinding(client, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                query.getValue("requestId").jsonPrimitive.content, count, issuedAt, issuedAt + 30_000, spec),
+                inventory.page(spec), now.get()).decodeToString()
+        }
+        acknowledge(request, payload, history = true)
+        val completed = withTimeout(4000) { channel.state.first { it.comboTransfer.lastAudit != null } }
+        assertEquals(ComboTransferPhase.RETAINED, completed.comboTransfer.phase)
+        return completed.comboTransfer.lastAudit!!
+    }
+
+    @Test fun historicalAuditSurvivesProbeRenewalButNotRevoke() = runBlocking {
+        enableHistory(); connected()
+        val audit = completeEmptyAudit()
+        assertEquals(0, audit.distinctEvents); assertFalse(audit.deliveryCompletenessVerified)
+        assertFalse(audit.clockMappingVerified)
+        now.addAndGet(60_000); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.VERIFYING, channel.state.value.status)
+        assertEquals(audit, channel.state.value.comboTransfer.lastAudit)
+        assertEquals(ComboTransferPhase.IDLE, channel.state.value.comboTransfer.phase)
+        acknowledge(request("ping")); channel.checkConnection()
+        assertEquals(audit, channel.state.value.comboTransfer.lastAudit)
+        channel.revoke(); assertNull(channel.state.value.comboTransfer.lastAudit)
+        channel.stop(); assertNull(channel.state.value.comboTransfer.lastAudit)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
+    @Test fun targetPreemptionKeepsDatedAuditWithoutPreventingTheTarget() = runBlocking {
+        enableHistory(); connected(); val audit = completeEmptyAudit()
+        val master = launch(Dispatchers.IO) { preview(); acknowledge(request("bolus_commit")) }
+        assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { null })
+        master.join()
+        assertEquals(ComboTransferPhase.IDLE, channel.state.value.comboTransfer.phase)
+        assertEquals(audit, channel.state.value.comboTransfer.lastAudit)
+    }
+
+    @Test fun failedNextAttemptKeepsOldAuditDateAndReportsFailure() = runBlocking {
+        enableHistory(); connected(); val audit = completeEmptyAudit()
+        val oldCounter = request(AapsV3ComboReadProtocol.TYPE).getValue("counter").jsonPrimitive.long
+        now.addAndGet(AapsV3ComboTransfer.INTERVAL_MS)
+        channel.checkConnection(); acknowledge(request("ping")); channel.checkConnection()
+        val next = withTimeout(4000) {
+            // A published result can precede job completion; emulate the next owner tick.
+            while (request(AapsV3ComboReadProtocol.TYPE).getValue("counter").jsonPrimitive.long <= oldCounter) {
+                channel.checkConnection(); delay(10)
+            }
+            request(AapsV3ComboReadProtocol.TYPE)
+        }
+        acknowledge(next, history = true, status = "Failed")
+        val failed = withTimeout(4000) { channel.state.first { it.comboTransfer.phase == ComboTransferPhase.UNAVAILABLE } }
+        assertEquals(audit, failed.comboTransfer.lastAudit)
+        channel.stop(); assertNull(channel.state.value.comboTransfer.lastAudit)
+        channel.start(scope); channel.checkConnection()
+        assertNull(channel.state.value.comboTransfer.lastAudit)
+    }
+
+    @Test fun storageLossClearsPreviousAudit() = runBlocking {
+        enableHistory(); connected(); completeEmptyAudit()
+        storage = false; channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.OFFLINE, channel.state.value.status)
+        assertNull(channel.state.value.comboTransfer.lastAudit)
     }
 
     @Test fun connectionFailureStopsCurrentHistory() = runBlocking {

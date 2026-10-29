@@ -1,5 +1,17 @@
 # PLAN
 
+## Combo Readiness Diagnostics (2026-10-29)
+
+- [x] Recheck main4be6208a/Verify40864317760 successful; PR71 exact tree integrated.
+- [x] Check ADB and macOS USB inventory: Redmi absent; request reconnection.
+- [x] Inspect delivery/time and meal-notification gates; no clinical activation.
+- [x] Expose dated scalar audit and expandable connection diagnostics.
+- [x] Verify lifecycle, snapshot and small-screen regressions:7145passed/six prior
+      skips; lint/compile/build/APK guard passed, no new lint warnings.
+- [ ] Exact-head CI/review and controlled integration.
+- [ ] Real Redmi/Combo delivery, basal and UTC evidence; independent prospective
+      meal-time validation before live indication and APK release.
+
 ## Client Combo Transfer (2026-10-29)
 
 - [x] Confirm main e3544c8e/Verify40846304696 and PR70 review passed.
@@ -12,8 +24,9 @@
 - [x] Full local Android lint/compile/build and APK guard passed; zero test failures/errors.
 - [x] Reproduce/fix PR71 final-audit deadline finding; repeated7135tests passed
       with six existing skips; full lint/compile/build/APK guard passed.
-- [ ] Exact-head CI/review.
-- [ ] Controlled main integration and main CI verification.
+- [x] Exact-head12ca2ed CI/review passed without unresolved findings.
+- [x] Main4be6208a preserves its tree; Verify40864317760 passed7135Android/six
+      prior skips and772native tests, zero failures/errors.
 - No phone install, APK release, native therapy or live meal-time activation.
   Real device journal throughput and physical delivery/UTC coverage remain open.
 

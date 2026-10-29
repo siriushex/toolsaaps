@@ -1,5 +1,16 @@
 # SECURITY REVIEW
 
+## Combo Readiness UI (2026-10-29)
+
+- Publish only dated scalar counts from the completed validated audit. Do not
+  expose retained event bytes, pump binding, request IDs or credentials.
+- Generation-bound state publication also covers the UI. Distinguish failed or
+  pending attempts from dated prior evidence; clear it when ownership is lost.
+- Opening diagnostic details has no transport or therapy callback. Both delivery
+  and clock-verification flags remain false even for a complete empty catalog.
+- Check the final clock sample for rewind as well as response expiry before
+  assigning the completed-audit timestamp. No clinical gate or AAPS patch changes.
+
 ## Client History Transfer (2026-10-29)
 
 - Reuse pairing/counter/ACK/AEAD validation, with no generic signing entry point.

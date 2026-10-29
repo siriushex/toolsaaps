@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Combo Readiness Verification
+
+Run ComboTransferAuditTest, AapsV3ComboTransferTest, AapsV3TargetChannelTest and
+NativeAapsConnectionSectionTest. Inspect the Russian320dp large-text diagnostics
+rasters under the existing native-pairing report directory. Then full Android
+quality/APK checks and exact-head CI/review. Real-device acceptance remains a
+separate read-only check, never a test bolus or target request. Source rollback
+does not remove private journals. See AAPS4_COMBO_READINESS.md.
+
 ## Client History Transfer Verification
 
 Run the transfer, paired read-journal, catalog retention and native channel suites

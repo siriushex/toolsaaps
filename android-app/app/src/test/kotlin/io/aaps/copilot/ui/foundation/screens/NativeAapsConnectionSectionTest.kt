@@ -21,6 +21,9 @@ import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
 import io.aaps.copilot.service.AapsV3ObservedProfileStatus
+import io.aaps.copilot.service.ComboTransferAudit
+import io.aaps.copilot.service.ComboTransferPhase
+import io.aaps.copilot.service.ComboTransferState
 import io.aaps.copilot.ui.foundation.theme.AapsCopilotTheme
 import java.io.File
 import org.junit.Assert.*
@@ -85,6 +88,55 @@ class NativeAapsConnectionSectionTest {
         screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED, observedProfile = AapsV3ObservedProfileStatus.OBSERVED)) {
             compose.onNodeWithTag("native_aaps_profile_status").assertTextEquals("Profile received. History completeness is not yet confirmed.")
             compose.onNodeWithText("AAPS 4 target control remains blocked", substring = true).assertIsDisplayed()
+        }
+    }
+
+    private fun historyAudit() = ComboTransferAudit(1_800_000_000_000L,
+        12, 3, 1, 72, 4, 2, 9, 3, 1, 2, 5, true, 6)
+
+    @Test fun historyDetailsShowSnapshotCountersWithoutStartingChecks() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED,
+            comboTransfer = ComboTransferState(ComboTransferPhase.PARTIAL, lastAudit = historyAudit()))) {
+            compose.onNodeWithTag("native_combo_reads").assertDoesNotExist()
+            compose.onNodeWithTag("native_combo_details").performClick()
+            compose.onNodeWithTag("native_combo_reads").assertTextEquals("Reads: retained 12, missing 3, conflicting 1")
+            compose.onNodeWithTag("native_combo_clocks").performScrollTo().assertTextEquals(
+                "Clock changes: 2; backwards pairs: 3; rewinds after a change: 1")
+            compose.onNodeWithText("Inconsistent reader timestamps").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("native_combo_delivery").performScrollTo().assertTextContains("not verified", substring = true)
+        }
+    }
+
+    @Test fun failedLatestAttemptDoesNotPresentPreviousAuditAsCurrentSuccess() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED,
+            comboTransfer = ComboTransferState(ComboTransferPhase.UNAVAILABLE, lastAudit = historyAudit()))) {
+            compose.onNodeWithTag("native_combo_status").assertTextEquals("Latest journal check unavailable")
+            compose.onNodeWithTag("native_combo_details").performClick()
+            compose.onNodeWithTag("native_combo_checked_at").assertTextContains("Last check:", substring = true)
+        }
+    }
+
+    @Test fun noAuditDoesNotDisplayZeroEventsAsCompleteHistory() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED)) {
+            compose.onNodeWithTag("native_combo_status").assertTextEquals("No completed journal check")
+            compose.onNodeWithTag("native_combo_details").performClick()
+            compose.onNodeWithTag("native_combo_reads").assertDoesNotExist()
+            compose.onNodeWithTag("native_combo_checked_at").assertDoesNotExist()
+            compose.onNodeWithTag("native_combo_delivery").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    @Config(qualifiers = "ru-rRU-w320dp-h640dp-port")
+    @Test fun historyDiagnosticsRemainReachableWithLargeRussianText() {
+        screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED,
+            comboTransfer = ComboTransferState(ComboTransferPhase.PARTIAL, lastAudit = historyAudit())), fontScale = 1.5f) {
+            compose.onNodeWithTag("native_combo_details").performScrollTo().performClick()
+            compose.onNodeWithTag("native_combo_reads").performScrollTo().assertIsDisplayed()
+            saveRaster("history-reads")
+            compose.onNodeWithTag("native_combo_clocks").performScrollTo().assertIsDisplayed()
+            saveRaster("history-clocks")
+            compose.onNodeWithTag("native_combo_delivery").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithContentDescription("Проверить связь").performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -166,6 +218,10 @@ class NativeAapsConnectionSectionTest {
 
     private fun saveCredentialRaster(name: String) {
         assertTrue(activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE != 0)
+        saveRaster(name)
+    }
+
+    private fun saveRaster(name: String) {
         val root = activity.window.decorView
         assertTrue(root.width > 0 && root.height > 0)
         val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)

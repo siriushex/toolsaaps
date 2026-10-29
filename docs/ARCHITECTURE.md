@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Combo Readiness Diagnostics
+
+The completed private inventory audit projects scalar counters and clock findings
+into a dated `ComboTransferAudit`. The native channel publishes it atomically with
+transfer state; the existing AAPS4 connection section renders expandable details.
+A past audit remains visibly historical during ordinary probe renewal or target
+preemption; lifecycle revocation/stop/error clears it. No raw identifiers or event
+payloads reach this UI, and no diagnostic field grants clinical authority.
+See AAPS4_COMBO_READINESS.md for remaining device and meal-time acceptance gates.
+
 ## Client History Runtime
 
 The native channel schedules bounded read-only Combo transfer after fresh signed
