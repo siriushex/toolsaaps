@@ -1,3 +1,23 @@
+# Native CI Evidence Retention - 2026-10-29
+
+- PR67 exact36be9a92 passed all6CIchecks and review without findings; merged
+  as2df7ba23 with the identical tested tree. PR reports confirm7104passed,
+  six existing skips, zero failures/errors, including all6native reply interop tests.
+- MainCI40787591139 failed a different upstream test,
+  `PumpIOTest.checkDoubleLongButtonRelease`, at its60s watchdog. The corrected
+  error-lockout tests passed. The original failed run/log is retained; the cause
+  of the release timeout is not proven and this is not claimed fixed.
+- One isolated pristine run and30controlled repetitions with2JVM processors
+  passed (no failures/skips). Temporary repetition annotation was reversed only
+  after exact diff ownership verification; native source is pristine again.
+- CI previously retained only Copilot XML, so no native test stdout/report
+  survived this failure. Preserve native synthetic JUnit XML on both success and
+  failure for3days, using the same pinned upload action. No databases, source tree,
+  runtime logs or credentials are included; no skip, retry or timeout increase.
+- This is a diagnostics-only follow-up. No driver/therapy/phone/server/APK change.
+  All29recipe/workflow checks passed locally; exact-head CI/review are pending.
+  Native delivery completeness and meal-time safety are still not established.
+
 # Native Encrypted Reply Candidate - 2026-10-29
 
 ## CI Follow-up

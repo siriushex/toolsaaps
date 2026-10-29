@@ -126,3 +126,11 @@ jobs:
           path: android-app/app/build/test-results/testDebugUnitTest/TEST-*.xml
           if-no-files-found: warn
           retention-days: 3
+      - name: Preserve native synthetic unit-test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-unit-test-reports
+          path: android-app/build/aaps-rc1/**/build/test-results/**/TEST-*.xml
+          if-no-files-found: warn
+          retention-days: 3
