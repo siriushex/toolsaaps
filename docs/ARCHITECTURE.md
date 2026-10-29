@@ -1,5 +1,15 @@
 # ARCHITECTURE
 
+## Client History Runtime
+
+The native channel schedules bounded read-only Combo transfer after fresh signed
+connectivity. An encrypted inventory response negotiates support; Ping/unsigned
+flags do not. The paired journal owns counter/publication/handoff admission;
+existing consumers own assembly and private retention. A channel permit outlives
+cancelled storage work and targets preempt reads. Clinical gates are unchanged.
+See AAPS4_COMBO_CLIENT_TRANSFER.md for limits and remaining device, delivery/UTC
+coverage and meal-time validation.
+
 ## Native Read Runtime
 
 The candidate receiver routes authenticated reserved history requests to one
@@ -43,8 +53,8 @@ already admitted audit. Partial catalogs do not touch private storage or persist
 Handoffs now carry session/admission observations in memory only. Raw-read retention
 also refuses cross-session fragments and pre-admission consumption. These fields
 are not wire metadata, a new key/epoch, or proof supplied by caller construction.
-Production lifecycle/generation and capability checks still belong to the future
-runtime owner. This local consumer does not activate background transfer or grant
+Production lifecycle/generation checks belong to the separate channel owner;
+encrypted inventory responses negotiate read support. This local consumer itself does not activate background transfer or grant
 source-delete permission, physical delivery coverage or meal-time advice.
 
 ## Combo Response Handoff
@@ -70,8 +80,8 @@ handoff, but cannot delete source data or create a successful retention receipt.
 Revocation prevents subsequent handoffs. Retaining bytes already admitted does
 not grant current access, source acknowledgement or clinical authority. Close
 while private I/O runs suppresses the late receipt; already committed evidence
-is not deleted. Production runtime, paged-catalog owner admission and device
-latency remain unconnected; no transfer capability or timer is enabled here.
+is not deleted. The client runtime now connects this path; device latency and
+clinical validation remain open. Handoff itself grants no timer admission.
 
 ## Combo Inventory Retention Reconciliation
 
@@ -102,8 +112,8 @@ clinical/AI export or timer-activation path.
 The candidate `ComboHistoryReadRequest` decodes only the versioned inventory/chunk
 union emitted by Copilot, bound to the expected master installation and a current
 request lifetime of at most 30 seconds. It is a pure structure check: no secret,
-counter ownership, source read, dispatcher or capability is added. The receiver's
-isolated terminal refusal remains in place until runtime admission is complete.
+counter ownership, source read, dispatcher or capability is added. The receiver
+delegates accepted queries to its bounded read owner; decoding grants no authority.
 
 The signed inner payload is compact ASCII JSON, at most 2048 characters, with
 two object levels and no escapes or arrays. JSON decoding/re-encoding must preserve
@@ -120,8 +130,8 @@ message family. Its signed ACKs use `aaps_clientcontrol_ack_history_<clientId>`,
 never the ordinary target/delivery ACK slot. Routing comes from the authenticated
 envelope, not the incoming settings identifier or untrusted payload.
 
-Until the authenticated history handler is connected, this family receives a
-terminal failure with no payload (or expiry/control-disabled result). It cannot
+The authenticated read owner handles successful responses; unavailable requests
+are refused or remain unconfirmed. This family cannot
 dispatch a stock action or promote pairing even when its payload decodes as one.
 MAC, replay, clock and counter ownership remain with the existing receiver.
 The response key stays under the stock ACK prefix so push/poll echoes are ignored.
@@ -134,7 +144,7 @@ The minimal RC1 compatibility patch adds an optional `RetainedPumpHistorySource`
 interface implemented by ComboV2. It reads only the already-owned private journal:
 no second writer, lazy reopen, Bluetooth read or delivery command. Native sync can
 later select this interface through the active driver without depending on Combo
-implementation classes. It is not yet called by the client-control receiver.
+implementation classes. It is called only by the authenticated read owner.
 
 The source pins the current unambiguous pairing hash and writer instance, checking
 both before/after I/O. A reader owns immutable metadata, exact aligned fragments

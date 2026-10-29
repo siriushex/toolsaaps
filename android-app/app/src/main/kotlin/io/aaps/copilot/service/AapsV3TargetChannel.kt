@@ -41,7 +41,8 @@ internal class AapsV3TargetChannel(
     private val storageAvailable: () -> Boolean,
     private val baselineGuard: suspend () -> String?,
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val historyStore: (() -> AapsV3ComboJournalStore)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -56,27 +57,34 @@ internal class AapsV3TargetChannel(
     @Volatile private var sessionProbeCounter = 0L
     private var runtimeScope: CoroutineScope? = null
     private var ownerJob: Job? = null
+    private val historyGeneration = AtomicLong(0)
+    private val historyPermit = Mutex()
+    private var historyJob: Job? = null
+    private var historyAttemptAt: Long? = null
+    private val mutableHistoryState = MutableStateFlow(ComboTransferState())
+    internal val historyState: StateFlow<ComboTransferState> = mutableHistoryState.asStateFlow()
 
     @Synchronized fun start(scope: CoroutineScope) {
         runtimeScope = scope
         runtimeAllowed = true
         if (ownerJob?.isActive == true) return
+        stopHistory()
         val epoch = generation.incrementAndGet()
         sessionStartedAt = clock()
         sessionProbeCounter = 0
         ownerJob = scope.launch(Dispatchers.IO) {
             try {
-                if (!journal.hasNativeState()) { mutableState.value = AapsV3ConnectionState(); return@launch }
+                if (!journal.hasNativeState()) {
+                    synchronized(this@AapsV3TargetChannel) {
+                        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState()
+                    }
+                    return@launch
+                }
                 merge(db.localNightscoutV3Dao().observeRevision().map { Unit }, flow {
                     while (currentCoroutineContext().isActive) { emit(Unit); delay(60_000) }
                 }).conflate().collect { if (generation.get() == epoch) refresh() }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) {
-                if (generation.get() == epoch) {
-                    sessionProbeCounter = 0
-                    mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.ERROR)
-                }
-            }
+            catch (_: Exception) { connectionFailed(epoch) }
         }
     }
 
@@ -85,6 +93,7 @@ internal class AapsV3TargetChannel(
         generation.incrementAndGet()
         sessionProbeCounter = 0
         ownerJob?.cancel(); ownerJob = null
+        stopHistory()
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.OFFLINE)
     }
 
@@ -121,11 +130,20 @@ internal class AapsV3TargetChannel(
 
     suspend fun checkConnection() {
         if (runtimeAllowed) runtimeScope?.let(::start)
+        val epoch = generation.get()
         try { refresh() } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.ERROR) }
+        catch (_: Exception) { connectionFailed(epoch) }
+    }
+
+    @Synchronized private fun connectionFailed(epoch: Long) {
+        if (generation.get() != epoch) return
+        stopHistory()
+        sessionProbeCounter = 0
+        mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.ERROR)
     }
 
     suspend fun revoke() = try {
+        stopHistory()
         journal.revokePairing()
         sessionProbeCounter = 0
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.REVOKED)
@@ -136,7 +154,15 @@ internal class AapsV3TargetChannel(
 
     private suspend fun refresh() = refreshMutex.withLock {
         val epoch = generation.get()
-        if (!journal.hasNativeState()) { mutableState.value = AapsV3ConnectionState(); return@withLock }
+        if (!journal.hasNativeState()) {
+            synchronized(this) {
+                if (generation.get() == epoch) {
+                    stopHistory()
+                    mutableState.value = AapsV3ConnectionState()
+                }
+            }
+            return@withLock
+        }
         var pair = checkNotNull(journal.pairingSnapshot())
         store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it) }
         val ackRow = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
@@ -151,7 +177,9 @@ internal class AapsV3TargetChannel(
         if (runtimeAllowed && storageAvailable() && generation.get() == epoch) {
             journal.probe(clock(), sessionStartedAt)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
-                if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
+                synchronized(this) {
+                    if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
+                }
             }
         }
         val observedAt = clock()
@@ -171,7 +199,9 @@ internal class AapsV3TargetChannel(
             evidence?.profile?.status ?: AapsV3ObservedProfileStatus.UNCHECKED
         } else AapsV3ObservedProfileStatus.UNCHECKED
         val showEvidence = status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.CONTROL_DISABLED)
-        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState(status, mutableState.value.busy, observedProfile,
+        synchronized(this) {
+            if (generation.get() != epoch) return@synchronized
+            mutableState.value = AapsV3ConnectionState(status, mutableState.value.busy, observedProfile,
             if (showEvidence) evidence?.insulin?.status ?: AapsV3ObservedInsulinStatus.UNCHECKED else AapsV3ObservedInsulinStatus.UNCHECKED,
             if (showEvidence) evidence?.insulin?.records?.size ?: 0 else 0,
             if (showEvidence) evidence?.profileHistory?.status ?: AapsV3ObservedProfileStatus.UNCHECKED else AapsV3ObservedProfileStatus.UNCHECKED,
@@ -187,9 +217,60 @@ internal class AapsV3TargetChannel(
             } ?: 0 else 0,
             if (showEvidence) evidence?.comboHistory?.status ?: AapsV3ComboHistoryStatus.UNCHECKED else AapsV3ComboHistoryStatus.UNCHECKED,
             if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0)
+            if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch) else stopHistory()
+        }
+    }
+
+    @Synchronized private fun stopHistory() {
+        historyGeneration.incrementAndGet()
+        historyJob?.cancel(); historyJob = null
+        mutableHistoryState.value = ComboTransferState()
+    }
+
+    @Synchronized private fun startHistory(epoch: Long) {
+        val factory = historyStore ?: return
+        val scope = runtimeScope ?: return
+        if (!runtimeAllowed || generation.get() != epoch || historyJob?.isActive == true || commandMutex.isLocked) return
+        val now = clock()
+        historyAttemptAt?.let { if (now - it < AapsV3ComboTransfer.INTERVAL_MS) return }
+        if (!historyPermit.tryLock()) return
+        historyAttemptAt = now
+        val readEpoch = historyGeneration.incrementAndGet()
+        val session = sessionStartedAt
+        val probe = sessionProbeCounter
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            suspend fun admit() {
+                currentCoroutineContext().ensureActive()
+                check(runtimeAllowed && generation.get() == epoch && historyGeneration.get() == readEpoch &&
+                    sessionStartedAt == session && sessionProbeCounter >= probe && !commandMutex.isLocked && storageAvailable())
+            }
+            try {
+                admit()
+                synchronized(this@AapsV3TargetChannel) {
+                    if (generation.get() == epoch && historyGeneration.get() == readEpoch)
+                        mutableHistoryState.value = ComboTransferState(ComboTransferPhase.READING)
+                }
+                val result = AapsV3ComboTransfer(db, journal, factory(), clock).run(session, probe, ::admit)
+                admit()
+                synchronized(this@AapsV3TargetChannel) {
+                    if (generation.get() == epoch && historyGeneration.get() == readEpoch) mutableHistoryState.value = result
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                synchronized(this@AapsV3TargetChannel) {
+                    if (generation.get() == epoch && historyGeneration.get() == readEpoch)
+                        mutableHistoryState.value = ComboTransferState(ComboTransferPhase.UNAVAILABLE)
+                }
+            }
+        }
+        historyJob = job
+        // Cancellation can precede execution, or non-suspending storage may return late.
+        job.invokeOnCompletion { historyPermit.unlock() }
+        job.start()
     }
 
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {
+        stopHistory()
         val epoch = generation.get()
         try {
             check(command.type == "temp_target")

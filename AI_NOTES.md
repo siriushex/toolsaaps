@@ -1,3 +1,32 @@
+# Client Combo Transfer - 2026-10-29
+
+- PR70 is integrated as main e3544c8e with the reviewed tree; Verify40846304696
+  passed7112Android/six existing skips and772native tests. Earlier pending note closed.
+- Connect bounded automatic reads to the existing native channel after fresh
+  signed connectivity. Encrypted inventory replies negotiate support; no native
+  Pong/capability/patch change or therapy admission. Retain original private bytes.
+- One worker,15minute attempt interval,270s/192request/2MiB cycle limits. Stop,
+  storage loss, revocation/liveness and targets preempt it. Keep its permit until
+  actual completion; runtime failure rolls back request/counter publication.
+- Reproduce a stale ACK failure between consecutive requests. Ignore old valid
+  reply revisions while waiting, without accepting them or weakening new-response
+  checks. Update old expectations to assert ISSUED, never RECEIVED.
+- Initial105focused tests passed, including multi-page/fragment transfer, whole
+  read budgets, skip/conflict, cancellation and slow storage. Add post-storage
+  deadline regression. A test helper named run collided with Kotlin's run;
+  rename it and validate redacted coroutine exception copies without raw causes.
+- First full run failed11interop cases because the local classpath pointed to
+  missing generated SDK driver classes. Rebuild the pinned SDK test harness;
+  no test skip, dependency change or upstream source edit.
+- Reproduce late checkConnection failure replacing stopped state. Generation-bound
+  synchronized state/failure handling prevents old owners affecting the new session;
+  add two lifecycle regressions. Full verification runs after this correction.
+- Final local full test/lint/compile/build passed in5m35s:7133tests passed,
+  six prior skips, zero failures/errors;21new tests. Lint has zero errors
+  (383warnings/eight hints); APK size and class-retention guard passed.
+- Exact-head CI/review pending. No device/server changes or APK publication;
+  retained bytes still do not prove physical delivery, pump UTC or safe meal time.
+
 # Native Combo Read Owner - 2026-10-29
 
 - Main e5305491/Verify40833221313 passed; PR69's exact reviewed tree is integrated.

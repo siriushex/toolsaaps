@@ -6,6 +6,13 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 
+internal class ComboRetainedCatalog(
+    val inventory: AapsV3ComboInventory, val audit: ComboInventoryRetentionAudit,
+    val clientId: String, val masterId: String, val rosterRevision: Long, val sessionStartedAt: Long
+) {
+    override fun toString() = "ComboRetainedCatalog(redacted)"
+}
+
 /** One authenticated catalog, not current-source authority or a permission to delete history. */
 internal class AapsV3ComboCatalogRetention(private val store: AapsV3ComboJournalStore) : AutoCloseable {
     private val busy = Mutex()
@@ -16,7 +23,10 @@ internal class AapsV3ComboCatalogRetention(private val store: AapsV3ComboJournal
     private var previous: AapsV3ComboInventoryBinding? = null
     private var observedAt = 0L
 
-    suspend fun accept(handoff: ComboResponseHandoff, clock: () -> Long): ComboInventoryRetentionAudit? {
+    suspend fun accept(handoff: ComboResponseHandoff, clock: () -> Long): ComboInventoryRetentionAudit? =
+        acceptSnapshot(handoff, clock)?.audit
+
+    suspend fun acceptSnapshot(handoff: ComboResponseHandoff, clock: () -> Long): ComboRetainedCatalog? {
         if (!busy.tryLock()) {
             handoff.close()
             currentCoroutineContext().ensureActive()
@@ -51,7 +61,8 @@ internal class AapsV3ComboCatalogRetention(private val store: AapsV3ComboJournal
             check(clock() in now until binding.validUntil)
             check(closed.compareAndSet(false, true))
             assembly.close()
-            return audit
+            return ComboRetainedCatalog(inventory, audit, binding.clientId, binding.masterInstallId,
+                rosterRevision, sessionStartedAt)
         } catch (cancelled: CancellationException) {
             close(); throw cancelled
         } catch (failure: ComboRetentionFailure) {

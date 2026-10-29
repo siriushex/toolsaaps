@@ -298,9 +298,15 @@ internal class AapsV3TargetJournal(
         acknowledgeInTransaction(operation, protocol, ack, nowMs)
     }
 
-    /** Cold read-only lane. No runtime sender calls this until native capability/admission is implemented. */
+    /** Read-only lane sharing counter ownership and yielding to pending targets. */
     suspend fun requestComboRead(requestId: String, spec: AapsV3ComboReadSpec, sessionStartedAt: Long,
-                                 minimumProbeCounter: Long, clock: () -> Long): AapsV3ComboReadSnapshot? = transaction {
+                                 minimumProbeCounter: Long, clock: () -> Long): AapsV3ComboReadSnapshot? =
+        requestComboRead(requestId, spec, sessionStartedAt, minimumProbeCounter, clock) { }
+
+    suspend fun requestComboRead(requestId: String, spec: AapsV3ComboReadSpec, sessionStartedAt: Long,
+                                 minimumProbeCounter: Long, clock: () -> Long,
+                                 admit: suspend () -> Unit): AapsV3ComboReadSnapshot? = transaction {
+        admit()
         HistoryJson.uuid(requestId)
         val root = root(); val pair = pairing(); val previous = comboReadOrNull()
         val now = clock()
@@ -328,11 +334,13 @@ internal class AapsV3TargetJournal(
         val request = try {
             AapsV3ComboReadProtocol(secret).use { it.request(root.clientId, pair.masterInstallId, requestId, counter, issuedAt, spec) }
         } finally { secret.fill(0) }
+        admit()
         val publication = publish(request)
         val record = ComboRead(root.clientId, pair.masterInstallId, requestId, counter, issuedAt,
             spec, publication.document.modifiedRevision, rosterRevision = pair.rosterRevision)
         put(COMBO_READ, json.encodeToString(record))
         put(ROOT, json.encodeToString(root.copy(counter = counter, lastIssuedAt = issuedAt)))
+        admit()
         val completedAt = clock()
         check(completedAt in issuedAt until issuedAt + AapsV3ComboReadProtocol.TTL_MS)
         requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
@@ -419,7 +427,8 @@ internal class AapsV3TargetJournal(
     private suspend fun comboAck(record: ComboRead): Pair<JsonObject, Long>? {
         val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS,
             "aaps_clientcontrol_ack_history_${record.clientId}") ?: return null
-        check(!row.deleted && row.source == "local-v3-owner" && row.modifiedRevision > record.publicationRevision)
+        check(!row.deleted && row.source == "local-v3-owner")
+        if (row.modifiedRevision <= record.publicationRevision) return null
         val body = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)
         check(body["schemaVersion"] == JsonPrimitive(1))
         return HistoryJson.obj(body.getValue("ack")) to row.modifiedRevision

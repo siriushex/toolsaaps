@@ -153,6 +153,25 @@ class AapsV3ComboReadJournalTest {
         results.filterNotNull().forEach { it.close() }
     }
 
+    @Test fun previousReplyDoesNotAbortWaitingForTheNextRequest() = runBlocking {
+        active(); issue(); publishAck(ack()); receive(); take()!!.close()
+        issue(secondId)
+        assertEquals(AapsV3ComboReadPhase.ISSUED, receive()!!.phase)
+        assertNull(take())
+    }
+
+    @Test fun runtimeAdmissionFailureRollsBackPublicationAndCounter() = runBlocking {
+        active()
+        val before = db.localNightscoutV3Dao().clock()
+        for (stopAt in 1..3) {
+            var calls = 0
+            refused { owner().requestComboRead(requestId, inventory, at, 2, { now }) { check(++calls != stopAt) } }
+            assertEquals(before, db.localNightscoutV3Dao().clock())
+            assertNull(owner().comboReadSnapshot(at, 2) { now })
+        }
+        assertEquals(3L, issue()!!.counter)
+    }
+
     @Test fun handoffRequiresPreviouslyCommittedReceiptAndOriginalAck() = runBlocking {
         assertNull(take())
         active(); issue(); publishAck(ack())
@@ -691,7 +710,7 @@ class AapsV3ComboReadJournalTest {
 
     @Test fun wrongSourceAndOlderRowCannotBecomeReceived() = runBlocking {
         active(); publishAck(ack()); issue()
-        refused { receive() }
+        assertEquals(AapsV3ComboReadPhase.ISSUED, receive()!!.phase)
         val store = LocalNightscoutV3Store(db)
         val row = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_history_$client")!!
         db.localNightscoutV3Dao().put(row.copy(modifiedRevision = row.modifiedRevision + 100, source = "local-v3-target"))
@@ -783,7 +802,7 @@ class AapsV3ComboReadJournalTest {
         assertEquals(AapsV3ComboReadPhase.EXPIRED, receive()!!.phase)
         assertEquals(4L, issue(secondId)!!.counter)
         // The isolated ACK still belongs to the old shared counter.
-        refused { receive() }
+        assertEquals(AapsV3ComboReadPhase.ISSUED, receive()!!.phase)
     }
 
     @Test fun receivedReadCannotSurviveUnobservedControlOffOnOrUnverifiedSession() = runBlocking {

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.ComboJournalDatabase
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.LocalV3DocumentInput
@@ -11,6 +12,9 @@ import io.aaps.copilot.data.repository.NativeTargetOutcome
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.SafetySnapshot
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.*
@@ -38,15 +42,24 @@ class AapsV3TargetChannelTest {
     private val cipher = KeystoreAapsV3JournalCipher { SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES") }
     private val journal get() = AapsV3TargetJournal(db, cipher)
     private var storage = true
+    private var storageProbe: () -> Boolean = { storage }
     private var baseline: suspend () -> String? = { null }
     private lateinit var channel: AapsV3TargetChannel
+    private var privateDb: ComboJournalDatabase? = null
+    private var historyFactory: (() -> AapsV3ComboJournalStore)? = null
     @Before fun setup() {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java)
             .allowMainThreadQueries().build()
         channel = newChannel()
     }
-    @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); db.close() }
-    private fun newChannel() = AapsV3TargetChannel(db, journal, { storage }, { baseline() }, { it() }, now::get)
+    @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
+    private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+    private fun enableHistory(onOpen: () -> Unit = {}) {
+        privateDb = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(),
+            ComboJournalDatabase::class.java).allowMainThreadQueries().build()
+        historyFactory = { onOpen(); AapsV3ComboJournalStore(checkNotNull(privateDb)) }
+        channel.stop(); channel = newChannel()
+    }
     private fun command(key: String = "TargetManager.v1:synthetic") = ActionCommand("action-1", "temp_target",
         mapOf("targetMmol" to "5.5", "durationMinutes" to "30"), SafetySnapshot(false, false, null, 0), key)
 
@@ -62,15 +75,15 @@ class AapsV3TargetChannelTest {
             LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_${type}_$client")
         }.filterNotNull().first().let { Json.parseToJsonElement(it.payloadJson).jsonObject.getValue("envelope").jsonObject }
     }
-    private suspend fun acknowledge(request: JsonObject, payload: String? = null) {
+    private suspend fun acknowledge(request: JsonObject, payload: String? = null, history: Boolean = false, status: String = "Ok") {
         val counter = request.getValue("counter").jsonPrimitive.long
         val timestamp = request.getValue("timestamp").jsonPrimitive.long + 1
         val signature = Mac.getInstance("HmacSHA256").run {
             init(SecretKeySpec(secret, "HmacSHA256"))
-            doFinal("$client|$counter|Done|Ok||${payload ?: ""}|$timestamp".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+            doFinal("$client|$counter|Done|$status||${payload ?: ""}|$timestamp".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
         }
-        settings("aaps_clientcontrol_ack_$client", buildJsonObject { put("ack", buildJsonObject {
-            put("clientId", client); put("commandCounter", counter); put("phase", "Done"); put("status", "Ok")
+        settings(if (history) "aaps_clientcontrol_ack_history_$client" else "aaps_clientcontrol_ack_$client", buildJsonObject { put("ack", buildJsonObject {
+            put("clientId", client); put("commandCounter", counter); put("phase", "Done"); put("status", status)
             put("timestamp", timestamp); put("signature", signature)
             payload?.let { put("payload", it) }
         }) })
@@ -87,6 +100,101 @@ class AapsV3TargetChannelTest {
     }
     private suspend fun preview() = acknowledge(request("batch_prepare"),
         """{"bolusId":321,"lines":[{"role":"Normal","text":"synthetic target"}]}""")
+
+    @Test fun historyNeedsLivePairingAndStopsWithRuntime() = runBlocking {
+        val opened = AtomicInteger()
+        enableHistory { opened.incrementAndGet() }
+        channel.start(scope); channel.checkConnection()
+        assertEquals(0, opened.get())
+        connected()
+        val read = request(AapsV3ComboReadProtocol.TYPE)
+        assertEquals(3L, read.getValue("counter").jsonPrimitive.long)
+        assertEquals(1, opened.get())
+        channel.stop()
+        assertEquals(ComboTransferPhase.IDLE, channel.historyState.value.phase)
+        assertEquals(0L, privateDb!!.journalDao().totals().reads)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
+    @Test fun refusedReadIsThrottledAndDoesNotDisconnectTargets() = runBlocking {
+        enableHistory(); connected()
+        val first = request(AapsV3ComboReadProtocol.TYPE)
+        acknowledge(first, history = true, status = "Failed")
+        withTimeout(4000) { channel.historyState.first { it.phase == ComboTransferPhase.UNAVAILABLE } }
+        repeat(5) { channel.checkConnection() }
+        assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        assertEquals(first, request(AapsV3ComboReadProtocol.TYPE))
+        now.addAndGet(AapsV3ComboTransfer.INTERVAL_MS)
+        channel.checkConnection(); acknowledge(request("ping")); channel.checkConnection()
+        withTimeout(4000) {
+            while (request(AapsV3ComboReadProtocol.TYPE).getValue("counter").jsonPrimitive.long <=
+                first.getValue("counter").jsonPrimitive.long) delay(10)
+        }
+    }
+
+    @Test fun targetPreemptsHistoryAndKeepsItsOwnAcknowledgement() = runBlocking {
+        enableHistory(); connected(); request(AapsV3ComboReadProtocol.TYPE)
+        val master = launch(Dispatchers.IO) { preview(); acknowledge(request("bolus_commit")) }
+        assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { null })
+        master.join()
+        assertEquals(4L, request("batch_prepare").getValue("counter").jsonPrimitive.long)
+        assertEquals(5L, request("bolus_commit").getValue("counter").jsonPrimitive.long)
+        assertEquals(ComboTransferPhase.IDLE, channel.historyState.value.phase)
+        assertEquals(0L, privateDb!!.journalDao().totals().reads)
+    }
+
+    @Test fun unavailablePrivateHistoryStorageDoesNotFailConnection() = runBlocking {
+        enableHistory { error("synthetic storage failure") }; connected()
+        withTimeout(4000) { channel.historyState.first { it.phase == ComboTransferPhase.UNAVAILABLE } }
+        assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_${AapsV3ComboReadProtocol.TYPE}_$client"))
+    }
+
+    @Test fun connectionFailureStopsCurrentHistory() = runBlocking {
+        enableHistory(); connected(); request(AapsV3ComboReadProtocol.TYPE)
+        storageProbe = { error("synthetic storage failure") }
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.ERROR, channel.state.value.status)
+        assertEquals(ComboTransferPhase.IDLE, channel.historyState.value.phase)
+    }
+
+    @Test fun lateConnectionFailureCannotReplaceStoppedRuntimeState() = runBlocking {
+        enableHistory(); connected(); request(AapsV3ComboReadProtocol.TYPE)
+        val oldCheck = ThreadLocal.withInitial { false }
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        storageProbe = {
+            if (oldCheck.get() == true) {
+                entered.countDown(); check(release.await(5, TimeUnit.SECONDS))
+                error("synthetic late storage failure")
+            }
+            storage
+        }
+        val checking = launch(Dispatchers.IO + oldCheck.asContextElement(true)) { channel.checkConnection() }
+        try {
+            assertTrue(entered.await(2, TimeUnit.SECONDS)); channel.stop()
+        } finally { release.countDown() }
+        checking.join()
+        assertEquals(AapsV3ConnectionStatus.OFFLINE, channel.state.value.status)
+        assertEquals(ComboTransferPhase.IDLE, channel.historyState.value.phase)
+    }
+
+    @Test fun cancelledSlowStorageOwnerKeepsPermitUntilItReallyFinishes() = runBlocking {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val opened = AtomicInteger()
+        enableHistory {
+            opened.incrementAndGet(); entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        try {
+            connected(); assertTrue(entered.await(2, TimeUnit.SECONDS))
+            channel.stop(); now.addAndGet(AapsV3ComboTransfer.INTERVAL_MS)
+            channel.start(scope); channel.checkConnection(); acknowledge(request("ping")); channel.checkConnection()
+            assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+            assertEquals(1, opened.get())
+            assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS,
+                "aaps_clientcontrol_cmd_${AapsV3ComboReadProtocol.TYPE}_$client"))
+        } finally { release.countDown() }
+    }
 
     @Test fun onlySignedCommitConfirmationMarksAppliedAndDuplicateDoesNotPublish() = runBlocking {
         connected()

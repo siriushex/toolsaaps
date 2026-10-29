@@ -1,5 +1,20 @@
 # PLAN
 
+## Client Combo Transfer (2026-10-29)
+
+- [x] Confirm main e3544c8e/Verify40846304696 and PR70 review passed.
+- [x] Connect a bounded read-only cycle to the existing native channel and private
+      retention; negotiate read support through encrypted inventory responses.
+- [x] Reproduce/fix stale reply handling; add runtime publication guards, target
+      priority, resource limits, cancellation and slow-storage checks.
+- [x] Initial focused105tests passed; post-storage deadline and generation-bound
+      lifecycle regressions included in full7133passed/six prior skips.
+- [x] Full local Android lint/compile/build and APK guard passed; zero test failures/errors.
+- [ ] Exact-head CI/review.
+- [ ] Controlled main integration and main CI verification.
+- No phone install, APK release, native therapy or live meal-time activation.
+  Real device journal throughput and physical delivery/UTC coverage remain open.
+
 ## Native Read Owner (2026-10-29)
 
 - [x] Verify main e5305491 and CI40833221313 passed; preceding PR69 integrated.
@@ -11,7 +26,8 @@
       Real-thread regressions use real clocks; original failed report preserved.
 - [x] Full Copilot quality command passed (test tasks up-to-date):7112passed/six
       existing skips in retained XML; lint/compile/build/APK guard passed.
-- [ ] Exact-head CI/review and main integration.
+- [x] PR70 exact-head CI/review passed; main e3544c8e preserves its tree and
+      Verify40846304696 passed (7112Android/six skips,772native, no failures).
 - No capability advertisement, Copilot background transfer, phone install or live
   meal-time admission yet. Device journal/clock and recorded delivery validation
   remain required; this stage does not publish an APK.
