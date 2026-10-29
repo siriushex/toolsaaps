@@ -58,6 +58,7 @@ internal class AapsV3ComboJournalRead private constructor(
             val frames = mutableListOf<ComboJournalFrame>()
             val hazards = mutableSetOf<AapsV3ComboHistoryHazard>()
             val eventOrder = EventOrderAudit()
+            var unconsumedDeclaredEvents: Int? = null
             var scope = false
             var issue = ComboJournalIssue.BINDING
             // Bound before copying. All subsequent checks consume the same immutable bytes.
@@ -117,7 +118,17 @@ internal class AapsV3ComboJournalRead private constructor(
                             require(observation.parsedEvents - before.parsedEvents + observation.unmappedEvents - before.unmappedEvents == count.toLong())
                             require(payload[5] != 0x48.toByte() || AapsV3ComboHistoryHazard.FIFO_GAP in observation.flags)
                             issue = ComboJournalIssue.EVENT
-                            validateEvents(payload, before, observation).also { hazards += eventOrder.observe(it) }
+                            validateEvents(payload, before, observation).also {
+                                hazards += eventOrder.observe(it)
+                                val remaining = remainingEvents(payload)
+                                // Count every raw event, including unknown types. New arrivals may
+                                // increase the count; a final block may report zero while carrying events.
+                                if (unconsumedDeclaredEvents?.let { pending -> maxOf(remaining, count) < pending } == true)
+                                    hazards += AapsV3ComboHistoryHazard.REMAINING_COUNT_DISCONTINUITY
+                                if (payload[4] == 0xb7.toByte() && remaining > count)
+                                    hazards += AapsV3ComboHistoryHazard.DECLARED_HISTORY_TAIL
+                                unconsumedDeclaredEvents = maxOf(0, remaining - count)
+                            }
                         } else emptyList()
                         frames += ComboJournalFrame(phase, observation, payload, events)
                         hazards += observation.hazards
@@ -202,11 +213,14 @@ internal class AapsV3ComboJournalRead private constructor(
             require(index > 0)
             val block = frames[index]
             val payload = block.payloadBytes()
-            val remaining = (payload[2].toInt() and 255) or ((payload[3].toInt() and 255) shl 8)
+            val remaining = remainingEvents(payload)
             val parsed = block.observation.parsedEvents - frames[index - 1].observation.parsedEvents
             // Match the existing native reader's termination rule, not physical coverage.
             return payload[4] != 0x48.toByte() || remaining <= parsed
         }
+
+        private fun remainingEvents(payload: ByteArray) =
+            (payload[2].toInt() and 255) or ((payload[3].toInt() and 255) shl 8)
 
         private fun validateCounters(phase: String, previous: AapsV3ComboObservation?, current: AapsV3ComboObservation) {
             if (previous == null) {

@@ -110,6 +110,94 @@ class AapsV3ComboJournalReadTest {
         }
     }
 
+    private fun withBlockHeader(records: List<JsonObject>, blockIndex: Int, remaining: Int,
+                                more: Boolean): List<JsonObject> {
+        var seen = 0
+        return records.map { record ->
+            if (record["phase"]?.jsonPrimitive?.content != "BLOCK" || seen++ != blockIndex) record else {
+                val payload = record.getValue("payloadHex").jsonPrimitive.content.chunked(2)
+                    .map { it.toInt(16).toByte() }.toByteArray()
+                payload[2] = remaining.toByte(); payload[3] = (remaining ushr 8).toByte()
+                payload[4] = if (more) 0x48 else 0xb7.toByte()
+                JsonObject(record + ("payloadHex" to JsonPrimitive(payload.joinToString("") { "%02x".format(it.toInt() and 255) })))
+            }
+        }
+    }
+
+    @Test fun closedReaderCannotHideDeclaredUnconsumedTail() {
+        val records = withBlockHeader(eventRecords(listOf(event())), 0, 4, more = false)
+        assertOrderHazards(records, "DECLARED_HISTORY_TAIL")
+    }
+
+    @Test fun emptyTerminalBlockCannotHideDeclaredRemainingEvents() {
+        assertOrderHazards(withBlockHeader(records(), 0, 65535, more = false), "DECLARED_HISTORY_TAIL")
+    }
+
+    @Test fun unexplainedInterBlockCountDropIsAdverseEvenWithConsecutiveEvents() {
+        val records = withBlockHeader(twoEventBlocks(listOf(event(counter = 10)), listOf(event(counter = 11))),
+            0, 5, more = true)
+        assertOrderHazards(records, "REMAINING_COUNT_DISCONTINUITY")
+    }
+
+    @Test fun countReductionByAllRawEventsAllowsUnknownEventsAndNewArrivals() {
+        val first = listOf(event(counter = 10))
+        val second = listOf(event(counter = 11), event(counter = 12), event(counter = 13))
+        val growing = withBlockHeader(withBlockHeader(twoEventBlocks(first, second), 0, 2, more = true),
+            1, 3, more = false)
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, read(growing).status)
+        val knownAndUnknown = twoEventBlocks(listOf(event(counter = 10), event(counter = 11, type = 99)),
+            listOf(event(counter = 12))).map { frame ->
+            if (frame["phase"]?.jsonPrimitive?.content == "BEGIN") frame else {
+                val old = frame.getValue("observation").jsonObject
+                JsonObject(frame + ("observation" to JsonObject(old + mapOf(
+                    "parsedEvents" to JsonPrimitive(old.getValue("parsedEvents").jsonPrimitive.int - 1),
+                    "unmappedEvents" to JsonPrimitive(1), "unmappedEventObserved" to JsonPrimitive(true)))))
+            }
+        }
+        val result = read(knownAndUnknown)
+        assertEquals(ComboJournalIssue.NONE, result.issue)
+        assertEquals(setOf(AapsV3ComboHistoryHazard.UNMAPPED_EVENT), result.hazards)
+    }
+
+    @Test fun aZeroTerminalRemainingCountMayStillCarryTheLastEvents() {
+        val records = twoEventBlocks(listOf(event(counter = 10)), listOf(event(counter = 11)))
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, read(records).status)
+        assertFalse(read(records).deliveryCompletenessVerified)
+    }
+
+    @Test fun unsignedRemainingBoundariesUseRawCountNotMappedCount() {
+        val records = eventRecords(listOf(event(counter = 10), event(counter = 11, type = 99)), parsed = 1, unmapped = 1)
+        for (remaining in listOf(0, 1, 2, 3, 255, 256, 32767, 32768, 65535)) {
+            val result = read(withBlockHeader(records, 0, remaining, more = false))
+            assertEquals(ComboJournalIssue.NONE, result.issue)
+            assertEquals(remaining > 2, AapsV3ComboHistoryHazard.DECLARED_HISTORY_TAIL in result.hazards)
+            assertTrue(AapsV3ComboHistoryHazard.UNMAPPED_EVENT in result.hazards)
+        }
+    }
+
+    @Test fun damagedTailPreservesAlreadyObservedCountContradiction() {
+        val records = withBlockHeader(eventRecords(listOf(event())), 0, 4, more = false).take(2)
+        val raw = encode(records) + byteArrayOf(0, 1)
+        val result = AapsV3ComboJournalRead.read(raw, binding)
+        assertEquals(ComboJournalIssue.FRAME, result.issue)
+        assertTrue(AapsV3ComboHistoryHazard.DECLARED_HISTORY_TAIL in result.hazards)
+        assertTrue(AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK in result.hazards)
+        assertFalse(result.closed); assertArrayEquals(raw, result.rawBytes())
+    }
+
+    @Test fun countContradictionDoesNotMaskLocalClockOrReaderTimeRewind() {
+        val records = withBlockHeader(eventRecords(listOf(event(counter = 10, time = packedTime(hour = 13)),
+            event(counter = 11, time = packedTime(hour = 12)))), 0, 4, more = false).map { frame ->
+            if (frame["phase"]?.jsonPrimitive?.content != "END") frame else JsonObject(frame +
+                ("observation" to JsonObject(frame.getValue("observation").jsonObject +
+                    ("readFinishedAt" to JsonPrimitive(900)))))
+        }
+        val result = assertOrderHazards(records, "DECLARED_HISTORY_TAIL", "EVENT_TIME_REWIND", "CLOCK_CHANGE")
+        assertEquals(900L, result.frames.last().observation.finishedAtMs)
+        assertEquals(13, result.events.first().event.localTime.hour)
+        assertEquals(12, result.events.last().event.localTime.hour)
+    }
+
     private fun assertOrderHazards(records: List<JsonObject>, vararg expected: String): AapsV3ComboJournalRead {
         val result = read(records)
         assertEquals(ComboJournalIssue.NONE, result.issue)

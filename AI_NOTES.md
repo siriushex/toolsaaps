@@ -1,3 +1,24 @@
+# Combo Remaining-Event Audit - 2026-10-29
+
+- PR74/main973c0917 Verify40920901933 passed. Published0.1.20/code21 to the
+  existing static updater. Actual public manifest, complete resumed APK hash,
+  signer, metadata and ranges verified; previous pointer/page retained privately,
+  old APK retained. No service restart, phone installation or clinical activation.
+- Read-only ADB remains empty. Inspect pinned RC1 reader termination and its
+  current-offset event conversion; actual pump UTC epochs/basal coverage absent.
+- Three red regressions show returned reads lacking warnings for a declared
+  unconsumed tail and an unexplained drop between remaining-event counts.
+  Preserve their failing XML outside source; no private medical data in fixtures.
+- Audit fully validated raw blocks without changing native termination or commands.
+  Count unknown types too, allow new arrivals and zero final counts with records.
+  Keep contradictions adverse through private reopen and later clean catalogs.
+- Initial157focused tests passed; add unsigned boundary, corrupt-tail and combined
+  reader/event clock regressions. Full quality passed in3m30s:7158passed/six prior
+  skips, zero failures/errors; lint383warnings/eight hints unchanged, compile/build
+  passed. APK guard retained7357app classes. Nine new tests; exact-head CI pending.
+- No schema, transport, AAPS, model, notification, target or dose changes. These
+  source diagnostics do not establish complete delivery or a safe meal delay.
+
 # Diagnostic Update 0.1.20 Candidate - 2026-10-29
 
 - Main91bcd48a/Verify40908185065 successful:7149Android tests passed, six prior

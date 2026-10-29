@@ -64,7 +64,8 @@ class AapsV3ComboJournalStoreTest {
         assertNull(error.cause)
         assertEquals("combo_retention_${reason.name.lowercase()}", error.message)
     }
-    private fun frame(phase: String, scope: String = binding, events: List<ByteArray>? = null): ByteArray {
+    private fun frame(phase: String, scope: String = binding, events: List<ByteArray>? = null,
+                      remaining: Int? = null): ByteArray {
         val details = events?.map { ComboJournalEvent.decode(it).detail }
         val unknown = details?.count { it is ComboEventDetail.Unknown } ?: 0
         val parsed = details?.size?.minus(unknown) ?: 1
@@ -85,9 +86,14 @@ class AapsV3ComboJournalStoreTest {
                 }) }
             })
             // Unchanged public upstream synthetic vector, not a device record.
-            if (phase == "BLOCK") put("payloadHex", if (events == null) "00000100b7b701540e93541d000000070073490f3b01000807" else
+            if (phase == "BLOCK") {
+                val hex = if (events == null) "00000100b7b701540e93541d000000070073490f3b01000807" else
                 (byteArrayOf(0, 0, 0, 0, 0xb7.toByte(), 0xb7.toByte(), events.size.toByte()) +
-                    events.fold(byteArrayOf()) { bytes, event -> bytes + event }).joinToString("") { "%02x".format(it.toInt() and 255) })
+                    events.fold(byteArrayOf()) { bytes, event -> bytes + event }).joinToString("") { "%02x".format(it.toInt() and 255) }
+                val payload = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                remaining?.let { payload[2] = it.toByte(); payload[3] = (it ushr 8).toByte() }
+                put("payloadHex", payload.joinToString("") { "%02x".format(it.toInt() and 255) })
+            }
         }.toString().toByteArray()
         return ByteArrayOutputStream().also { out -> DataOutputStream(out).use {
             it.writeInt(raw.size); it.write(raw); it.writeInt(CRC32().apply { update(raw) }.value.toInt())
@@ -300,6 +306,22 @@ class AapsV3ComboJournalStoreTest {
         assertEquals(1, audit.events.conflictingCounters)
         assertArrayEquals(first, store().read(owner, binding, id)!!.rawBytes())
         assertArrayEquals(second, store().read(owner, binding, other)!!.rawBytes())
+    }
+
+    @Test fun declaredTailSurvivesReopenAndLaterCleanCatalogWithoutChangingBytes() = runBlocking {
+        val raw = listOf("BEGIN", "BLOCK", "CONFIRMED", "END").fold(byteArrayOf()) { bytes, phase ->
+            bytes + frame(phase, remaining = 4)
+        }
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, retain(raw).status)
+        val clean = readBytes()
+        retain(clean, other)
+        db.close(); db = ComboJournalDatabase.create(context)
+        val audit = store().reconcileInventory(owner, catalog(listOf(entry(clean, other))))
+        assertTrue(audit.declaredInventoryRetained)
+        assertEquals(1, audit.retainedOutsideInventory)
+        assertTrue(AapsV3ComboHistoryHazard.DECLARED_HISTORY_TAIL in audit.hazards)
+        assertFalse(audit.deliveryCompletenessVerified); assertFalse(audit.events.clockMappingVerified)
+        assertArrayEquals(raw, store().read(owner, binding, id)!!.rawBytes())
     }
 
     @Test fun otherOwnerOrPumpCannotFillInteriorCounterGap() = runBlocking {

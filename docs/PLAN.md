@@ -1,5 +1,19 @@
 # PLAN
 
+## Combo Remaining-Event Audit (2026-10-29)
+
+- [x] Main973c0917/Verify40920901933 passed;0.1.20 published and independently
+      verified, including completed Range resume after a stalled first download.
+- [x] ADB empty; inspect pinned native reader/count and clock-conversion sources.
+- [x] Reproduce three missing tail/count warnings; retain failing XML privately.
+- [x] Add passive block audit and private reopen/catalog regression; first157
+      focused tests passed. Add unsigned/unknown/damaged-tail/clock combinations.
+- [x] Full Android7158passed/six prior skips; lint/compile/build and APK guard
+      passed. No new lint warnings. Manual focused code/diff review completed.
+- [ ] Exact-head CI and source integration.
+- [ ] Real Redmi source verification, historical UTC epochs and basal/delivery
+      continuity; prospective meal-time safety remains separate. No activation.
+
 ## Diagnostic Update 0.1.20 (2026-10-29)
 
 - [x] Main91bcd48a/Verify40908185065 verified successful; published0.1.19/code20
@@ -8,8 +22,8 @@
 - [x] Full local quality7149passed/six prior skips, lint/compile/build passed;
       release-helper14tests passed. Recreated distribution APK39946241bytes,
       version/package/minSdk, original signer and7357retained app classes checked.
-- [ ] Exact-head CI and source integration.
-- [ ] Atomic HTTPS publication, retained previous pointer/page and independent
+- [x] Exact-head CI and source integration: PR74/main973c0917, Verify40920901933.
+- [x] Atomic HTTPS publication, retained previous pointer/page and independent
       public metadata/hash/signature/Range checks. No service restart required.
 - This update distributes bounded native history transfer/readiness diagnostics
   and the causal-clock refusal. Matching history still cannot prove delivery or

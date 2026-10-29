@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Combo Retained Tail Audit
+
+The existing raw journal decoder also audits remaining-event headers after full
+block validation. A terminal flag with more declared events than raw records is
+adverse. Between blocks, an unexplained decrease beyond all preceding raw events
+is retained as a count discontinuity. Unknown types count as raw events; new
+arrivals and zero remaining counts carrying final events are supported. These
+findings propagate through the existing private-store reconciliation, including
+older reads omitted by a newer catalog. No wire/schema or AAPS command changes.
+Reader completion still does not establish full delivery or historical UTC.
+
 ## Meal Planner Observation Clock
 
 The research planner checks the posterior's last observation against the frozen

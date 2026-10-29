@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Combo Remaining-Event Evidence
+
+- A returned/acknowledged read may still declare an unconsumed tail. Preserve
+  DECLARED_HISTORY_TAIL; never turn its count into missing insulin or a UTC time.
+- Compare consecutive validated block headers using all raw events, including
+  unmapped types. A final zero count may still carry events. New arrivals can
+  increase the count; they must not be rejected as missing history.
+- Preserve REMAINING_COUNT_DISCONTINUITY and earlier clock/unknown/failed-read
+  hazards through later blocks, damaged tails, private reopen and clean catalogs.
+- Do not rewrite raw bytes, change native reader termination, add pump requests
+  or grant clinical/meal-notification permission from this diagnostic audit.
+
 ## Meal Timing Causality
 
 - When present, the last posterior sample must be strictly after the meal record
