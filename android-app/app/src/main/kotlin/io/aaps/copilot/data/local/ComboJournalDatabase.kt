@@ -41,7 +41,7 @@ internal interface ComboJournalDao {
     @Insert suspend fun insertChunk(row: ComboChunkEntity)
 }
 
-/** Separate from clinical/AI export databases. No destructive fallback, pruning or runtime owner. */
+/** Separate from clinical/AI export databases. No destructive fallback or pruning. */
 @Database(entities = [ComboReadEntity::class, ComboChunkEntity::class], version = 1, exportSchema = false)
 internal abstract class ComboJournalDatabase : RoomDatabase() {
     abstract fun journalDao(): ComboJournalDao

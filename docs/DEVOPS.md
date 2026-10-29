@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Client History Transfer Verification
+
+Run the transfer, paired read-journal, catalog retention and native channel suites
+before full Android quality and APK checks. The stale-reply regression reproduces
+the former failure between consecutive requests. Exercise real private SQLite,
+2MiB bounded transfer, slow storage after cancellation and after reply expiry,
+target priority and unsupported peers. Preserve existing native interop CI checks.
+No AAPS patch changes, schema migration or source deletion. Rollback keeps the
+private no-backup history database; no phone/server/release operation is implied.
+See AAPS4_COMBO_CLIENT_TRANSFER.md for limits and release acceptance gaps.
+
 ## Native Read Owner Verification
 
 The eleventh frozen patch, `combo-history-owner.patch`, connects the bounded

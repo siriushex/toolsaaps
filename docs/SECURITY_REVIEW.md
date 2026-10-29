@@ -1,5 +1,23 @@
 # SECURITY REVIEW
 
+## Client History Transfer (2026-10-29)
+
+- Reuse pairing/counter/ACK/AEAD validation, with no generic signing entry point.
+  Successful Ping or unsigned metadata cannot authorize fragment interpretation.
+- Check runtime inside publication transactions and after I/O. Keep the one-worker
+  permit through actual cancellation completion. Targets never wait on private I/O.
+- Publish connection state and failures only for the owning generation under the
+  runtime monitor. A late failure cannot cancel a newer history worker.
+- Bound requests/time/bytes and defer retries15minutes; uncertain requests are not
+  republished. A committed request may still be read by the peer before expiry.
+- Ignore old valid-source ACK revisions; reject malformed/current wrong-source or
+  wrong-scope replies. New frames cannot erase prior source/retained hazard evidence.
+- Private no-backup storage remains separate from clinical/AI databases. No raw
+  payload logging, new keys, therapy commands or clinical timer admission.
+- Read support is negotiated by the authenticated inventory response, not a global
+  permission flag. Actual device throughput, pump epochs and delivery coverage remain
+  unverified. See AAPS4_COMBO_CLIENT_TRANSFER.md.
+
 ## Native Read Owner (2026-10-29)
 
 - Preserve existing authentication/counter admission and reserve the history

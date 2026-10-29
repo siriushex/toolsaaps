@@ -1,5 +1,21 @@
 # INVARIANTS
 
+## Client History Transfer
+
+- Fresh signed pairing/storage/runtime admission precedes every read publication.
+  Only an authenticated encrypted inventory proves read support for that exchange.
+- One non-queuing owner remains held until actual completion, even after cancel.
+  Targets, stop, revoked state and lost connectivity preempt reads without waiting
+  for private I/O. Transactional runtime checks prevent late request commits.
+- Keep30s request limits,270s cycle,192requests,2MiB whole-read budget and15minute
+  attempt interval. Never resend an ambiguous request or persist partial buffers.
+- Ignore previous-revision ACKs without accepting them; reject newer invalid
+  responses. Keep target/history ACKs separate and preserve shared counter ownership.
+- Full catalog and exact read hashes precede private retention. Skip identical
+  stored bytes, never overwrite conflicts, and preserve all older/source hazards.
+- Recheck deadline/runtime after private I/O. Retention remains snapshot evidence,
+  never physical-delivery completeness, UTC mapping or meal-time permission.
+
 ## Native Read Runtime
 
 - MAC/replay/skew checks precede reserved query admission. This family cannot
