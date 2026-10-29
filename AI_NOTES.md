@@ -1,3 +1,31 @@
+# Combined RC1 USB Preparation - 2026-10-29
+
+- PR75 exactfbf210df passed all six PR/push checks. Downloaded synthetic reports
+  confirm7158Android passed/six prior skips and772native passed, zero failures/errors.
+- USB upgrade audit found the scoped TLS change still isolated in PR19 and the
+  native clinical projection still closed. Do not call a compiled APK a complete
+  migration or remove that guard to proceed with installation.
+- Integrate PR19's four-line trust patch and seven policy tests with the current
+  patch stack, retaining immutable inputs and reverse-order cleanup. Restore an
+  explicit --package mode and reject unknown options; select full packaging in CI.
+- Three failing-first tests reproduced missing trust admission, absent app package
+  tasks and ignored unknown options. Correct one test's exact native filter name;
+  all49tooling checks now pass.
+- Combined native/app verification passed in4m52s:900tests, no failures/errors/
+  skips;128app plus772native results, with Gradle reusing eligible cached outputs.
+  FullRelease lint has0errors/51warnings in unchanged upstream dependency,
+  manifest, resource and translation files. Instrumented-test compilation and
+  release packaging passed; exact pristine source restoration verified.
+- Unsigned APK140583320bytes, SHA256
+  534290f12081517309b42e06dde2fc53ce32438d7121a1122b266229de9e6689.
+  Package/code/min/target match RC1; manifest resource0x7f15000b resolves to
+  res/8G.xml, whose binary XML contains only the exact intended domains/anchors.
+  Expected unsigned verification refusal confirmed. This is not an installable
+  signed candidate or device acceptance; new exact-head CI remains pending.
+- No clinical/dose/target source, CA enrollment, phone data or private artifacts
+  are included. Device identity/signing/settings/CGM/TLS and clinical migration
+  acceptance remain separate. No installed-app or live meal-time success claimed.
+
 # Combo Remaining-Event Audit - 2026-10-29
 
 - PR74/main973c0917 Verify40920901933 passed. Published0.1.20/code21 to the

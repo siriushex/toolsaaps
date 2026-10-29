@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Combined RC1 Packaging
+
+Verify now explicitly runs `tools/aaps4_compat/verify_master.sh --package` with
+Java21. In addition to all native suites, this checks app tests, instrumented-test
+compilation, FullRelease lint and unsigned APK assembly. The recipe adds only the
+reviewed loopback-trust resource policy to the existing patch set, snapshots its
+inputs and preserves reverse-order cleanup. Default invocation remains native-only.
+Run `prepare.sh` after restoration before claiming pristine SDK interoperability.
+No signing key, signed APK or device data is published by this CI step.
+See AAPS4_LOOPBACK_TRUST.md; signing/export/CGM/clinical gates remain separate.
+
 ## Meal Planner Clock Verification
 
 Run MealTimingPlannerTest and MealStateEstimatorTest, then full Android quality
