@@ -115,6 +115,11 @@ class MasterRecipeTest(unittest.TestCase):
             "diff --git a/watchdog.txt b/watchdog.txt\nnew file mode 100644\n"
             "--- /dev/null\n+++ b/watchdog.txt\n@@ -0,0 +1 @@\n+synthetic watchdog\n"
         )
+        self.owner_patch = tools / "combo-history-owner.patch"
+        self.owner_patch.write_text(
+            "diff --git a/owner.txt b/owner.txt\nnew file mode 100644\n"
+            "--- /dev/null\n+++ b/owner.txt\n@@ -0,0 +1 @@\n+synthetic read owner\n"
+        )
         binaries = self.root / "bin"
         binaries.mkdir()
         self.scratch = self.root / "scratch"
@@ -154,6 +159,7 @@ class MasterRecipeTest(unittest.TestCase):
         self.assertFalse((self.source / "added.txt").exists())
         self.assertFalse((self.source / "control.txt").exists())
         self.assertFalse((self.source / "watchdog.txt").exists())
+        self.assertFalse((self.source / "owner.txt").exists())
         self.assertFalse((self.source / self.query_source).exists())
         self.assertFalse((self.source / self.reply_source).exists())
         self.assertEqual("patched transport\n", (self.source / ".transport-invoked").read_text())
@@ -233,6 +239,13 @@ class MasterRecipeTest(unittest.TestCase):
 
     def test_missing_watchdog_patch_refuses_before_changing_source(self):
         self.watchdog_patch.unlink()
+        result = self.run_recipe()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse((self.source / ".gradle-invoked").exists())
+        self.assertEqual("", self.run_git("status", "--porcelain").stdout)
+
+    def test_missing_owner_patch_refuses_before_changing_source(self):
+        self.owner_patch.unlink()
         result = self.run_recipe()
         self.assertNotEqual(0, result.returncode)
         self.assertFalse((self.source / ".gradle-invoked").exists())

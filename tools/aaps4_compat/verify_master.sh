@@ -11,7 +11,7 @@ test -z "$(git -C "$AAPS_RC1_DIR" ls-files --others --exclude-standard)"
 
 temp="$(mktemp -d "${TMPDIR:-/tmp}/master-admission.XXXXXX")"
 applied=false
-patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query combo-history-reply combo-error-timeout combo-test-watchdog)
+patches=(master-admission transport-privacy upload-profile-retry combo-history-integrity combo-history-source combo-history-control combo-history-query combo-history-reply combo-error-timeout combo-test-watchdog combo-history-owner)
 cleanup() {
     status=$?
     trap - EXIT INT TERM
@@ -58,6 +58,7 @@ cd "$AAPS_RC1_DIR"
 ./gradlew --no-daemon --max-workers=2 --console=plain \
     :plugins:sync:testAndroidHostTest \
     --tests '*.clientcontrol.ClientControlReceiverTest' \
+    --tests '*.clientcontrol.ComboHistoryReadOwnerTest' \
     --tests '*.clientcontrol.ClientControlRoundTripTest' \
     --tests '*.clientcontrol.BatchActionMappingTest' \
     --tests '*.clientcontrol.ClientControlUplinkIntegrationTest' \
