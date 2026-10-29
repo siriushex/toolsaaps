@@ -10,6 +10,8 @@
 - [x] Initial focused105tests passed; post-storage deadline and generation-bound
       lifecycle regressions included in full7133passed/six prior skips.
 - [x] Full local Android lint/compile/build and APK guard passed; zero test failures/errors.
+- [x] Reproduce/fix PR71 final-audit deadline finding; repeated7135tests passed
+      with six existing skips; full lint/compile/build/APK guard passed.
 - [ ] Exact-head CI/review.
 - [ ] Controlled main integration and main CI verification.
 - No phone install, APK release, native therapy or live meal-time activation.

@@ -26,6 +26,11 @@
   (383warnings/eight hints); APK size and class-retention guard passed.
 - Exact-head CI/review pending. No device/server changes or APK publication;
   retained bytes still do not prove physical delivery, pump UTC or safe meal time.
+- PR71 review identified a deadline omission after the final private audit.
+  Reproduce expiry on the second audit through the Room query callback; keep the
+  just-before-expiry case passing. Carry the last authenticated response deadline
+  through final reconciliation. Repeated full test/lint/compile/build passed in
+  4m53s:7135passed/six existing skips, zero failures/errors; APK guard passed.
 
 # Native Combo Read Owner - 2026-10-29
 

@@ -47,11 +47,13 @@ class AapsV3ComboTransferTest {
     private val readKey = "aaps_clientcontrol_cmd_combo_history_read_v1_$client"
     private val replies = "aaps_clientcontrol_ack_history_$client"
     private val counter = AtomicLong(0)
+    private var onPrivateQuery: (String) -> Unit = {}
 
     @Before fun setup() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, CopilotDatabase::class.java).allowMainThreadQueries().build()
-        privateDb = Room.inMemoryDatabaseBuilder(context, ComboJournalDatabase::class.java).allowMainThreadQueries().build()
+        privateDb = Room.inMemoryDatabaseBuilder(context, ComboJournalDatabase::class.java).allowMainThreadQueries()
+            .setQueryCallback({ sql, _ -> onPrivateQuery(sql) }, { it.run() }).build()
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher { SecretKeySpec(ByteArray(32) { 7 }, "AES") })
         store = AapsV3ComboJournalStore(privateDb)
         AapsV3PairingCredential(client, master, at + 120_000, secret).use { journal.enroll(it, at) }
@@ -286,5 +288,24 @@ class AapsV3ComboTransferTest {
             now.addAndGet(30_000); release.complete(Unit); blocker!!.join()
             assertTrue(worker.await().exceptionOrNull() is ComboTransferFailure)
         } finally { release.complete(Unit); blocker?.cancelAndJoin(); worker.cancelAndJoin(); peer.cancelAndJoin() }
+    }
+
+    private suspend fun delayedFinalAudit(elapsed: Long): Result<ComboTransferState> = coroutineScope {
+        val audits = AtomicLong()
+        onPrivateQuery = { sql ->
+            if (sql.startsWith("SELECT * FROM combo_reads WHERE") && sql.contains("ORDER BY readId") &&
+                audits.incrementAndGet() == 2L) now.addAndGet(elapsed)
+        }
+        val peer = peer(emptyMap())
+        try { runCatching { transfer() }.also { assertEquals(2L, audits.get()) } }
+        finally { peer.cancelAndJoin() }
+    }
+
+    @Test fun finalPrivateAuditCannotReturnSuccessfulTransferAtResponseExpiry() = runBlocking {
+        fails { delayedFinalAudit(30_000).getOrThrow() }
+    }
+
+    @Test fun finalPrivateAuditCanFinishJustBeforeResponseExpiry() = runBlocking {
+        assertEquals(ComboTransferPhase.RETAINED, delayedFinalAudit(29_999).getOrThrow().phase)
     }
 }

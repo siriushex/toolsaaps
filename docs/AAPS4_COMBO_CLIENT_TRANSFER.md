@@ -36,7 +36,8 @@ runtime monitor; an old session cannot reset a new session or replace stopped st
   Budget exhaustion stops between whole reads; partial buffers are not persisted.
 - Preserve source/retained hazards, omitted older reads, unscoped damage and writer
   failure. Recheck runtime and deadlines after private I/O; late completion cannot
-  report successful transfer.
+  report successful transfer. The final reconciliation also checks the most recent
+  authenticated response deadline, including cycles with no missing reads.
 
 Old valid-source reply rows at/before a new request's publication revision are
 ignored while awaiting its reply. Newer malformed or incorrectly bound responses

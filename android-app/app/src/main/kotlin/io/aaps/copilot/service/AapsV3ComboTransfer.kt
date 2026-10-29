@@ -33,6 +33,7 @@ internal class AapsV3ComboTransfer(
                 val startedAt = clock()
                 var observedAt = startedAt
                 var requests = 0
+                var responseValidUntil = 0L
                 suspend fun runtimeGuard() {
                     currentCoroutineContext().ensureActive()
                     admit()
@@ -67,11 +68,14 @@ internal class AapsV3ComboTransfer(
                     try {
                         guard()
                         val identity = when (val content = handoff.content) {
-                            is ComboResponseContent.Inventory -> content.binding.requestId to content.binding.counter
-                            is ComboResponseContent.Chunk -> content.binding.requestId to content.binding.counter
+                            is ComboResponseContent.Inventory -> Triple(content.binding.requestId,
+                                content.binding.counter, content.binding.validUntil)
+                            is ComboResponseContent.Chunk -> Triple(content.binding.requestId,
+                                content.binding.counter, content.binding.validUntil)
                             else -> error("response_required")
                         }
-                        check(identity == (id to request.counter) && handoff.sessionStartedAt == session)
+                        check(identity.first == id && identity.second == request.counter && handoff.sessionStartedAt == session)
+                        responseValidUntil = identity.third
                         return handoff
                     } catch (error: Throwable) {
                         handoff.close()
@@ -125,6 +129,7 @@ internal class AapsV3ComboTransfer(
                 guard()
                 val audit = store.reconcileInventory(catalog.masterId, catalog.inventory)
                 guard()
+                check(clock() < responseValidUntil)
                 ComboTransferState(if (audit.declaredInventoryRetained) ComboTransferPhase.RETAINED else ComboTransferPhase.PARTIAL,
                     audit.matchedReadCount, audit.missingReadIds.size, audit.conflictingReadIds.size, audit.hazards.size)
             } ?: throw ComboTransferFailure()
