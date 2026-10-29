@@ -1,5 +1,13 @@
 # SECURITY REVIEW
 
+## Meal Planner Clock Consistency (2026-10-29)
+
+Matching revisions do not prove causal evidence. Reject observations newer than
+the forecast or not after the meal record, using direct timestamp comparisons
+without subtraction overflow. Do not convert a later evaluation time into a new
+forecast anchor. No payload logging, therapy action, data migration or clinical
+permission is introduced. Receipt-time evidence remains a separate requirement.
+
 ## Combo Readiness UI (2026-10-29)
 
 - Publish only dated scalar counts from the completed validated audit. Do not

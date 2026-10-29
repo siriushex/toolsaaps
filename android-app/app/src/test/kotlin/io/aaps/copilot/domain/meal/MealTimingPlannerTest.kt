@@ -5,6 +5,60 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MealTimingPlannerTest {
+    @Test fun futureObservationCannotQualifyAnEarlierForecast() {
+        val updated = observedBelief(now + 1)
+        val result = MealTimingPlanner().evaluate(updated,
+            envelope().copy(beliefRevision = updated.revision), now)
+        assertEquals(MealTimingReason.INVALID_CONTEXT, result.reason)
+        assertNull(result.candidateAtMs)
+        assertFalse(result.notificationAllowed)
+    }
+
+    @Test fun laterEvaluationCannotMakeFutureForecastEvidenceCausal() {
+        val updated = observedBelief(now + 1)
+        val original = envelope()
+        val waiting = original.copy(beliefRevision = updated.revision,
+            trajectories = original.trajectories.map { path -> path.copy(points = path.points.map { point ->
+                val mean = if (point.offsetMinutes == 0 || path.startOffsetMinutes == 10) 6.0 else 7.0
+                point.copy(meanMmol = mean, lowMmol = mean - 0.3, highMmol = mean + 0.3)
+            }) })
+        val result = MealTimingPlanner().evaluate(updated, waiting, now + 60_000)
+        assertEquals(MealTimingReason.INVALID_CONTEXT, result.reason)
+        assertNull(result.candidateAtMs)
+        assertFalse(result.notificationAllowed)
+    }
+
+    @Test fun observationAtOrBeforeForecastRemainsEligibleOnlyForResearch() {
+        for (sampleAt in listOf(now - 1, now)) {
+            val updated = observedBelief(sampleAt)
+            val result = MealTimingPlanner().evaluate(updated,
+                envelope().copy(beliefRevision = updated.revision), now)
+            assertEquals(MealTimingStatus.SHADOW_READY, result.status)
+            assertEquals(now, result.candidateAtMs)
+            assertFalse(result.notificationAllowed)
+        }
+    }
+
+    @Test fun observationNotAfterMealRecordCannotQualifyAPlan() {
+        for (sampleAt in listOf(Long.MIN_VALUE, 0L, belief.input.recordedAtMs - 1, belief.input.recordedAtMs)) {
+            val invalid = MealBelief(belief.input, belief.scenarios, 1, sampleAt, "sample-1", "runtime-1")
+            val result = MealTimingPlanner().evaluate(invalid,
+                envelope().copy(beliefRevision = invalid.revision), now)
+            assertEquals(MealTimingReason.INVALID_CONTEXT, result.reason)
+            assertNull(result.candidateAtMs)
+            assertFalse(result.notificationAllowed)
+        }
+    }
+
+    private fun observedBelief(sampleAt: Long): MealBelief {
+        val update = MealStateEstimator().observe(belief, MealObservation(
+            "sample-1", sampleAt, 6.0, now - 2, "runtime-1", belief.revision,
+            belief.scenarios.associate { it.id to MealExpectedObservation(6.0, 0.3) }, true
+        ))
+        assertEquals(MealUpdateReason.UPDATED, update.reason)
+        return update.belief
+    }
+
     @Test fun gridIntervalCannotAddFiveMinutesOfSafeWaiting() {
         val e = envelope()
         val paths = e.trajectories.map { t ->

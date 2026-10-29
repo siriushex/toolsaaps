@@ -1,5 +1,14 @@
 # DEVOPS
 
+## Meal Planner Clock Verification
+
+Run MealTimingPlannerTest and MealStateEstimatorTest, then full Android quality
+and APK guards. Preserve the three original red regressions: future observation,
+later evaluation of that observation with an older forecast, and observations
+not after the meal record. Exact-boundary and earlier observations must retain
+research-only behavior. No phone/server changes or schema migration; rollback
+only reverts the planner check, without changing the closed notification gate.
+
 ## Combo Readiness Verification
 
 Run ComboTransferAuditTest, AapsV3ComboTransferTest, AapsV3TargetChannelTest and

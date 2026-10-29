@@ -1,5 +1,16 @@
 # PLAN
 
+## Meal Planner Observation Clock (2026-10-29)
+
+- [x] Recheck main54620a5e/Verify40883762041 successful; Redmi still absent.
+- [x] Reproduce future-observation and pre-meal observation admission with three
+      failing tests; preserve the original XML before fixing the planner.
+- [x] Reject noncausal observation timestamps without changing notification gates.
+- [x] Focused44 and full7149Android tests passed, six prior skips; lint unchanged,
+      compile/build and APK size/class checks passed.
+- [ ] Exact-head CI/review and controlled integration.
+- No real-device evidence, clinical activation or APK publication in this fix.
+
 ## Combo Readiness Diagnostics (2026-10-29)
 
 - [x] Recheck main4be6208a/Verify40864317760 successful; PR71 exact tree integrated.
@@ -8,7 +19,10 @@
 - [x] Expose dated scalar audit and expandable connection diagnostics.
 - [x] Verify lifecycle, snapshot and small-screen regressions:7145passed/six prior
       skips; lint/compile/build/APK guard passed, no new lint warnings.
-- [ ] Exact-head CI/review and controlled integration.
+- [x] PR72 exact-head CI/review passed; main54620a5e has the same reviewed tree.
+      Verify40883762041 passed7145Android/six prior skips and772native tests.
+      First main attempt failed before tests with a dependency network error;
+      one diagnosed failed-job rerun passed without code or test changes.
 - [ ] Real Redmi/Combo delivery, basal and UTC evidence; independent prospective
       meal-time validation before live indication and APK release.
 

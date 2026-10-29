@@ -1,5 +1,15 @@
 # INVARIANTS
 
+## Meal Timing Causality
+
+- When present, the last posterior sample must be strictly after the meal record
+  and no later than the frozen forecast. Later evaluation cannot repair a
+  noncausal forecast/posterior combination, even when revisions match.
+- Reject such input before ranking windows; publish no candidate. Initial beliefs
+  remain supported without an observation. Notification permission stays false.
+- Timestamp consistency alone does not prove availability at prediction time,
+  sensor quality, complete insulin delivery or a clinically safe meal delay.
+
 ## Readiness Presentation
 
 - Current transfer phase and last completed audit are distinct. Preserve the

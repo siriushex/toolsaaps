@@ -1,5 +1,13 @@
 # ARCHITECTURE
 
+## Meal Planner Observation Clock
+
+The research planner checks the posterior's last observation against the frozen
+forecast timestamp, not the later evaluation time. Matching belief revisions
+alone cannot qualify newer observations for an older forecast. An observation
+must follow the meal record and must not follow forecast generation. This check
+does not establish receipt availability, delivery coverage or clinical safety.
+
 ## Combo Readiness Diagnostics
 
 The completed private inventory audit projects scalar counters and clock findings
