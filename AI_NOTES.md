@@ -1,3 +1,26 @@
+# Combo Readiness Diagnostics - 2026-10-29
+
+- Main4be6208a/Verify40864317760 verified successful; PR71 integration closes its
+  preceding pending notes.7135Android/six prior skips and772native passed.
+- Read-only ADB and macOS USB checks find no Redmi. No phone, server, therapy or
+  APK publication operation. Actual delivery/UTC evidence remains unavailable.
+- Project scalar clock/counter/retention findings into a dated UI audit. Add compact
+  expandable EN/RU diagnostics to the existing AAPS4 connection section.
+- Preserve explicitly dated prior audit during probe renewal and target preemption;
+  pending/failed status stays separate. Lifecycle loss clears it; late generations
+  cannot publish. Opening details has no action/transport callback.
+- Keep complete-delivery and clock-mapping flags false, including empty catalogs;
+  existing meal notification admission stays closed. Full checks and CI pending.
+- Initial46focused tests passed; inspected Russian320dp/font1.5 rasters. Add three
+  further lifecycle cases. Full run found one new test race: a terminal result
+  can publish before worker completion releases its permit. Emulate subsequent
+  owner ticks in the retry test, without extending timeouts or changing runtime.
+  Original failing report retained; repeat full checks after the test correction.
+- Final full Android test/lint/compile/build passed in2m48s:7145passed/six prior
+  skips, zero failures/errors;10new tests. Lint stays at383warnings/eight hints
+  with zero errors after clarifying the English counter label. APK size/class
+  retention guard passed. Exact-head CI/review pending; no clinical activation.
+
 # Client Combo Transfer - 2026-10-29
 
 - PR70 is integrated as main e3544c8e with the reviewed tree; Verify40846304696

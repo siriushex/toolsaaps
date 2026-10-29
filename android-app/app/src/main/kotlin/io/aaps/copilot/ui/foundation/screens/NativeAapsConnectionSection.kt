@@ -67,6 +67,10 @@ internal fun NativeAapsConnectionSection(
             }), Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)
         }
         Text(stringResource(R.string.native_aaps_control_unavailable), style = MaterialTheme.typography.bodySmall)
+        if (state.status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.VERIFYING,
+                AapsV3ConnectionStatus.CONTROL_DISABLED) || state.comboTransfer.lastAudit != null) {
+            NativeComboHistorySection(state)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { pairing = true }, enabled = !state.busy,
                 modifier = Modifier.testTag("native_aaps_pair")) {

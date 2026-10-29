@@ -166,6 +166,11 @@ class AapsV3ComboTransferTest {
         try {
             val result = transfer()
             assertEquals(ComboTransferPhase.RETAINED, result.phase)
+            assertEquals(now.get(), result.lastAudit!!.checkedAtMs)
+            assertEquals(result.retainedReads, result.lastAudit.retainedReads)
+            assertEquals(result.hazardKinds, result.lastAudit.hazardKinds)
+            assertFalse(result.lastAudit.deliveryCompletenessVerified)
+            assertFalse(result.lastAudit.clockMappingVerified)
             assertEquals(1, result.retainedReads); assertTrue(result.hazardKinds > 0)
             assertArrayEquals(reads.values.single(), store.read(master, binding, reads.keys.single())!!.rawBytes())
             assertEquals(5, counter.get().toInt())
@@ -188,6 +193,7 @@ class AapsV3ComboTransferTest {
             val result = transfer()
             assertEquals(ComboTransferPhase.PARTIAL, result.phase)
             assertEquals(2, result.retainedReads); assertEquals(1, result.missingReads)
+            assertEquals(1, result.lastAudit!!.missingReads)
             assertEquals(2 * 1024 * 1024L, privateDb.journalDao().totals().bytes)
         } finally { peer.cancelAndJoin() }
     }

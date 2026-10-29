@@ -57,7 +57,8 @@ physical insulin delivery, pump-to-UTC mapping, continuous basal coverage or saf
 meal timing. An empty catalog can match an empty store without proving no insulin.
 The live meal-time and native clinical target gates remain unchanged.
 
-The phase/count flow is internal diagnostics, not a new clinical UI indication.
+The phase/count flow feeds read-only connection diagnostics, not a clinical
+readiness indication. See AAPS4_COMBO_READINESS.md for dated audit presentation.
 This source stage does not install AAPS, publish an APK, send therapy commands or
 export retained journals to the server. Device acceptance remains required.
 

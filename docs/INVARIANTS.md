@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Readiness Presentation
+
+- Current transfer phase and last completed audit are distinct. Preserve the
+  original check timestamp; never relabel a prior snapshot as a new success.
+- The UI shows scalar evidence only, without pump binding, keys or raw payloads.
+  Missing audit is unknown, not zero events or complete delivery.
+- A reader acknowledgement, exact archive match and clean counters do not verify
+  insulin delivery, basal continuity or historical UTC mapping.
+- Stop, revoke, disabled control and failed ownership clear published diagnostics.
+  Ordinary renewal may retain a dated audit but never clinical permission.
+- Existing meal notification, no-food and hypoglycemia gates remain unchanged.
+
 ## Client History Transfer
 
 - Fresh signed pairing/storage/runtime admission precedes every read publication.

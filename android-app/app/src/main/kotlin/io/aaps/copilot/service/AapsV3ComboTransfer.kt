@@ -9,11 +9,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
 
-internal enum class ComboTransferPhase { IDLE, READING, RETAINED, PARTIAL, UNAVAILABLE }
-internal data class ComboTransferState(
+enum class ComboTransferPhase { IDLE, READING, RETAINED, PARTIAL, UNAVAILABLE }
+data class ComboTransferState(
     val phase: ComboTransferPhase = ComboTransferPhase.IDLE,
     val retainedReads: Int = 0, val missingReads: Int = 0, val conflictingReads: Int = 0,
-    val hazardKinds: Int = 0
+    val hazardKinds: Int = 0,
+    val lastAudit: ComboTransferAudit? = null
 )
 internal class ComboTransferFailure : IllegalStateException("combo_transfer_unavailable")
 
@@ -129,9 +130,11 @@ internal class AapsV3ComboTransfer(
                 guard()
                 val audit = store.reconcileInventory(catalog.masterId, catalog.inventory)
                 guard()
-                check(clock() < responseValidUntil)
+                val completedAt = clock()
+                check(completedAt in observedAt until responseValidUntil)
                 ComboTransferState(if (audit.declaredInventoryRetained) ComboTransferPhase.RETAINED else ComboTransferPhase.PARTIAL,
-                    audit.matchedReadCount, audit.missingReadIds.size, audit.conflictingReadIds.size, audit.hazards.size)
+                    audit.matchedReadCount, audit.missingReadIds.size, audit.conflictingReadIds.size, audit.hazards.size,
+                    ComboTransferAudit.from(audit, completedAt))
             } ?: throw ComboTransferFailure()
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
