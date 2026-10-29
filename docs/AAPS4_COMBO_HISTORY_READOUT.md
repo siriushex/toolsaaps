@@ -1,5 +1,9 @@
 # Retained Combo Journal Readout
 
+Current candidate integration is described in AAPS4_COMBO_READ_OWNER.md. The
+source/decoder baseline below predates that handler: it now has an authenticated
+native caller, but no automatic capability, phone install or clinical activation.
+
 ## Scope
 
 The existing private journal now provides an internal read-only snapshot and
@@ -57,13 +61,12 @@ destination binding, ingestion, receipts and retention policy.
 The existing target/delivery key is unchanged; stock push/poll paths ignore
 the new response key because it remains under the ACK prefix.
 
-The family is currently refused before stock payload/Hello dispatch, with a
-signed terminal failure and no payload. Expiry/control-disabled paths use the
-same isolated response key. Invalid authentication/replay/skew are ignored.
-A valid signature is not permission to disguise a stock action as a history
-request. No successful inventory/chunk response or capability is implied.
-Future asynchronous transfer must retain the response separation and perform
-its own bounded query, epoch, admission, encryption and durable receipt checks.
+The later `combo-history-owner.patch` connects a bounded authenticated handler
+before stock payload/Hello dispatch. It reuses this isolated reply key and requires
+strict query, active master/pairing/control/source and post-I/O admission. Invalid
+authentication/replay/skew are ignored. A valid signature is not permission to
+disguise a stock action as a history request. No automatic capability or clinical
+authority is implied. See AAPS4_COMBO_READ_OWNER.md for lifecycle and limitations.
 
 ### Query Contract
 

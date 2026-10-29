@@ -1,5 +1,22 @@
 # SECURITY REVIEW
 
+## Native Read Owner (2026-10-29)
+
+- Preserve existing authentication/counter admission and reserve the history
+  family before stock dispatch. Require active pairing/master/control and current
+  source. No new key owner, exported component or pump command.
+- Bound work, metadata and response size. I/O/crypto/network run outside the
+  command mutex. Later verified commands invalidate pending read generation;
+  stale/busy work cannot create a success or overwrite ordinary acknowledgements.
+- Revalidate credential, creation time, exact counter/master/transport and source
+  around slow work. Clear owned raw fragments/key copies; suppress raw exception
+  details. Treat non-2xx/uncertain writes as failure without automatic retry.
+- Already-started network writes cannot be recalled; the client must validate the
+  exact request/counter/deadline and scope. No persistent revocation/pump-clock
+  epoch or physical-delivery claim is inferred from current-value comparisons.
+- Candidate handler tests do not authorize advertising background capability,
+  phone deployment or clinical recommendations. See AAPS4_COMBO_READ_OWNER.md.
+
 ## Combo Timeout Race Found During CI (2026-10-29)
 
 PR67 CI 40781360339 failed the second-expiration assertion in the pinned upstream

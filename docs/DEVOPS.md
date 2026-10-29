@@ -1,5 +1,16 @@
 # DEVOPS
 
+## Native Read Owner Verification
+
+The eleventh frozen patch, `combo-history-owner.patch`, connects the bounded
+authenticated history handler. Run the combined recipe, including the new
+`ComboHistoryReadOwnerTest` filter, and verify restoration of the pinned checkout.
+Then prepare the pristine SDK oracle and run full Android test/lint/compile/build
+and APK guards. Use only synthetic history and credentials in source/CI.
+Missing owner patch must fail before applying any source edits. Rollback is source
+reversion with private journals preserved; no device or therapy action is included.
+Capability/client background lifecycle and real source I/O acceptance are separate.
+
 ## Android Test Runtime Resolution
 
 Resolve `:app:prepareRobolectricSdks` before tests. Robolectric4.16.1 uses pinned
@@ -36,8 +47,8 @@ timeout or validate pump behavior. No blind retry-to-green or timeout extension.
 
 ## Native Reply Verification
 
-The native recipe now freezes ten compatibility patches, including the pure reply
-codec and test-only structured-child watchdog fix. SDK preparation extracts the exact decoder and encoder
+The native recipe now freezes eleven compatibility patches, including the reply
+codec, structured-child watchdog fix and read owner. SDK preparation extracts the exact decoder and encoder
 beside the external driver without patching upstream. Run recipe tests, native
 verification/restoration, sequential pristine SDK preparation, then Copilot's
 AapsV3ComboNativeReplyTest and full Android quality/APK guard.

@@ -1,5 +1,19 @@
 # INVARIANTS
 
+## Native Read Runtime
+
+- MAC/replay/skew checks precede reserved query admission. This family cannot
+  reach stock Hello or therapy dispatch, including malformed/unknown versions.
+- Only active paired master/control/source can read. No source creation, pump
+  connection, driver command, counter retry, source ACK or deletion.
+- One non-queuing worker, outside command/writer locks. Recheck original deadline,
+  current credential/counter/master/transport/generation and source after I/O.
+- Snapshot access is scoped and bounded to five minutes. Preserve every adverse
+  flag; a successful encrypted reply grants no delivery or clock completeness.
+- Do not retry or overwrite an uncertain publication. After send starts, later
+  revocation cannot retract it; exact client-side admission remains mandatory.
+- No automatic transfer capability or live timer follows from these source tests.
+
 ## Native Reply Encoding
 
 - A catalog is copied, bounded and ordered, never repaired, pruned or converted
@@ -10,8 +24,8 @@
   request context. Clear owned key/plaintext buffers; do not alter caller arrays.
 - Missing native patch/source must refuse verification, never fall back to an
   untested copied implementation. Check actual native output in Copilot.
-- Do not connect successful replies to the reserved runtime lane until source,
-  generation, priority, revocation and post-I/O/deadline admission are implemented.
+- Successful replies require the separate runtime source/generation/priority/
+  revocation and post-I/O/deadline admission. Encoding alone grants none of them.
   No source-delete ACK, transfer capability or clinical permission from encoding.
 
 ## Combo Error Timeout Ownership

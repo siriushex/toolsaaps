@@ -1,5 +1,21 @@
 # PLAN
 
+## Native Read Owner (2026-10-29)
+
+- [x] Verify main e5305491 and CI40833221313 passed; preceding PR69 integrated.
+- [x] Connect strict authenticated history handling to the existing active-pump
+      retained source and encrypted codec, outside the therapy-command mutex.
+- [x] Add snapshot expiry/scope, post-I/O admission, preemption and bounded
+      worker/publication behavior; retain existing therapy and clinical gates.
+- [x] Native772tests passed, including26new owner/receiver cases; recipe31passed.
+      Real-thread regressions use real clocks; original failed report preserved.
+- [x] Full Copilot quality command passed (test tasks up-to-date):7112passed/six
+      existing skips in retained XML; lint/compile/build/APK guard passed.
+- [ ] Exact-head CI/review and main integration.
+- No capability advertisement, Copilot background transfer, phone install or live
+  meal-time admission yet. Device journal/clock and recorded delivery validation
+  remain required; this stage does not publish an APK.
+
 ## Combo Clock Boundaries And Test Watchdog (2026-10-29)
 
 - [x] Verify main a9daf781 CI40792766094 passed; PR67/68 are integrated.
@@ -18,7 +34,8 @@
       pinned SDKs before offline test execution; focused16/recipe30passed.
 - [x] Full Android checks for the CI follow-up:7112passed/six existing skips,
       zero failures/errors; lint/compile/build/APK guard pass in4m6s.
-- [ ] Renewed exact-head CI/review and controlled main integration.
+- [x] PR69 renewed exact-head CI/review passed; main e5305491 has the tested tree
+      and successful Verify40833221313 (7112Android/746native passed).
 - The prior 60-second release timeout remains unexplained. This watchdog defect
   is independently reproduced, not evidence of that timeout's root cause.
 - Native runtime history transfer, physical basal/delivery coverage, pump UTC

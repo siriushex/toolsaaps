@@ -1,3 +1,29 @@
+# Native Combo Read Owner - 2026-10-29
+
+- Main e5305491/Verify40833221313 passed; PR69's exact reviewed tree is integrated.
+  Retained main reports confirm7112Android passed/six existing skips,746native
+  passed, zero failures/errors. This closes the preceding pending-CI note.
+- Connect authenticated reserved history requests to one bounded background
+  worker and the active pump's existing read-only source. No Hello/therapy dispatch,
+  source creation or pump command. Ordinary target/delivery ACKs remain separate.
+- Bind the immutable snapshot to client/master/credential/creation/source and
+  five-minute validity. Recheck request, current state and reader around I/O/crypto
+  and publication; preserve original bytes and every adverse metadata flag.
+- Later verified commands preempt pending read work. Busy reads do not queue.
+  Clear owned buffers on exit; refuse changed/revoked/expired/failed data. A started
+  HTTP write remains uncertain on failure and is never retried or overwritten.
+- Add26synthetic owner/receiver cases; native772tests and recipe31tests passed.
+  First compile found a hidden test crypto dependency; use independent JCE test
+  decryption without adding production dependencies. Three latch tests exposed a
+  virtual/real-clock mismatch; use real-time guards with unchanged limits, retain
+  the failure report. Native checkout restored; pristine SDK preparation passed.
+- Full Android quality command passed with test tasks up-to-date; retained reports
+  confirm7112passed/six existing skips, zero failures/errors. Lint has zero errors;
+  compile/build and APK retention/size guard passed. Exact-head CI/review pending.
+  No phone/server change,
+  automatic transfer capability, clinical activation or APK publication. Device
+  I/O, recorded delivery/basal coverage and pump UTC epochs remain unverified.
+
 # Combo Clock Boundaries And Watchdog - 2026-10-29
 
 ## CI Follow-up

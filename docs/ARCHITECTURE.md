@@ -1,5 +1,16 @@
 # ARCHITECTURE
 
+## Native Read Runtime
+
+The candidate receiver routes authenticated reserved history requests to one
+background, non-queuing worker outside its command mutex. `ComboHistoryReadOwner`
+uses the active pump's existing retained source and shared encrypted reply codec.
+It retains one bounded, expiring metadata snapshot; current request/credential/
+transport/generation and reader ownership are checked around I/O and publication.
+Read responses use only the isolated history ACK slot, with no source-delete or
+therapy authority. See AAPS4_COMBO_READ_OWNER.md for cancellation, uncertain writes
+and the remaining capability/client-runtime/device gates.
+
 ## Native Encrypted History Replies
 
 The candidate shared SDK reply codec binds one immutable, bounded catalog to
@@ -9,9 +20,9 @@ Copilot framing, whole-catalog digest and adverse flags. Keys are per-call copie
 not retained catalog state. It has no source/driver/counter/lifecycle authority.
 
 The exact candidate patch source is also compiled beside the pristine SDK oracle;
-Copilot tests decrypt its real output. The native receiver's terminal refusal is
-unchanged. Source selection, asynchronous arbitration and final publication checks
-remain the runtime owner's responsibility. See AAPS4_COMBO_NATIVE_REPLY.md.
+Copilot tests decrypt its real output. The candidate native receiver delegates to
+the separate bounded read owner. The codec itself still has no source or runtime
+authority. See AAPS4_COMBO_NATIVE_REPLY.md and AAPS4_COMBO_READ_OWNER.md.
 
 ## Authenticated Catalog Retention
 

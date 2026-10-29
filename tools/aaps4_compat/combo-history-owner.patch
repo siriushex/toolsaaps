@@ -1,0 +1,840 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+index bc7b698d57..25efb00acb 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+@@ -75,6 +75,8 @@ import kotlin.time.ExperimentalTime
+ import kotlin.time.TestTimeSource
+ import kotlinx.coroutines.runBlocking
+ 
++internal interface SyntheticHistoryPump : app.aaps.core.interfaces.pump.Pump, app.aaps.core.interfaces.pump.RetainedPumpHistorySource
++
+ internal class ClientControlReceiverTest {
+ 
+     @Mock private lateinit var preferences: Preferences
+@@ -94,6 +96,7 @@ internal class ClientControlReceiverTest {
+     @Mock private lateinit var config: Config
+     @Mock private lateinit var bolusProgressData: BolusProgressData
+     @Mock private lateinit var commandQueue: CommandQueue
++    @Mock private lateinit var activePlugin: app.aaps.core.interfaces.plugin.ActivePlugin
+ 
+     // Same deterministic fake as the repository tests — encrypt/decrypt round-trip via reverse,
+     // so the persisted form does not contain the original plaintext.
+@@ -140,6 +143,7 @@ internal class ClientControlReceiverTest {
+         storage.clear()
+         storage[StringNonKey.SceneDefinitions.key] = "[]"
+         whenever(preferences.get(StringNonKey.NsClientControlAuthorizedClients)).thenAnswer { stored }
++        whenever(preferences.get(StringNonKey.NsClientControlOwnInstallId)).thenReturn("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+         // Client control ON by default — the receiver now gates on this (rejects commands when off); see controlDisabled test.
+         // The WebSocket is part of that gate (a master without it cannot answer inside a command's validity),
+         // so it has to be on for the normal cases too.
+@@ -182,8 +186,10 @@ internal class ClientControlReceiverTest {
+             commandQueue,
+             rh,
+             aapsLogger,
+-            appScope
++            appScope,
++            activePlugin
+         )
++        sut.historyDispatcher = Dispatchers.Unconfined
+     }
+ 
+     /** Adds a pending client and returns (clientId, secretBytes). */
+@@ -1356,6 +1362,224 @@ internal class ClientControlReceiverTest {
+ 
+     // -- preferences_update (generic synced-pref channel) ---------------------------------
+ 
++    private fun inventoryPayload(): String = buildJsonObject {
++        put("type", historyType); put("version", 1)
++        put("masterInstallId", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
++        put("requestId", "00000000-0000-4000-8000-000000000009")
++        put("query", buildJsonObject { put("kind", "inventory"); put("limit", 32) })
++    }.toString()
++
++    private fun installHistory(reader: SyntheticRetainedHistory, beforeOpen: () -> Unit = {}): SyntheticHistoryPump {
++        val pump = org.mockito.Mockito.mock(SyntheticHistoryPump::class.java)
++        whenever(activePlugin.activePumpInternal).thenReturn(pump)
++        whenever(pump.openRetainedHistory()).thenAnswer { beforeOpen(); reader }
++        return pump
++    }
++
++    @Test fun authenticatedHistoryPublishesEncryptedIsolatedReplyWithoutTherapy() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        installHistory(SyntheticRetainedHistory())
++        val ordinary = captureAcks(clientId)
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertThat(history).hasSize(1)
++        assertThat(history.single().status.name).isEqualTo("Ok")
++        assertThat(ClientControlCrypto.verifyAck(secret, history.single())).isTrue()
++        assertThat(Json.parseToJsonElement(history.single().payload!!).jsonObject.keys)
++            .containsExactly("version", "saltB64", "ivB64", "ciphertextB64")
++        assertThat(ordinary).isEmpty()
++        verifyNoInteractions(wizardBolusExecutor, sceneAutomationApi, commandQueue, notificationManager, persistenceLayer)
++    }
++
++    @Test fun pendingPairCannotReadEvenWithValidHistoryShape() = runTest {
++        val (clientId, secret) = pair()
++        val pump = installHistory(SyntheticRetainedHistory())
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertHistoryFailure(history, secret)
++        verify(pump, never()).openRetainedHistory()
++    }
++
++    @Test fun clientBuildCannotReadPumpHistory() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        whenever(config.AAPSCLIENT).thenReturn(true)
++        val pump = installHistory(SyntheticRetainedHistory())
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertHistoryFailure(history, secret)
++        verify(pump, never()).openRetainedHistory()
++    }
++
++    @Test fun pairingRevokedDuringOpenCannotPublishLateReply() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val reader = SyntheticRetainedHistory()
++        installHistory(reader) { runBlocking { authorizedRepository.delete(clientId) } }
++        val history = captureHistoryAcks(clientId)
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertThat(history).isEmpty()
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun changedTransportDuringOpenCannotPublishToEitherEndpoint() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val reader = SyntheticRetainedHistory()
++        val replacement = org.mockito.Mockito.mock(NSAndroidClient::class.java)
++        installHistory(reader) { whenever(nsClientV3Plugin.nsAndroidClient).thenReturn(replacement) }
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++        verify(replacement, never()).updateSettings(any(), any())
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun sourceReadDoesNotHoldCommandMutexAndNewCommandSuppressesLateData() = runBlocking {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
++        val release = java.util.concurrent.CountDownLatch(1)
++        val reader = SyntheticRetainedHistory()
++        installHistory(reader) {
++            entered.complete(Unit)
++            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
++        }
++        val history = captureHistoryAcks(clientId)
++        val ordinary = captureAcks(clientId)
++        sut.historyDispatcher = Dispatchers.Default
++        try {
++            sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++                wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++            kotlinx.coroutines.withTimeout(2_000L) { entered.await() }
++            kotlinx.coroutines.withTimeout(2_000L) {
++                sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}ping",
++                    wrap(envelope(clientId, secret, ClientControlMessage.Ping, counter = 6L, wantsAck = true)))
++            }
++            assertThat(ordinary.last().status.name).isEqualTo("Ok")
++        } finally { release.countDown() }
++        sut.historyJob!!.join()
++        assertThat(history).isEmpty()
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun uncertainHistoryPublicationHasOneAttemptAndNoFailureOverwrite() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val reader = SyntheticRetainedHistory()
++        installHistory(reader)
++        var writes = 0
++        whenever(nsAndroidClient.updateSettings(eq(historyAckId(clientId)), any())).thenAnswer {
++            writes++
++            error("synthetic transport failure")
++        }
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertThat(writes).isEqualTo(1)
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun rejectedHistoryHttpResponseIsNotRetried() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val reader = SyntheticRetainedHistory()
++        installHistory(reader)
++        whenever(nsAndroidClient.updateSettings(eq(historyAckId(clientId)), any()))
++            .thenReturn(CreateUpdateResponse(response = 503, identifier = null))
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        verify(nsAndroidClient, times(1)).updateSettings(eq(historyAckId(clientId)), any())
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun busyReadConsumesNewCounterWithoutQueuingOrPublishingStaleData() = runBlocking {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
++        val release = java.util.concurrent.CountDownLatch(1)
++        val reader = SyntheticRetainedHistory()
++        val pump = installHistory(reader) {
++            entered.complete(Unit)
++            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
++        }
++        val history = captureHistoryAcks(clientId)
++        sut.historyDispatcher = Dispatchers.Default
++        try {
++            sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++                wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++            kotlinx.coroutines.withTimeout(2_000L) { entered.await() }
++            sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++                wrap(signedEnvelope(clientId, secret, historyType, inventoryPayload(), counter = 6L,
++                    validUntil = now + 30_000L, wantsAck = true)))
++            assertThat(authorizedRepository.findRaw(clientId)!!.counterReceived).isEqualTo(6L)
++        } finally { release.countDown() }
++        sut.historyJob!!.join()
++        verify(pump, times(1)).openRetainedHistory()
++        assertThat(history).isEmpty()
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun waitingHistoryPublicationDoesNotBlockOrdinaryCommandAck() = runBlocking {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
++        val release = java.util.concurrent.CountDownLatch(1)
++        val reader = SyntheticRetainedHistory()
++        installHistory(reader)
++        whenever(nsAndroidClient.updateSettings(eq(historyAckId(clientId)), any())).thenAnswer {
++            entered.complete(Unit)
++            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
++            deleteOk
++        }
++        val ordinary = captureAcks(clientId)
++        sut.historyDispatcher = Dispatchers.Default
++        try {
++            sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++                wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++            kotlinx.coroutines.withTimeout(2_000L) { entered.await() }
++            kotlinx.coroutines.withTimeout(2_000L) {
++                sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}ping",
++                    wrap(envelope(clientId, secret, ClientControlMessage.Ping, counter = 6L, wantsAck = true)))
++            }
++            assertThat(ordinary.last().status.name).isEqualTo("Ok")
++        } finally { release.countDown() }
++        sut.historyJob!!.join()
++        verify(nsAndroidClient, times(1)).updateSettings(eq(historyAckId(clientId)), any())
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun cancelledApplicationScopeDoesNotLeakTheReadPermit() = runTest {
++        val (clientId, secret) = pair()
++        authorizedRepository.markActive(clientId, 1L, now)
++        val pump = installHistory(SyntheticRetainedHistory())
++        appScope.cancel()
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(historyEnvelope(clientId, secret, inventoryPayload())))
++        sut.historyJob!!.join()
++        assertThat(sut.historyJob!!.isCancelled).isTrue()
++        val previous = sut.historyJob
++        sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}read",
++            wrap(signedEnvelope(clientId, secret, historyType, inventoryPayload(), counter = 6L,
++                validUntil = now + 30_000L, wantsAck = true)))
++        assertThat(sut.historyJob).isNotSameInstanceAs(previous)
++        sut.historyJob!!.join()
++        assertThat(sut.historyJob!!.isCancelled).isTrue()
++        verify(pump, never()).openRetainedHistory()
++        verify(nsAndroidClient, never()).updateSettings(any(), any())
++    }
++
+     private val concentrationKey = BooleanKey.GeneralInsulinConcentration.key
+ 
+     private suspend fun sendPreferencesUpdate(clientId: String, secret: ByteArray, prefs: Map<String, PrefEntry>, counter: Long = 5L) {
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlUplinkIntegrationTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlUplinkIntegrationTest.kt
+index 211a73f20f..e70440a6c5 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlUplinkIntegrationTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlUplinkIntegrationTest.kt
+@@ -212,7 +212,8 @@ class ClientControlUplinkIntegrationTest {
+         masterReceiver = ClientControlReceiver(
+             masterAuthorizedRepository, { nsClientV3Plugin }, nsClientRepository, sceneAutomationApi,
+             offerPublisher, masterPrefs, dateUtil, uel, runningConfigurationPublisher, persistenceLayer, wizardBolusExecutor, notificationManager, masterConfig, bolusProgressData, commandQueue, rh, aapsLogger,
+-            masterScope
++            masterScope,
++            org.mockito.Mockito.mock(app.aaps.core.interfaces.plugin.ActivePlugin::class.java)
+         )
+ 
+         // ---------- pairing: same secret on both sides ----------
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwnerTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwnerTest.kt
+new file mode 100644
+index 0000000000..59f1cbaae5
+--- /dev/null
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwnerTest.kt
+@@ -0,0 +1,250 @@
++package app.aaps.plugins.sync.nsclientV3.clientcontrol
++
++import app.aaps.core.interfaces.pump.RetainedPumpHistory
++import app.aaps.core.interfaces.pump.RetainedPumpHistoryRead
++import app.aaps.core.interfaces.pump.RetainedPumpHistorySource
++import app.aaps.core.nssdk.localmodel.clientcontrol.ComboHistoryReadRequest
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.utils.ClientControlCrypto
++import com.google.common.truth.Truth.assertThat
++import java.security.MessageDigest
++import javax.crypto.Cipher
++import javax.crypto.Mac
++import javax.crypto.spec.GCMParameterSpec
++import javax.crypto.spec.SecretKeySpec
++import kotlin.io.encoding.Base64
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.async
++import kotlinx.coroutines.cancelAndJoin
++import kotlinx.coroutines.test.runTest
++import kotlinx.serialization.json.*
++import org.junit.jupiter.api.Test
++
++internal class SyntheticRetainedHistory : RetainedPumpHistory {
++    override val pumpBinding = "a".repeat(64)
++    val raw = byteArrayOf(0, 5, 9)
++    val id = "00000000-0000-4000-8000-000000000001"
++    val hash = ClientControlCrypto.bytesToHex(MessageDigest.getInstance("SHA-256").digest(raw))
++    override val reads = listOf(RetainedPumpHistoryRead(id, raw.size, hash, true, false, true, false))
++    override val unscopedCorruptReads = 2
++    override val writerFailed = false
++    var closed = false
++    var valid = true
++    var chunks = 0
++    var outgoing: ByteArray? = null
++    var afterRead: () -> Unit = {}
++    override fun requireCurrent() { check(valid && !closed) }
++    override fun readChunk(readId: String, offset: Int, byteCount: Int): ByteArray {
++        requireCurrent()
++        check(readId == id && offset == 0 && byteCount == raw.size)
++        chunks++
++        return raw.copyOf().also { outgoing = it; afterRead() }
++    }
++    override fun close() { closed = true }
++}
++
++internal class ComboHistoryReadOwnerTest {
++    private val client = "11111111-2222-4333-8444-555555555555"
++    private val master = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++    private val requestId = "00000000-0000-4000-8000-000000000002"
++    private val secret = ByteArray(32) { 17 }
++    private var now = 1_800_000_000_000L
++    private var counter = 1L
++    private val reader = SyntheticRetainedHistory()
++    private var opens = 0
++    private var afterOpen: () -> Unit = {}
++    private val provider = object : RetainedPumpHistorySource {
++        override fun openRetainedHistory(): RetainedPumpHistory = reader.also { opens++; afterOpen() }
++    }
++    private var active: RetainedPumpHistorySource? = provider
++    private val owner = ComboHistoryReadOwner({ active }, { now })
++    private val sent = mutableListOf<String>()
++
++    private fun request(query: JsonObject = buildJsonObject { put("kind", "inventory"); put("limit", 32) },
++                        who: String = client): ComboHistoryReadRequest {
++        val payload = buildJsonObject {
++            put("type", ComboHistoryReadRequest.TYPE); put("version", 1); put("masterInstallId", master)
++            put("requestId", requestId); put("query", query)
++        }.toString()
++        return ComboHistoryReadRequest.decode(SignedEnvelope(who, ++counter, now,
++            ComboHistoryReadRequest.TYPE, payload, "", now + 30_000L, true), master, now)
++    }
++
++    private suspend fun send(r: ComboHistoryReadRequest = request(), credential: String = "wrapped-fixture",
++                             created: Long = 1L, admit: suspend () -> Unit = {}) {
++        owner.respond(r, secret, credential, created, admit) { sent += it }
++    }
++
++    private fun context(r: ComboHistoryReadRequest): String = when (val q = r.query) {
++        is ComboHistoryReadRequest.Inventory -> listOf("aaps-combo-inventory-page-v1", "master-to-client", "aes-256-gcm",
++            client, master, r.requestId, r.counter, r.issuedAt, r.validUntil, q.snapshotId ?: "-", q.afterReadId ?: "-", q.limit).joinToString("|")
++        is ComboHistoryReadRequest.Chunk -> listOf("aaps-combo-journal-chunk-v1", "master-to-client", "aes-256-gcm",
++            client, master, r.requestId, q.snapshotId, q.readId, q.pumpBinding, q.sha256,
++            r.counter, r.issuedAt, r.validUntil, q.totalBytes, q.offset, q.length).joinToString("|")
++    }
++
++    private fun open(r: ComboHistoryReadRequest): ByteArray {
++        val frame = Json.parseToJsonElement(sent.last()).jsonObject
++        fun bytes(name: String) = Base64.decode(frame.getValue(name).jsonPrimitive.content)
++        val context = context(r).encodeToByteArray()
++        fun hmac(key: ByteArray, input: ByteArray) = Mac.getInstance("HmacSHA256").run {
++            init(SecretKeySpec(key, "HmacSHA256")); doFinal(input)
++        }
++        val extracted = hmac(bytes("saltB64"), secret)
++        val key = try { hmac(extracted, context + byteArrayOf(1)) } finally { extracted.fill(0) }
++        return try { Cipher.getInstance("AES/GCM/NoPadding").run {
++            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, bytes("ivB64")))
++            updateAAD(context); doFinal(bytes("ciphertextB64"))
++        } }
++        finally { key.fill(0) }
++    }
++
++    private suspend fun chunkRequest(): ComboHistoryReadRequest {
++        val initial = request()
++        send(initial)
++        val page = Json.parseToJsonElement(open(initial).decodeToString()).jsonObject
++        assertThat(page.getValue("unscopedCorruptReads").jsonPrimitive.int).isEqualTo(2)
++        assertThat(page.getValue("reads").jsonArray.single().jsonObject.getValue("adverse").jsonPrimitive.boolean).isTrue()
++        return request(buildJsonObject {
++            put("kind", "chunk"); put("snapshotId", page.getValue("snapshotId"))
++            put("readId", reader.id); put("pumpBinding", reader.pumpBinding); put("sha256", reader.hash)
++            put("totalBytes", reader.raw.size); put("offset", 0); put("length", reader.raw.size)
++        })
++    }
++
++    private suspend fun refused(block: suspend () -> Unit) {
++        var failure: Exception? = null
++        val before = sent.size
++        try { block() } catch (e: Exception) { failure = e }
++        assertThat(failure?.message).isEqualTo("combo_history_unavailable")
++        assertThat(failure?.cause).isNull()
++        assertThat(sent).hasSize(before)
++    }
++
++    @Test fun inventoryAndExactFragmentUseOriginalBytesAndKeepAdverseEvidence() = runTest {
++        val chunk = chunkRequest()
++        send(chunk)
++        assertThat(open(chunk)).isEqualTo(reader.raw)
++        assertThat(opens).isEqualTo(1)
++        assertThat(reader.outgoing!!.all { it == 0.toByte() }).isTrue()
++        assertThat(secret.all { it == 17.toByte() }).isTrue()
++        assertThat(reader.closed).isFalse()
++    }
++
++    @Test fun missingSourceDoesNotInventEmptyInventory() = runTest {
++        active = null
++        refused { send() }
++        assertThat(opens).isEqualTo(0)
++    }
++
++    @Test fun lostSourceDuringOpenClosesUnadoptedReader() = runTest {
++        afterOpen = { active = null }
++        refused { send() }
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun expiredRequestAfterOpenDoesNotPublish() = runTest {
++        afterOpen = { now += 30_000L }
++        refused { send() }
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun snapshotLifetimeCannotBeExtendedByFreshRequests() = runTest {
++        val chunk = chunkRequest().query as ComboHistoryReadRequest.Chunk
++        now += 300_000L
++        val next = request(buildJsonObject {
++            put("kind", "chunk"); put("snapshotId", chunk.snapshotId); put("readId", reader.id)
++            put("pumpBinding", reader.pumpBinding); put("sha256", reader.hash)
++            put("totalBytes", 3); put("offset", 0); put("length", 3)
++        })
++        refused { send(next) }
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun sourceLostDuringChunkClearsOwnedBytesAndClosesSnapshot() = runTest {
++        val chunk = chunkRequest()
++        reader.afterRead = { active = null }
++        refused { send(chunk) }
++        assertThat(reader.closed).isTrue()
++        assertThat(reader.outgoing!!.all { it == 0.toByte() }).isTrue()
++    }
++
++    @Test fun journalInvalidatedDuringChunkCannotPublish() = runTest {
++        val chunk = chunkRequest()
++        reader.afterRead = { reader.valid = false }
++        refused { send(chunk) }
++        assertThat(reader.closed).isTrue()
++    }
++
++    @Test fun changedCredentialCannotReuseSnapshot() = runTest {
++        val chunk = chunkRequest()
++        refused { send(chunk, credential = "different-wrapped-fixture") }
++        assertThat(reader.chunks).isEqualTo(0)
++    }
++
++    @Test fun changedPairingCreationCannotReuseSnapshot() = runTest {
++        val chunk = chunkRequest()
++        refused { send(chunk, created = 2L) }
++        assertThat(reader.chunks).isEqualTo(0)
++    }
++
++    @Test fun anotherClientCannotReadAnExistingSnapshotEvenWithMatchingCredentialFixture() = runTest {
++        val original = chunkRequest().query as ComboHistoryReadRequest.Chunk
++        val other = request(buildJsonObject {
++            put("kind", "chunk"); put("snapshotId", original.snapshotId); put("readId", original.readId)
++            put("pumpBinding", original.pumpBinding); put("sha256", original.sha256)
++            put("totalBytes", original.totalBytes); put("offset", original.offset); put("length", original.length)
++        }, who = "99999999-2222-4333-8444-555555555555")
++        refused { send(other) }
++        assertThat(reader.chunks).isEqualTo(0)
++    }
++
++    @Test fun revokedAdmissionAfterReadCannotPublish() = runTest {
++        val chunk = chunkRequest()
++        var allowed = true
++        reader.afterRead = { allowed = false }
++        refused { send(chunk, admit = { check(allowed) }) }
++    }
++
++    @Test fun wallClockRewindDoesNotRenewSnapshot() = runTest {
++        val chunk = chunkRequest()
++        now--
++        refused { send(chunk) }
++    }
++
++    @Test fun cancelledOpenDisposesReaderAndSendsNothing() = runTest {
++        val entered = CompletableDeferred<Unit>()
++        val held = CompletableDeferred<Unit>()
++        var checks = 0
++        val job = async { send(admit = { if (++checks == 2) { entered.complete(Unit); held.await() } }) }
++        entered.await()
++        job.cancelAndJoin()
++        assertThat(reader.closed).isTrue()
++        assertThat(sent).isEmpty()
++    }
++
++    @Test fun busyReaderDoesNotQueueOrInvalidateCurrentWork() = runTest {
++        val entered = CompletableDeferred<Unit>()
++        val release = CompletableDeferred<Unit>()
++        var checks = 0
++        val first = async { send(admit = { if (++checks == 1) { entered.complete(Unit); release.await() } }) }
++        entered.await()
++        refused { send() }
++        release.complete(Unit)
++        first.await()
++        assertThat(sent).hasSize(1)
++        assertThat(opens).isEqualTo(1)
++    }
++
++    @Test fun uncertainPublicationIsNotRetriedAndClosesSnapshot() = runTest {
++        var attempts = 0
++        refused {
++            owner.respond(request(), secret, "wrapped-fixture", 1L, {}) {
++                attempts++
++                error("synthetic transport detail must not escape")
++            }
++        }
++        assertThat(attempts).isEqualTo(1)
++        assertThat(reader.closed).isTrue()
++    }
++}
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index f6bf6fdf55..dca558361a 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -13,6 +13,8 @@ import app.aaps.core.interfaces.logging.LTag
+ import app.aaps.core.interfaces.logging.UserEntryLogger
+ import app.aaps.core.interfaces.notifications.NotificationId
+ import app.aaps.core.interfaces.notifications.NotificationManager
++import app.aaps.core.interfaces.plugin.ActivePlugin
++import app.aaps.core.interfaces.pump.RetainedPumpHistorySource
+ import app.aaps.core.interfaces.nsclient.NSClientRepository
+ import app.aaps.core.interfaces.pump.BolusProgressData
+ import app.aaps.core.interfaces.pump.BolusProgressState
+@@ -23,6 +25,7 @@ import app.aaps.core.interfaces.scenes.SceneAutomationApi
+ import app.aaps.core.interfaces.scenes.SceneAutomationResult
+ import app.aaps.core.interfaces.utils.DateUtil
+ import app.aaps.core.keys.LongComposedKey
++import app.aaps.core.keys.StringNonKey
+ import app.aaps.core.keys.interfaces.BooleanNonPreferenceKey
+ import app.aaps.core.keys.interfaces.DoubleNonPreferenceKey
+ import app.aaps.core.keys.interfaces.IntNonPreferenceKey
+@@ -38,6 +41,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.AuthorizedClient
+ import app.aaps.core.nssdk.localmodel.clientcontrol.BolusPreview
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
++import app.aaps.core.nssdk.localmodel.clientcontrol.ComboHistoryReadRequest
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ConfirmationLineDto
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ProgressEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ProgressPhase
+@@ -51,6 +55,13 @@ import dev.zacsweers.metro.Inject
+ import dev.zacsweers.metro.SingleIn
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Job
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.CoroutineStart
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.withTimeout
+ import kotlinx.coroutines.delay
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.sync.Mutex
+@@ -119,14 +130,15 @@ class ClientControlReceiver(
+     private val persistenceLayer: PersistenceLayer,
+     private val wizardBolusExecutor: WizardBolusExecutor,
+     private val notificationManager: NotificationManager,
+-    config: Config,
++    private val config: Config,
+     private val bolusProgressData: BolusProgressData,
+     private val commandQueue: CommandQueue,
+     private val rh: TextResolver,
+     private val aapsLogger: AAPSLogger,
+     // Plain CoroutineScope, not @ApplicationScope: that qualifier is javax and cannot appear in
+     // commonMain. AppCoroutineBindings.unqualifiedAppScope provides the same scope unqualified.
+-    private val appScope: CoroutineScope
++    private val appScope: CoroutineScope,
++    private val activePlugin: ActivePlugin
+ ) {
+ 
+     private val json = Json { ignoreUnknownKeys = true }
+@@ -137,6 +149,15 @@ class ClientControlReceiver(
+     // One command in flight at a time closes that window (the executor's atomic slot is the second line of defense).
+     private val commandMutex = Mutex()
+ 
++    private val historyPermit = Mutex()
++    private val historyGeneration = AtomicReference(Any())
++    private val historyOwner = ComboHistoryReadOwner(
++        { activePlugin.activePumpInternal as? RetainedPumpHistorySource }, { dateUtil.now() }
++    )
++    internal var historyDispatcher: CoroutineDispatcher = Dispatchers.Default
++    @Volatile internal var historyJob: Job? = null
++        private set
++
+     // Phase 3 — client bolus-progress mirror (master side). The currently-armed client (the one whose bolus is
+     // delivering); set in onVerifiedBolusCommit (the only place the clientId is known), cleared on terminal /
+     // non-delivery. The arm-TTL bounds a stale arm (e.g. a record-only commit that never starts a pump bolus) —
+@@ -336,6 +357,13 @@ class ClientControlReceiver(
+             aapsLogger.error(LTag.NSCLIENT, "ClientControl: $identifier timestamp outside skew window")
+             return
+         }
++        val generation = Any()
++        historyGeneration.store(generation)
++        if (envelope.type.startsWith(ClientControlPublisher.HISTORY_READ_TYPE_PREFIX)) {
++            authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
++            startHistoryRead(client, lookup.secretBytes, entry, envelope, receipt, generation)
++            return
++        }
+         // Hard expiry: a command that sat past its validity must NOT fire late (e.g. a profile switch
+         // requested 15 min ago and only now picked up). Consume the counter so it can't replay, and
+         // tell the client definitively rather than leaving it to time out.
+@@ -346,14 +374,6 @@ class ClientControlReceiver(
+             if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, AckStatus.Expired, "expired before master applied it", null, now)
+             return
+         }
+-        // This reserved family is not a stock action, even if its payload decodes
+-        // as one. Refuse before Hello/therapy dispatch; no history capability yet.
+-        if (envelope.type.startsWith(ClientControlPublisher.HISTORY_READ_TYPE_PREFIX)) {
+-            authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
+-            val reason = if (preferences.clientControlOperational()) FailureReason.ExecutionFailed else FailureReason.ControlDisabled
+-            if (envelope.wantsAck) writeRequestAck(client, lookup.secretBytes, envelope, AckPhase.Done, AckStatus.Failed, reason.name, null, dateUtil.now())
+-            return
+-        }
+         // Decode the payload into the sealed message family. A failure here means the verified
+         // sender wrote a payload this master cannot interpret — older master vs newer client,
+         // typically. Treat it the same as an unknown type: advance the counter so the next
+@@ -420,6 +440,68 @@ class ClientControlReceiver(
+         // just lingers in the slot until the next overwrite or NS auto-prune.
+     }
+ 
++    private fun startHistoryRead(
++        client: NSAndroidClient, secret: ByteArray, entry: AuthorizedClient, envelope: SignedEnvelope,
++        receipt: ClientControlCommandDeadline, generation: Any
++    ) {
++        // No queue, therapy-lock wait or second worker. A superseded busy request
++        // remains unconfirmed; neither source data nor ordinary ACKs are modified.
++        if (!envelope.wantsAck) return
++        val masterId = preferences.get(StringNonKey.NsClientControlOwnInstallId)
++        if (!historyPermit.tryLock()) return
++        val owned = secret.copyOf()
++        suspend fun current() {
++            currentCoroutineContext().ensureActive()
++            check(historyGeneration.load() === generation && nsClientV3Plugin().nsAndroidClient === client)
++            val fresh = authorizedRepository.findRaw(entry.clientId)
++            check(fresh != null && fresh.state == entry.state && fresh.encryptedSecret == entry.encryptedSecret &&
++                fresh.createdAt == entry.createdAt && fresh.counterReceived == envelope.counter)
++            check(historyGeneration.load() === generation && preferences.get(StringNonKey.NsClientControlOwnInstallId) == masterId)
++        }
++        suspend fun admit() {
++            current()
++            check(!config.AAPSCLIENT && entry.state == ClientState.Active && preferences.clientControlOperational())
++            check(!receipt.expired(envelope.validUntil, dateUtil.now()))
++        }
++        val job = appScope.launch(historyDispatcher, start = CoroutineStart.LAZY) {
++            var publicationStarted = false
++            try {
++                withTimeout(30_000L) {
++                    admit()
++                    val request = ComboHistoryReadRequest.decode(envelope, masterId, dateUtil.now())
++                    historyOwner.respond(request, owned, entry.encryptedSecret, entry.createdAt, ::admit) { payload ->
++                        admit()
++                        publicationStarted = true
++                        writeRequestAck(client, owned, envelope, AckPhase.Done, AckStatus.Ok, null, payload, dateUtil.now())
++                    }
++                }
++            } catch (cancelled: CancellationException) {
++                throw cancelled
++            } catch (_: Exception) {
++                // Never retry an uncertain publication or expose an I/O/parser cause.
++                if (!publicationStarted) {
++                    try {
++                        current()
++                        val expired = receipt.expired(envelope.validUntil, dateUtil.now())
++                        val reason = when {
++                            expired -> FailureReason.Expired
++                            !preferences.clientControlOperational() -> FailureReason.ControlDisabled
++                            else -> FailureReason.ExecutionFailed
++                        }
++                        withTimeout(10_000L) {
++                            writeRequestAck(client, owned, envelope, AckPhase.Done,
++                                if (expired) AckStatus.Expired else AckStatus.Failed, reason.name, null, dateUtil.now())
++                        }
++                    } catch (cancelled: CancellationException) { throw cancelled }
++                    catch (_: Exception) { /* Revoked/obsolete requests have no late response. */ }
++                }
++            }
++        }
++        historyJob = job
++        job.invokeOnCompletion { owned.fill(0); historyPermit.unlock() }
++        job.start()
++    }
++
+     private suspend fun dispatchRefusal(entry: AuthorizedClient, envelope: SignedEnvelope, receipt: ClientControlCommandDeadline, mutating: Boolean): AckOutcome? {
+         val current = authorizedRepository.findRaw(entry.clientId)
+         val operational = !mutating || preferences.clientControlOperational()
+@@ -863,7 +945,18 @@ class ClientControlReceiver(
+     ) {
+         val prefix = if (envelope.type.startsWith(ClientControlPublisher.HISTORY_READ_TYPE_PREFIX))
+             ClientControlPublisher.IDENTIFIER_HISTORY_ACK_PREFIX else ClientControlPublisher.IDENTIFIER_ACK_PREFIX
+-        writeAck(client, secret, envelope.clientId, envelope.counter, phase, status, reason, payload, now, prefix + envelope.clientId)
++        if (prefix == ClientControlPublisher.IDENTIFIER_HISTORY_ACK_PREFIX) {
++            val ack = ClientControlCrypto.signAck(secret, AckEnvelope(clientId = envelope.clientId,
++                commandCounter = envelope.counter, phase = phase, status = status, reason = reason,
++                payload = payload, timestamp = now, signature = ""))
++            val doc = buildJsonObject {
++                put("date", ClientControlPublisher.DOC_DATE); put("utcOffset", 0); put("app", "AAPS")
++                put("schemaVersion", ClientControlPublisher.SCHEMA_VERSION)
++                put("ack", json.encodeToJsonElement(AckEnvelope.serializer(), ack))
++            }
++            // Propagate cancellation/failure to the read owner; no raw transport logs or retry.
++            check(client.updateSettings(prefix + envelope.clientId, doc).response in 200..299)
++        } else writeAck(client, secret, envelope.clientId, envelope.counter, phase, status, reason, payload, now, prefix + envelope.clientId)
+     }
+ 
+     /**
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwner.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwner.kt
+new file mode 100644
+index 0000000000..ee776e70f2
+--- /dev/null
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ComboHistoryReadOwner.kt
+@@ -0,0 +1,103 @@
++package app.aaps.plugins.sync.nsclientV3.clientcontrol
++
++import app.aaps.core.interfaces.pump.RetainedPumpHistory
++import app.aaps.core.interfaces.pump.RetainedPumpHistorySource
++import app.aaps.core.nssdk.localmodel.clientcontrol.ComboHistoryReadReply
++import app.aaps.core.nssdk.localmodel.clientcontrol.ComboHistoryReadRequest
++import app.aaps.core.nssdk.utils.ClientControlCrypto
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.sync.Mutex
++
++/** One bounded read-only snapshot. Authentication and publication belong to the receiver. */
++internal class ComboHistoryReadOwner(
++    private val source: () -> RetainedPumpHistorySource?,
++    private val now: () -> Long
++) {
++    private class Snapshot(
++        val clientId: String, val masterId: String, val credential: String, val createdAt: Long,
++        val source: RetainedPumpHistorySource, val reader: RetainedPumpHistory,
++        val reply: ComboHistoryReadReply, val deadline: ClientControlCommandDeadline, val expiresAt: Long
++    )
++
++    private val mutex = Mutex()
++    private var retained: Snapshot? = null
++
++    // The caller never queues work behind this permit and never holds a therapy lock here.
++    suspend fun respond(
++        request: ComboHistoryReadRequest, secret: ByteArray, credential: String, createdAt: Long,
++        admit: suspend () -> Unit, publish: suspend (String) -> Unit
++    ) {
++        if (!mutex.tryLock()) unavailable()
++        try {
++            currentCoroutineContext().ensureActive()
++            admit()
++            val initial = (request.query as? ComboHistoryReadRequest.Inventory)?.snapshotId == null &&
++                request.query is ComboHistoryReadRequest.Inventory
++            if (initial) {
++                discard()
++                val provider = source() ?: unavailable()
++                val reader = provider.openRetainedHistory()
++                var adopted = false
++                try {
++                    currentCoroutineContext().ensureActive()
++                    admit()
++                    check(source() === provider)
++                    reader.requireCurrent()
++                    check(reader.reads.size <= 4096)
++                    val reply = ComboHistoryReadReply.create(
++                        request.clientId, request.masterInstallId, ClientControlCrypto.newClientId(), reader.pumpBinding,
++                        reader.reads.map { ComboHistoryReadReply.Read(it.id, it.byteCount, it.sha256,
++                            it.closed, it.corrupt, it.adverse, it.readFailed) },
++                        reader.unscopedCorruptReads, reader.writerFailed
++                    )
++                    val at = now()
++                    check(at in 1..253_402_300_499_999L)
++                    retained = Snapshot(request.clientId, request.masterInstallId, credential, createdAt,
++                        provider, reader, reply, ClientControlCommandDeadline(at), at + 300_000L)
++                    adopted = true
++                } finally {
++                    if (!adopted) runCatching { reader.close() }
++                }
++            }
++            val snapshot = retained ?: unavailable()
++            check(snapshot.clientId == request.clientId && snapshot.masterId == request.masterInstallId &&
++                snapshot.credential == credential && snapshot.createdAt == createdAt)
++            suspend fun guard() {
++                currentCoroutineContext().ensureActive()
++                admit()
++                check(!snapshot.deadline.expired(snapshot.expiresAt, now()) && source() === snapshot.source)
++                snapshot.reader.requireCurrent()
++            }
++            guard()
++            val chunk = (request.query as? ComboHistoryReadRequest.Chunk)?.let {
++                snapshot.reader.readChunk(it.readId, it.offset, it.length)
++            }
++            try {
++                guard()
++                val sealed = snapshot.reply.seal(request, secret, now(), chunk)
++                try {
++                    guard()
++                    publish(sealed.decodeToString())
++                    // A completed network call is not a retention or physical-delivery receipt.
++                    guard()
++                } finally { sealed.fill(0) }
++            } finally { chunk?.fill(0) }
++        } catch (cancelled: CancellationException) {
++            discard()
++            throw cancelled
++        } catch (_: Exception) {
++            discard()
++            unavailable()
++        } finally { mutex.unlock() }
++    }
++
++    private fun discard() {
++        val old = retained
++        retained = null
++        old?.let { runCatching { it.reader.close() } }
++    }
++
++    private fun unavailable(): Nothing = throw IllegalStateException("combo_history_unavailable")
++}
