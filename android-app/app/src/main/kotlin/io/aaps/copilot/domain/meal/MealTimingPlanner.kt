@@ -81,6 +81,8 @@ class MealTimingPlanner {
         }
         if (belief.scenarios.size !in 6..96 || belief.revision < 0 ||
             belief.input.recordedAtMs > envelope.generatedAtMs ||
+            // Match evidence to the forecast clock, not the later evaluation time.
+            belief.lastSampleAtMs?.let { it <= belief.input.recordedAtMs || it > envelope.generatedAtMs } == true ||
             belief.scenarios.map { it.id }.distinct().size != belief.scenarios.size ||
             belief.scenarios.map { it.kind }.toSet() != MealHypothesisKind.entries.toSet() ||
             abs(belief.scenarios.sumOf { it.probability } - 1.0) > 1e-9) {

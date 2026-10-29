@@ -1,3 +1,25 @@
+# Meal Planner Observation Clock - 2026-10-29
+
+- Main54620a5e/Verify40883762041 verified successful after the identified Gradle
+  dependency network failure; PR72 exact-head review and CI passed. This closes
+  the preceding readiness-stage CI notes. No therapy or APK release was performed.
+- Fresh ADB check remains empty. Continue a source-only safety correction rather
+  than claiming actual Combo delivery or historical UTC evidence.
+- Reproduce three planner defects before correction: future observation returns
+  SHADOW_ONLY; later evaluation with the old forecast returns NOT_NOW; pre-meal
+  observation returns SHADOW_ONLY. Original failing XML retained outside source.
+- Require posterior observations to follow the meal record and not follow the
+  frozen forecast. Add real-estimator update tests, causal boundary coverage and
+  extreme/pre-meal timestamps. No notification permission, model coefficients,
+  Combo patches, targets, persistence or dose changes.
+- Focused44tests and full7149tests passed with six prior skips; lint unchanged
+  at383warnings/eight hints, zero errors. Initial full command hit an opaque
+  IncrementalSplitterRunnable packaging failure after tests. A targeted
+  packageDebug --stacktrace diagnostic passed without source changes, followed
+  by a successful full quality command (tests up-to-date). Root cause remains
+  unproven; both original and diagnostic logs retained. APK guard passed at
+  39,946,241bytes/7357retained app classes. Exact-head CI/review still pending.
+
 # Combo Readiness Diagnostics - 2026-10-29
 
 - Main4be6208a/Verify40864317760 verified successful; PR71 integration closes its
