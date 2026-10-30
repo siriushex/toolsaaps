@@ -81,8 +81,9 @@ internal class ServerAiRoomHistorySync(
         val records = mutableListOf<ServerAiHistoryRecord>()
         val entries = mutableListOf<RoomAiExportEntry>()
         val observedAt = clock()
+        val priorEntries = index.findAll(page.observations.map { it.key })
         page.observations.forEach { item ->
-            val prior = index.find(item.key)
+            val prior = priorEntries[item.key]
             val fingerprint = fingerprint(item)
             val unchanged = prior != null && !prior.deleted && prior.fingerprint == fingerprint
             val entry = if (unchanged) prior!!.copy(seenRun = progress.run) else RoomAiExportEntry(
