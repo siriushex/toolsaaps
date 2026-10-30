@@ -1,3 +1,23 @@
+# Background History CPU - 2026-10-30
+
+- Isolated from AAPS4 preparation changes on a branch based on main973c0917.
+- Bounded on-device sampling identified per-byte SHA256 formatting and repeated
+  export-index lookups. Replace formatting with byte-identical hex encoding and
+  batch one bounded page lookup; no clinical formula or scheduler changes.
+- Tests cover every digest byte value, persisted identity compatibility, bounded
+  page queries, tombstones, missing keys and unchanged-history reconciliation.
+  Existing frozen-journal/retry/device-binding tests remain required.
+- Details and measurement limits: docs/BACKGROUND_CPU.md. Private artifacts are
+  not published. No battery-life gain is inferred from mixed screen/job states.
+- Full local quality passed:7152tests passed/six prior skips, zero failures;
+  lint383existing warnings, zero errors; debug APK40,928,442bytes and7358retained
+  app classes. Signer matches the installed Copilot. The additional end-to-end
+  page-query regression then passed with all27focused tests and lint.
+- Initial full run failed only in11native SDK tests because generated interop
+  driver classes were absent; rebuilding the pinned driver resolved all11.
+  Exact-head CI and on-device installation remain pending, not implied by build.
+- Alerts, protections, test-mode opt-in and thermal handling are unchanged.
+
 # Diagnostic Update 0.1.20 Candidate - 2026-10-29
 
 - Main91bcd48a/Verify40908185065 successful:7149Android tests passed, six prior

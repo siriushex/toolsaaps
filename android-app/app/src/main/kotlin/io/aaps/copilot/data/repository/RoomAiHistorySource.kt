@@ -145,5 +145,14 @@ internal class RoomAiHistorySource(private val db: CopilotDatabase) {
     }
 }
 
-internal fun roomAiDigest(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(HistoryJson.encodeUtf8(value)).joinToString("") { "%02x".format(it) }
+internal fun roomAiDigest(value: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(HistoryJson.encodeUtf8(value))
+    val hex = "0123456789abcdef"
+    return CharArray(digest.size * 2).also { result ->
+        digest.forEachIndexed { index, byte ->
+            val unsigned = byte.toInt() and 0xff
+            result[index * 2] = hex[unsigned ushr 4]
+            result[index * 2 + 1] = hex[unsigned and 0x0f]
+        }
+    }.concatToString()
+}

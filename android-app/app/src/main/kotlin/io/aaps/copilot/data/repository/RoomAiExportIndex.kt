@@ -45,6 +45,7 @@ internal interface RoomAiExportDao {
     @Query("SELECT * FROM export_progress WHERE id = 1") suspend fun progress(): RoomAiExportProgress?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveProgress(progress: RoomAiExportProgress)
     @Query("SELECT * FROM export_index WHERE `key` = :key") suspend fun find(key: String): RoomAiExportEntry?
+    @Query("SELECT * FROM export_index WHERE `key` IN (:keys)") suspend fun findAll(keys: List<String>): List<RoomAiExportEntry>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveEntries(rows: List<RoomAiExportEntry>)
     @Query("SELECT * FROM export_index INDEXED BY index_export_index_eventAtMs_key WHERE seenRun != :run AND deleted = 0 " +
         "AND (eventAtMs, `key`) > (:afterTimeMs, :afterKey) AND eventAtMs <= :throughMs " +
@@ -68,6 +69,11 @@ internal abstract class RoomAiExportDatabase : RoomDatabase() {
 internal class RoomAiExportIndex(private val db: RoomAiExportDatabase) {
     suspend fun progress() = db.exportDao().progress()
     suspend fun find(key: String) = db.exportDao().find(key)
+    suspend fun findAll(keys: List<String>): Map<String, RoomAiExportEntry> {
+        require(keys.size <= 64)
+        if (keys.isEmpty()) return emptyMap()
+        return db.exportDao().findAll(keys).associateBy { it.key }
+    }
     suspend fun stale(progress: RoomAiExportProgress, limit: Int): List<RoomAiExportEntry> {
         val time = maxOf(progress.fromMs, progress.deletionAfterTimeMs)
         val key = if (time == progress.deletionAfterTimeMs) progress.deletionAfterKey else ""
