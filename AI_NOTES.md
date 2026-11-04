@@ -1,3 +1,31 @@
+# Per-Read Combo Continuity - 2026-11-04
+
+- Main973c0917 Verify40920901933 and PR75/fbf210df exact-head checks are successful;
+  PR75 remains unmerged. Continue on its tail-audit base in an isolated branch.
+- No phone is available; user explicitly continues without it. Do not infer
+  historical UTC or complete bolus/basal delivery from the prior TBR readback.
+- Six new red regressions reproduce missing per-read event-counter gap warnings,
+  including a later retained read filling the aggregate gap after reopen. Original
+  failing XML/log are retained outside source. A seventh test covers unsigned
+  contiguous boundaries without inventing gaps.
+- Preserve forward counter jumps in the existing bounded raw-event order audit.
+  Unknown/clock-change events and block transitions participate. Preserve warnings
+  through damaged tails, reopen and clean catalog reconciliation; original bytes
+  remain unchanged. No schema, AAPS, timestamp repair, forecast coefficient,
+  notification gate, target or insulin action is changed.
+- Focused114tests passed. An older test expected large numeric gaps to produce
+  no warning; strengthen it to require EVENT_COUNTER_GAP while preserving exact
+  unsigned counters, raw bytes and false delivery/pairing authority. This does
+  not infer missing doses. Retain the initial failing report privately.
+- Complete local Android quality passed, followed by the prepared-SDK native
+  suites:7165passed/six existing private-data skips when reconciled by class.
+  Initial11native environment skips are not counted as passes. Lint has0errors,
+  379warnings/eight hints. APK guard:39,946,241bytes/7360retained app classes;
+  the artifact is test-only, not a published update. Exact-head workflow results
+  belong on the PR and are not inferred from this local result.
+- Clinical activation still requires independently qualified delivery/clock
+  coverage and prospective forecast/control-safety validation.
+
 # Combo Remaining-Event Audit - 2026-10-29
 
 - PR74/main973c0917 Verify40920901933 passed. Published0.1.20/code21 to the

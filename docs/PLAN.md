@@ -1,5 +1,22 @@
 # PLAN
 
+## Per-Read Combo Continuity (2026-11-04)
+
+- [x] Verify main973c0917 and PR75/fbf210df exact-head CI; reuse its checked
+      tail-audit base without changing AAPS or the CPU optimization branch.
+- [x] Reproduce six failures for per-read gaps, damaged/unknown/clock cases and
+      a later read hiding an earlier gap after private-store reopen.
+- [x] Preserve forward counter jumps in the existing bounded event-order audit.
+- [x] Focused114tests passed, including seven new cases and the strengthened
+      unsigned-gap contract. All original raw-event and no-authority checks remain.
+- [x] Complete local Android quality and APK guard. The first run skipped11
+      native cases without interop settings; an explicit prepared-SDK follow-up
+      ran them. Combined by class:7165passed/six existing private-data skips.
+- [ ] Source integration after reviewed publication and exact-head CI; current
+      workflow results are recorded on the PR, not inferred from local checks.
+- [ ] Real source/basal/UTC coverage and prospective forecast/policy validation;
+      user continues without a phone. No live meal recommendation is enabled.
+
 ## Combo Remaining-Event Audit (2026-10-29)
 
 - [x] Main973c0917/Verify40920901933 passed;0.1.20 published and independently

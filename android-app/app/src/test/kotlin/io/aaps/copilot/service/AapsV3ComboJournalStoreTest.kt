@@ -324,6 +324,23 @@ class AapsV3ComboJournalStoreTest {
         assertArrayEquals(raw, store().read(owner, binding, id)!!.rawBytes())
     }
 
+    @Test fun laterReadFillingCounterGapCannotEraseOriginalReadHazardAfterReopen() = runBlocking {
+        val incomplete = readBytes(events = listOf(event(10), event(12)))
+        val middle = readBytes(events = listOf(event(11)))
+        retain(incomplete); retain(middle, other)
+        db.close(); db = ComboJournalDatabase.create(context)
+        val audit = store().reconcileInventory(owner, catalog(listOf(entry(middle, other))))
+        assertTrue(audit.declaredInventoryRetained)
+        assertEquals(1, audit.retainedOutsideInventory)
+        assertEquals(0, audit.events.interiorCounterGaps)
+        assertEquals(0L, audit.events.missingInteriorCounterValues)
+        assertTrue(AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP in audit.hazards)
+        assertTrue(AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP in audit.events.hazards)
+        assertFalse(audit.deliveryCompletenessVerified); assertFalse(audit.events.clockMappingVerified)
+        assertArrayEquals(incomplete, store().read(owner, binding, id)!!.rawBytes())
+        assertArrayEquals(middle, store().read(owner, binding, other)!!.rawBytes())
+    }
+
     @Test fun otherOwnerOrPumpCannotFillInteriorCounterGap() = runBlocking {
         val first = readBytes(events = listOf(event(10)))
         val last = readBytes(events = listOf(event(12)))

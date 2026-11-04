@@ -1,5 +1,17 @@
 # INVARIANTS
 
+## Per-Read Counter Discontinuities
+
+- Every adjacent raw-event pair in one validated read participates in counter
+  continuity checks, including unknown events and pairs spanning blocks.
+- Preserve a forward jump as EVENT_COUNTER_GAP before aggregate reconciliation.
+  Later reads may fill current interior gaps but cannot erase the earlier warning.
+- Preserve the original gap through damaged tails, local reopen and newer clean
+  catalogs; never rewrite raw bytes to close a gap or infer a missing dose.
+- Clock-change warnings and unsigned counter boundaries remain independent.
+  Neither continuous counters nor a matching catalog grants UTC mapping,
+  complete basal/delivery history or meal-time notification authority.
+
 ## Combo Remaining-Event Evidence
 
 - A returned/acknowledged read may still declare an unconsumed tail. Preserve

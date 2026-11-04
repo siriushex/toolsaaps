@@ -26,6 +26,13 @@ account for the prior declared remainder, even counting unknown raw events. Thes
 are source inconsistencies, not a measured amount of missing insulin. A clean
 later catalog cannot erase the retained observations. Original bytes stay intact.
 
+Each validated read also retains EVENT_COUNTER_GAP for a forward event-counter
+jump, including across raw blocks and after unknown or clock-change events.
+A later read can supply missing counter values to the combined archive without
+erasing that earlier per-read finding. The displayed current missing-counter
+count may therefore be zero while a retained warning remains. Neither finding
+provides a missing-insulin amount or a historical pump-to-UTC mapping.
+
 Ordinary signed-probe renewal and target preemption may retain the dated last
 audit. A pending or failed attempt has its own status, never a fresh success label.
 Stop/restart, revocation, storage/connection failure and control disable clear the

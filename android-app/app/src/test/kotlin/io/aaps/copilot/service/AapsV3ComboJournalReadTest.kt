@@ -124,6 +124,43 @@ class AapsV3ComboJournalReadTest {
         }
     }
 
+    @Test fun acknowledgedCounterGapWithinBlockRemainsAdverse() {
+        assertOrderHazards(eventRecords(listOf(event(counter = 10), event(counter = 12))), "EVENT_COUNTER_GAP")
+    }
+
+    @Test fun acknowledgedCounterGapAcrossBlocksRemainsAdverse() {
+        assertOrderHazards(twoEventBlocks(listOf(event(counter = 10)), listOf(event(counter = 12))),
+            "EVENT_COUNTER_GAP")
+    }
+
+    @Test fun unknownEventDoesNotHideFollowingCounterGap() {
+        assertOrderHazards(eventRecords(listOf(event(counter = 10), event(counter = 11, type = 99),
+            event(counter = 13)), parsed = 2, unmapped = 1), "EVENT_COUNTER_GAP", "UNMAPPED_EVENT")
+    }
+
+    @Test fun clockChangeDoesNotHideFollowingCounterGap() {
+        assertOrderHazards(eventRecords(listOf(event(counter = 10, type = 24, detail = packedTime(hour = 13)),
+            event(counter = 12, time = packedTime(hour = 14))), clock = true), "EVENT_COUNTER_GAP", "CLOCK_CHANGE")
+    }
+
+    @Test fun damagedTailRetainsPreviouslyObservedCounterGap() {
+        val raw = encode(eventRecords(listOf(event(counter = 10), event(counter = 12))).take(2)) + byteArrayOf(0, 1)
+        val result = AapsV3ComboJournalRead.read(raw, binding)
+        assertEquals(ComboJournalIssue.FRAME, result.issue)
+        assertTrue(AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP in result.hazards)
+        assertTrue(AapsV3ComboHistoryHazard.UNCONFIRMED_BLOCK in result.hazards)
+        assertFalse(result.closed); assertArrayEquals(raw, result.rawBytes())
+    }
+
+    @Test fun consecutiveUnsignedCounterBoundariesDoNotInventGaps() {
+        for ((first, second) in listOf(0x7fff_ffffL to 0x8000_0000L, 0xffff_fffeL to 0xffff_ffffL)) {
+            val result = read(eventRecords(listOf(event(counter = first), event(counter = second))))
+            assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, result.status)
+            assertTrue(result.hazards.isEmpty())
+            assertFalse(result.deliveryCompletenessVerified)
+        }
+    }
+
     @Test fun closedReaderCannotHideDeclaredUnconsumedTail() {
         val records = withBlockHeader(eventRecords(listOf(event())), 0, 4, more = false)
         assertOrderHazards(records, "DECLARED_HISTORY_TAIL")
@@ -595,11 +632,14 @@ class AapsV3ComboJournalReadTest {
         }
     }
 
-    @Test fun unsignedCounterBoundariesAndGapsDoNotInventLossOrCompleteness() {
+    @Test fun unsignedCounterGapsRemainWarningsWithoutInventingLossOrCompleteness() {
         val records = eventRecords(listOf(0L, 9L, 0x7fffffffL, 0x80000000L, 0xffffffffL).map { event(counter = it) })
         val result = read(records)
-        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, result.status)
-        assertTrue(result.hazards.isEmpty())
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, result.status)
+        assertEquals(setOf(AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP), result.hazards)
+        assertEquals(listOf(0L, 9L, 0x7fffffffL, 0x80000000L, 0xffffffffL), result.events.map { it.event.counter })
+        assertArrayEquals(encode(records), result.rawBytes())
+        assertFalse(result.pumpBindingVerified)
         assertFalse(result.deliveryCompletenessVerified)
     }
 

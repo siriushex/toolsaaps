@@ -196,6 +196,9 @@ internal class AapsV3ComboJournalRead private constructor(
                         else AapsV3ComboHistoryHazard.EVENT_COUNTER_REUSED
                     if (previousCounter?.let { counter < it } == true)
                         hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_REWIND
+                    // Preserve the read's own gap even if another retained read later fills it.
+                    if (previousCounter?.let { counter > it + 1 } == true)
+                        hazards += AapsV3ComboHistoryHazard.EVENT_COUNTER_GAP
                     if (previousTime?.let(time::isBefore) == true)
                         hazards += AapsV3ComboHistoryHazard.EVENT_TIME_REWIND
                     if (previousEvent?.let(event::precedesPreviousClockSetting) == true)
