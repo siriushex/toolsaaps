@@ -14,7 +14,8 @@ data class AapsV3InboundSummary(
     val glucose: AapsV3InboundGlucose,
     val profile: AapsV3ObservedProfileStatus,
     val insulin: AapsV3ObservedInsulinStatus,
-    val insulinRecordCount: Int
+    val insulinRecordCount: Int,
+    val samePhone: Boolean = false
 )
 
 /** Checks locally retained uploads, without starting a session or projecting clinical inputs. */

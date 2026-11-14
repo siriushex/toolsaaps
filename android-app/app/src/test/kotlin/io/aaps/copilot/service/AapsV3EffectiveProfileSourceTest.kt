@@ -62,6 +62,41 @@ class AapsV3EffectiveProfileSourceTest {
     }
     @After fun tearDown() { db.close(); context.deleteDatabase(name) }
 
+    @Test fun samePhoneObservationValidatesAllThreeStreamsWithoutWritingClinicalData() {
+        val now = at + 60_000L
+        val packet = buildJsonObject {
+            put("version", 1); put("at", now)
+            put("glucose", buildJsonArray {
+                add(buildJsonObject { put("date", at); put("sgv", 111.0); put("sensor", "LIBRE_3") })
+            })
+            put("profile", Json.parseToJsonElement(input("fixture").payloadJson))
+            put("insulin", buildJsonArray {
+                add(buildJsonObject {
+                    put("date", at); put("utcOffset", 0); put("eventType", "Temp Basal")
+                    put("durationInMilliseconds", 1_800_000L); put("percent", -20)
+                    put("pumpType", "ACCU_CHEK_COMBO"); put("pumpId", 7); put("pumpSerial", "synthetic")
+                })
+            })
+        }
+        fun parse(value: JsonObject, time: Long = now) = AapsLocalObservation.decode(value.toString().encodeToByteArray(), time)
+        assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
+            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("version" to JsonPrimitive(2)))).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("command" to JsonPrimitive("unknown")))).glucose)
+        val sample = packet.getValue("glucose").jsonArray.single()
+        assertEquals(AapsV3InboundGlucose.CONFLICTING,
+            parse(JsonObject(packet + ("glucose" to JsonArray(listOf(sample, sample))))).glucose)
+        val record = packet.getValue("insulin").jsonArray.single()
+        assertEquals(AapsV3ObservedInsulinStatus.CONFLICTING,
+            parse(JsonObject(packet + ("insulin" to JsonArray(listOf(record, record))))).insulin)
+        runBlocking {
+            assertTrue(db.glucoseDao().since(0).isEmpty())
+            assertTrue(db.therapyDao().since(0).isEmpty())
+            assertEquals(0, db.localNightscoutV3Dao().count())
+        }
+    }
+
     @Test fun inboundCheckDoesNotRequirePairingOrProjectClinicalData() = runBlocking {
         val store = store()
         val check = AapsV3InboundDiagnostics(store)

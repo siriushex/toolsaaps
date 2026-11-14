@@ -2148,6 +2148,8 @@
     <string name="native_aaps_title">Подключение AAPS 4</string>
     <string name="native_aaps_inbound_check">Проверить поступление данных</string>
     <string name="native_aaps_inbound_checked">Записи v3 проверены: %1$s</string>
+    <string name="native_aaps_local_checked">AAPS на этом телефоне проверен: %1$s</string>
+    <string name="native_aaps_local_cgm_missing">CGM: в AAPS нет недавних измерений</string>
     <string name="native_aaps_inbound_cgm_fresh">CGM: получено измерение за последние 5 мин</string>
     <string name="native_aaps_inbound_cgm_stale">CGM: последнее измерение старше 5 мин</string>
     <string name="native_aaps_inbound_cgm_missing">CGM: измерения по v3 не получены</string>

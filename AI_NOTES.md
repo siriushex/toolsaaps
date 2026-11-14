@@ -16125,3 +16125,18 @@ clinical admission follows from source verification.
   Android lint and debug packaging also passed.
 - Release SDK success does not replace Android TLS trust, AAPS worker admission,
   clinical projection or on-device delivery verification.
+
+## AAPS Same-Phone Observation
+
+- The companion AAPS 4.0.0 patch provides a versioned read-only snapshot via
+  Android IPC. Both ends verify the package and signing identity. The snapshot
+  is requested from the existing incoming-data check; no daemon, remote import
+  or cloud sync is introduced.
+- Retain only diagnostic statuses and counts in the UI. Raw data is not used
+  for forecast, insulin delivery authority or commands.
+- Existing signed native-target and legacy action guards are unchanged.
+  Supporting all final AAPS Client Control actions is a separate milestone.
+- Both APKs built locally and the focused stages passed: 58 Copilot tests and
+  one AAPS observation test. The on-device signature permission and denied
+  unprivileged call were verified. The same-phone observation UI received CGM,
+  effective-profile and recorded-insulin data; no command was sent.

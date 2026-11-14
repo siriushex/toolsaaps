@@ -133,13 +133,14 @@ internal fun NativeAapsConnectionSection(
 @Composable
 private fun NativeAapsInboundSection(inbound: AapsV3InboundSummary) {
     val style = MaterialTheme.typography.bodySmall
-    Text(stringResource(R.string.native_aaps_inbound_checked,
+    Text(stringResource(if (inbound.samePhone) R.string.native_aaps_local_checked else R.string.native_aaps_inbound_checked,
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(inbound.checkedAtMs))),
         style = style)
     Text(stringResource(when (inbound.glucose) {
         AapsV3InboundGlucose.FRESH -> R.string.native_aaps_inbound_cgm_fresh
         AapsV3InboundGlucose.STALE -> R.string.native_aaps_inbound_cgm_stale
-        AapsV3InboundGlucose.NOT_OBSERVED -> R.string.native_aaps_inbound_cgm_missing
+        AapsV3InboundGlucose.NOT_OBSERVED ->
+            if (inbound.samePhone) R.string.native_aaps_local_cgm_missing else R.string.native_aaps_inbound_cgm_missing
         AapsV3InboundGlucose.CONFLICTING -> R.string.native_aaps_inbound_cgm_conflict
         AapsV3InboundGlucose.CLOCK -> R.string.native_aaps_inbound_cgm_clock
         else -> R.string.native_aaps_inbound_cgm_unavailable

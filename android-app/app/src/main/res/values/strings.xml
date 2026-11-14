@@ -2140,6 +2140,8 @@
     <string name="native_aaps_title">AAPS 4 connection</string>
     <string name="native_aaps_inbound_check">Check incoming data</string>
     <string name="native_aaps_inbound_checked">v3 uploads checked: %1$s</string>
+    <string name="native_aaps_local_checked">AAPS on this phone checked: %1$s</string>
+    <string name="native_aaps_local_cgm_missing">CGM: no recent sample in AAPS</string>
     <string name="native_aaps_inbound_cgm_fresh">CGM: sample received (up to 5 min old)</string>
     <string name="native_aaps_inbound_cgm_stale">CGM: last sample over 5 min old</string>
     <string name="native_aaps_inbound_cgm_missing">CGM: no sample received over v3</string>

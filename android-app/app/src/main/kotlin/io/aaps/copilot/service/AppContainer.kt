@@ -1143,7 +1143,8 @@ class AppContainer(context: Context) {
         io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
     )
     val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
-    suspend fun checkNativeAapsInbound() = nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+    suspend fun checkNativeAapsInbound() = AapsLocalObservation.read(appContext)
+        ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
     suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()

@@ -28,6 +28,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="info.nightscout.androidaps.permission.OPEN_BOLUS_DIALOG" />
     <uses-permission android:name="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA" />
+    <uses-permission android:name="info.nightscout.androidaps.permission.READ_LOCAL_OBSERVATION" />
     <uses-permission
         android:name="info.nightscout.androidaps.permission.READ_COPILOT_CLINICAL_SUMMARY" />
     <uses-permission android:name="info.nightscout.androidaps.permission.WRITE_COPILOT_CONTEXT_NOTE" />

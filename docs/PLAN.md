@@ -1031,6 +1031,14 @@
 - [ ] Verify a same-phone, upload-only AAPS 4.0.0 route with isolated TLS trust;
       no remote imports or pairing required. Require fresh SGV, typed effective
       profile and insulin records at both ends before claiming device readiness.
+- [x] Add a distinct, signature-protected same-phone observation path with no
+      HTTP credentials or write methods. It does not replace the continuous
+      NSClientV3 or signed command channel.
+- [ ] Verify final-version signed Client Control independently with the real
+      master and a mock executor: enrollment, role checks, confirmation,
+      expiry, revocation, one-time execution and correlated acknowledgements.
+      Test targets and carb-only actions separately, and do not grant generic
+      preference or insulin writes through the observation provider.
 
 - [x] Implement immutable native profile catalog transport without clinical selection.
 - [x] Complete focused/full profile checks and actual pristine SDK round trip.

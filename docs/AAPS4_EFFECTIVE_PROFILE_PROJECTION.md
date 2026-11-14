@@ -131,3 +131,21 @@ or source completeness:
 This check does not write clinical data, admit forecasts, enable commands,
 or affect model timers. It does not solve Android TLS trust or upstream
 upload permissions.
+
+### Same-Phone Observation
+
+On a compatible AAPS build, the same button asks the local AAPS provider
+for a versioned snapshot. The provider admits only the Copilot package with
+the same signing identity and a signature permission. Copilot checks that
+the authority, provider package, signatures and permission match before
+requesting the snapshot. There is no URI grant, query language, command,
+Nightscout URL, TLS override or network request in this path.
+
+The snapshot contains up to thirty minutes of CGM, a typed effective profile
+and records starting in the last 24 hours. Priming is excluded. History is
+bounded and not an assertion of complete pump delivery. Dates, conflicting
+CGM timestamps, insulin provenance and the profile structure are validated.
+Only the summary is retained in UI state; the source snapshot is not added
+to Room, sent to AI, or used by control and forecasts. If the provider exists
+but fails, the UI reports unavailability rather than presenting a prior v3
+receipt as success.
