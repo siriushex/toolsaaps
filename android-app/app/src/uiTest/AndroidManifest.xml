@@ -46,6 +46,9 @@
         android:name="info.nightscout.androidaps.permission.RELAY_COPILOT_DATA"
         tools:node="remove" />
     <uses-permission
+        android:name="info.nightscout.androidaps.permission.READ_LOCAL_OBSERVATION"
+        tools:node="remove" />
+    <uses-permission
         android:name="info.nightscout.androidaps.permission.READ_COPILOT_CLINICAL_SUMMARY"
         tools:node="remove" />
     <uses-permission

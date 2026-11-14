@@ -2146,6 +2146,8 @@
     <string name="ai_advice_recent_incomplete">За последние три дня данных недостаточно для отдельного вывода.</string>
     <string name="ai_advice_other_reports">Советы из других отчётов</string>
     <string name="native_aaps_title">Подключение AAPS 4</string>
+    <string name="native_aaps_local_upload">Локальная выгрузка (NSClientV3)</string>
+    <string name="native_aaps_local_upload_detail">Нужны локальный Nightscout и совместимая сборка AAPS. Без команд и импорта.</string>
     <string name="native_aaps_inbound_check">Проверить поступление данных</string>
     <string name="native_aaps_inbound_checked">Записи v3 проверены: %1$s</string>
     <string name="native_aaps_local_checked">AAPS на этом телефоне проверен: %1$s</string>

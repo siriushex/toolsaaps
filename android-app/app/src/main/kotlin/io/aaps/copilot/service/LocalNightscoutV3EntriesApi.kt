@@ -32,6 +32,7 @@ internal class LocalNightscoutV3EntriesApi(
     private val profiles = LocalNightscoutV3ProfileApi(db, now)
 
     suspend fun handle(method: String, path: String, parameters: Map<String, List<String>>,
+                       uploadOnly: Boolean = false,
                        readBody: () -> ByteArray = { byteArrayOf() }): LocalV3HttpResult = try {
         val query = parameters.mapValues { (_, values) ->
             require(values.size == 1 && values.single().length <= 128)
@@ -56,7 +57,7 @@ internal class LocalNightscoutV3EntriesApi(
                 deviceStatus.handle(method, path, query, readBody)
             path == "/api/v3/status" -> {
                 require(query.isEmpty())
-                if (method != "GET") errorResponse(405) else status()
+                if (method != "GET") errorResponse(405) else status(uploadOnly)
             }
             path == "/api/v3/lastModified" -> {
                 require(query.isEmpty())
@@ -116,7 +117,7 @@ internal class LocalNightscoutV3EntriesApi(
         errorResponse(400)
     }
 
-    private fun status() = response(200, buildJsonObject {
+    private fun status(uploadOnly: Boolean) = response(200, buildJsonObject {
         put("result", buildJsonObject {
             put("version", "local-v3-wire-2")
             put("apiVersion", "3.0.0")
@@ -124,14 +125,17 @@ internal class LocalNightscoutV3EntriesApi(
             put("storage", buildJsonObject { put("storage", "sqlite"); put("version", "36") })
             put("apiPermissions", buildJsonObject {
                 LocalV3Collection.entries.forEach {
-                    put(it.wireName, when (it) {
+                    val permissions = if (uploadOnly) {
+                        if (it == entries || it == LocalV3Collection.TREATMENTS) "c" else ""
+                    } else when (it) {
                         entries -> "crud"
                         LocalV3Collection.DEVICE_STATUS -> "cr"
                         LocalV3Collection.SETTINGS -> "crud"
                         LocalV3Collection.TREATMENTS -> "crud"
                         LocalV3Collection.PROFILE -> "cr"
                         else -> ""
-                    })
+                    }
+                    put(it.wireName, permissions)
                 }
             })
         })

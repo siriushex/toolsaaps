@@ -2138,6 +2138,8 @@
     <string name="ai_advice_recent_incomplete">The last three days have insufficient data for a separate conclusion.</string>
     <string name="ai_advice_other_reports">Advice from other reports</string>
     <string name="native_aaps_title">AAPS 4 connection</string>
+    <string name="native_aaps_local_upload">Local upload (NSClientV3)</string>
+    <string name="native_aaps_local_upload_detail">Requires local Nightscout and a compatible AAPS build. No commands or imports.</string>
     <string name="native_aaps_inbound_check">Check incoming data</string>
     <string name="native_aaps_inbound_checked">v3 uploads checked: %1$s</string>
     <string name="native_aaps_local_checked">AAPS on this phone checked: %1$s</string>

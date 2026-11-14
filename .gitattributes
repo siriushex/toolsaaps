@@ -3,3 +3,4 @@ tools/aaps4_compat/master-admission.patch whitespace=-blank-at-eol
 tools/aaps4_compat/combo-history-integrity.patch whitespace=-blank-at-eol
 tools/aaps4_compat/upload-profile-retry.patch whitespace=-blank-at-eol,-blank-at-eof
 tools/aaps4_compat/final-loopback-upload.patch whitespace=-blank-at-eol,-blank-at-eof
+tools/aaps4_compat/final-android-local-upload.patch whitespace=-blank-at-eol,-blank-at-eof

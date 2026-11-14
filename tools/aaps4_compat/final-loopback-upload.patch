@@ -50,8 +50,25 @@ index 47bf4ca1e233f0a7a3e739035c89bbf3902347fb..a8957e229679e31150d757181895cac3
              retry(
                  numberOfRetries = RETRIES,
                  delayBetweenRetries = RETRY_DELAY,
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NightscoutApi.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NightscoutApi.kt
+index 254195f4ae247520c96e0219603f8af93551c702..7a16bf67fc04041de35e8ee459daf6fd4418cbcc 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NightscoutApi.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NightscoutApi.kt
+@@ -98,6 +98,12 @@ internal class NightscoutApi(
+     suspend fun statusSimple() =
+         call(HttpMethod.Get, NSResponse.serializer(RemoteStatusResponse.serializer())) { nsUrl("v3", "status") }
+ 
++    suspend fun createLocalUpload(collection: String, record: JsonObject) =
++        call(HttpMethod.Post, RemoteCreateUpdateResponse.serializer()) {
++            nsUrl("v3", collection)
++            jsonBody(record)
++        }
++
+     suspend fun lastModified() =
+         call(HttpMethod.Get, NSResponse.serializer(LastModified.serializer())) { nsUrl("v3", "lastModified") }
+ 
 diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
-index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..64a8e06a20ac197c1991139b4858c373a9dd3cf8 100644
+index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..c4c1bf3e5ce2ab57fe131334686a712e833ad1dc 100644
 --- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
 +++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
 @@ -18,6 +18,8 @@ import io.ktor.serialization.kotlinx.json.json
@@ -63,7 +80,12 @@ index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..64a8e06a20ac197c1991139b4858c373
      configure: HttpClientConfig<*>.() -> Unit
  ): HttpClient
  
-@@ -57,15 +59,28 @@ internal object NsKtorClient {
+@@ -53,19 +55,39 @@ internal object NsKtorClient {
+ 
+         fun close() {
+             main.close()
+-            refresh.close()
++            if (refresh !== main) refresh.close()
          }
      }
  
@@ -75,10 +97,13 @@ index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..64a8e06a20ac197c1991139b4858c373
 +        refreshToken: String,
 +        logging: Boolean,
 +        logger: (String) -> Unit,
-+        loopbackUpload: NsLoopbackUploadIdentity? = null
++        loopbackUpload: NsLoopbackUploadIdentity? = null,
++        uploadBearer: String? = null
 +    ): Stack {
 +        val port = loopbackUpload?.let { loopbackUploadPort(baseUrl) }
-+        val main = build(logging, logger, loopbackUpload, port)
++        require(uploadBearer == null || loopbackUpload != null)
++        val main = build(logging, logger, loopbackUpload, port, uploadBearer)
++        if (uploadBearer != null) return Stack(NightscoutApi(main, baseUrl), main, main)
 +        val refresh = build(logging, logger, loopbackUpload, port)
          NsAuth.install(main, refresh, baseUrl, refreshToken)
          return Stack(NightscoutApi(main, baseUrl), main, refresh)
@@ -89,13 +114,47 @@ index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..64a8e06a20ac197c1991139b4858c373
 +        logging: Boolean,
 +        logger: (String) -> Unit,
 +        loopbackUpload: NsLoopbackUploadIdentity? = null,
-+        loopbackPort: Int? = null
++        loopbackPort: Int? = null,
++        uploadBearer: String? = null
 +    ): HttpClient = nsHttpClient(logging && loopbackUpload == null, logger, loopbackUpload, loopbackPort) {
          expectSuccess = false
 +        if (loopbackUpload != null) followRedirects = false
++        if (uploadBearer != null) install(io.ktor.client.plugins.DefaultRequest) {
++            headers[io.ktor.http.HttpHeaders.Authorization] = "Bearer $uploadBearer"
++        }
  
          install(ContentNegotiation) {
              json(nsSdkJson)
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLocalObservationUpload.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLocalObservationUpload.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..6a23a5adbe1130838172ebc2089cc803a754c3a2
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLocalObservationUpload.kt
+@@ -0,0 +1,24 @@
++package app.aaps.core.nssdk.networking
++
++import kotlinx.serialization.json.JsonObject
++
++class NsLocalObservationUpload(port: Int, identity: NsLoopbackUploadIdentity, bearer: String) {
++    private val stack = NsKtorClient.stack(
++        baseUrl = "https://127.0.0.1:$port/api/", refreshToken = "", logging = false,
++        logger = {}, loopbackUpload = identity,
++        uploadBearer = bearer.also { require(Regex("[A-Za-z0-9_-]{43}").matches(it)) }
++    )
++
++    suspend fun ready(): Boolean {
++        val response = stack.api.statusSimple()
++        val status = if (response.code == 200) response.body()?.result else null
++        return status?.apiVersion == "3.0.0"
++    }
++
++    suspend fun store(glucose: Boolean, record: JsonObject): Boolean {
++        val response = stack.api.createLocalUpload(if (glucose) "entries" else "treatments", record)
++        return response.code in setOf(200, 201) && !response.body()?.identifier.isNullOrBlank()
++    }
++
++    fun close() = stack.close()
++}
 diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadIdentity.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadIdentity.kt
 new file mode 100644
 index 0000000000000000000000000000000000000000..e590c2509a5d4ebe261e52fe25a20dd4ea18d166

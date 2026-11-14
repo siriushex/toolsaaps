@@ -167,6 +167,8 @@ fun SettingsScreen(
     nativeAapsConnectionState: io.aaps.copilot.service.AapsV3ConnectionState = io.aaps.copilot.service.AapsV3ConnectionState(),
     nativeAapsInbound: io.aaps.copilot.service.AapsV3InboundSummary? = null,
     onNativeAapsInboundCheck: () -> Unit = {},
+    localAapsV3Upload: Boolean = false,
+    onLocalAapsV3Upload: (Boolean) -> Unit = {},
     onNativeAapsPair: (CharArray) -> Unit = { it.fill('\u0000') },
     onNativeAapsCheck: () -> Unit = {},
     onNativeAapsRevoke: () -> Unit = {},
@@ -429,7 +431,8 @@ fun SettingsScreen(
                     }
                     item {
                         NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck,
-                            onNativeAapsRevoke, nativeAapsInbound, onNativeAapsInboundCheck)
+                            onNativeAapsRevoke, nativeAapsInbound, onNativeAapsInboundCheck,
+                            localAapsV3Upload, onLocalAapsV3Upload)
                     }
                     item {
                         UamSettingsCard(

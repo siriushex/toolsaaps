@@ -604,6 +604,50 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun uploadTicketStoresObservationsAndCannotReadOrApplyTherapy() = runBlocking {
+        val port = freePort()
+        val active = newServer(MutableLocalNightscoutRuntimeState())
+        server = active
+        assertThat(active.withLocalUploadTicket { error("Stopped server issued a ticket") }).isFalse()
+        assertThat(active.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        var endedHeaders = emptyMap<String, String>()
+        assertThat(active.withLocalUploadTicket { ticket ->
+            val headers = mapOf("Authorization" to "Bearer " + checkNotNull(ticket.getString("bearer")))
+            endedHeaders = headers
+            assertThat(ticket.getInt("port")).isEqualTo(port)
+            assertThat(ticket.getByteArray("root")).isEqualTo(caCertificate.encoded)
+            assertThat(getCode(peer, port, "/api/v3/status", headers = headers)).isEqualTo(200)
+            listOf("/api/v3/entries", "/api/v3/treatments", "/api/v3/settings").forEach { path ->
+                assertThat(getCode(peer, port, path, headers = headers)).isEqualTo(403)
+            }
+            fun post(path: String, payload: String) = peer.newCall(
+                Request.Builder().url("https://127.0.0.1:$port$path")
+                    .header("Authorization", headers.getValue("Authorization"))
+                    .post(payload.toRequestBody("application/json".toMediaType())).build()
+            ).execute().use { it.code }
+            assertThat(post("/api/v3/settings", "{}")).isEqualTo(403)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Temporary Target","date":1800000000000}""")).isEqualTo(403)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Correction Bolus","date":1800000000000,"carbs":42}""")).isEqualTo(403)
+            assertThat(post("/api/v3/entries?limit=1",
+                """{"app":"AAPS-local","type":"sgv","date":1800000000000,"sgv":120}""")).isEqualTo(403)
+            assertThat(post("/api/v3/entries",
+                """{"app":"AAPS-local","type":"sgv","device":"fixture-sensor","date":1800000000000,"sgv":120}""")).isEqualTo(201)
+            assertThat(post("/api/v3/entries",
+                """{"app":"AAPS-local","type":"sgv","device":"fixture-sensor","date":1800000000000,"sgv":120}""")).isEqualTo(200)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Temp Basal","date":1800000000000,"durationInMilliseconds":1800000,"percent":-100}""")).isEqualTo(201)
+            true
+        }).isTrue()
+        assertThat(getCode(peer, port, "/api/v3/status", headers = endedHeaders)).isEqualTo(401)
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(2)
+        assertThat(db.glucoseDao().since(0)).isEmpty()
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
     fun pinnedLocalSdkStoresGlucoseProfileAndInsulinWithoutClinicalPromotion() = runBlocking {
         val classpath = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
@@ -620,32 +664,30 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val output = File.createTempFile("loopback-result-", ".txt")
         var child: Process? = null
         try {
-            root.writeBytes(caCertificate.encoded)
-            val material = loadMaterial()
-            try {
-                leaf.writeBytes(material.serverCertificate.encoded)
-            } finally {
-                material.clearAuthenticator()
-            }
-            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(classpath).readText(),
-                "integration.finalupload.PinnedUploadInteropKt")
-                .apply {
-                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
-                    environment()["ENTRY_TEST_ROOT_DER"] = root.absolutePath
-                    environment()["ENTRY_TEST_LEAF_DER"] = leaf.absolutePath
-                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
-                    redirectErrorStream(true)
-                    redirectOutput(output)
-                }.start()
-            child = process
-            check(process.waitFor(35, TimeUnit.SECONDS)) { "Local upload fixture timed out" }
-            val lines = output.readLines()
-            val failure = lines.singleOrNull {
-                Regex("PINNED_LOCAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
-            }
-            check(process.exitValue() == 0 && "PINNED_LOCAL_WIRE_OK" in lines) {
-                "Local upload fixture failed: ${failure ?: "unclassified"}"
-            }
+            assertThat(checkNotNull(server).withLocalUploadTicket { ticket ->
+                root.writeBytes(checkNotNull(ticket.getByteArray("root")))
+                leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
+                val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(classpath).readText(),
+                    "integration.finalupload.PinnedUploadInteropKt")
+                    .apply {
+                        environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                        environment()["ENTRY_TEST_ROOT_DER"] = root.absolutePath
+                        environment()["ENTRY_TEST_LEAF_DER"] = leaf.absolutePath
+                        environment()["ENTRY_TEST_UPLOAD_BEARER"] = checkNotNull(ticket.getString("bearer"))
+                        redirectErrorStream(true)
+                        redirectOutput(output)
+                    }.start()
+                child = process
+                check(process.waitFor(35, TimeUnit.SECONDS)) { "Local upload fixture timed out" }
+                val lines = output.readLines()
+                val failure = lines.singleOrNull {
+                    Regex("PINNED_LOCAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+                }
+                check(process.exitValue() == 0 && "PINNED_LOCAL_WIRE_OK" in lines) {
+                    "Local upload fixture failed: ${failure ?: "unclassified"}"
+                }
+                true
+            }).isTrue()
             val store = LocalNightscoutV3Store(db)
             val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
             assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)

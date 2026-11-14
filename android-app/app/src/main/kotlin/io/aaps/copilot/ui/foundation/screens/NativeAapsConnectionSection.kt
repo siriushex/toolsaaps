@@ -37,7 +37,9 @@ internal fun NativeAapsConnectionSection(
     onCheck: () -> Unit,
     onRevoke: () -> Unit,
     inbound: AapsV3InboundSummary? = null,
-    onInboundCheck: () -> Unit = {}
+    onInboundCheck: () -> Unit = {},
+    localUpload: Boolean = false,
+    onLocalUpload: (Boolean) -> Unit = {}
 ) {
     var pairing by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
@@ -116,6 +118,17 @@ internal fun NativeAapsConnectionSection(
             }
         }
         if (!pairing) {
+            Row(
+                Modifier.fillMaxWidth().toggleable(value = localUpload, role = Role.Switch, onValueChange = onLocalUpload)
+                    .testTag("native_aaps_local_upload"),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.native_aaps_local_upload), style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.native_aaps_local_upload_detail), style = MaterialTheme.typography.bodySmall)
+                }
+                androidx.compose.material3.Switch(checked = localUpload, onCheckedChange = null)
+            }
             OutlinedButton(onClick = onInboundCheck, modifier = Modifier.testTag("native_aaps_inbound_check")) {
                 Icon(Icons.Default.Refresh, contentDescription = null)
                 Text(stringResource(R.string.native_aaps_inbound_check), Modifier.padding(start = 4.dp))

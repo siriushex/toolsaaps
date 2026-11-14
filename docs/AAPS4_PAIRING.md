@@ -136,7 +136,18 @@ The stock client does not opt into this patch. The CI fixture exercises the
 patched SDK against actual Copilot TLS and verifies retained synthetic glucose,
 effective profile and pump-associated insulin without clinical promotion.
 
-Still required for phone setup: a verified on-device enrollment mechanism for the
-certificate pair and credential, a bounded upload owner that does not share the
-stock client's Nightscout identifiers, and an on-device freshness and import
-isolation check. The patch is not a replacement for pairing or command control.
+The compatible Android build adds a bounded upload operation to the existing
+signature-protected same-phone observation provider. Copilot explicitly enables
+the upload per installation and supplies the two live listener certificates
+and a short-lived, non-renewable bearer over Binder. The server limits that
+bearer to status and creates for CGM, effective profile and insulin observations;
+it revokes the bearer when the call returns. Nothing installs a system CA or
+changes stock NSClient settings, identifiers, cursors, or receive flags.
+
+The upload scans the recent 30 minutes of CGM and the last 24 hours of insulin
+observations. It reads the effective profile active at the time of the scan.
+An in-memory acknowledgment cache and server-side exact-content deduplication
+bound repeated uploads without treating an edited record as a second dose.
+This is an observation store, not a complete delivery archive or a therapy
+input. It is not a command transport. On-device installation and freshness
+checks remain separate from the synthetic TLS fixture.

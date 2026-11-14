@@ -316,6 +316,13 @@ class LocalNightscoutServer internal constructor(
 
     internal fun hasNativeStorageSubscription(): Boolean = server?.hasNativeStorageSubscription() == true
 
+    internal fun withLocalUploadTicket(block: (android.os.Bundle) -> Boolean): Boolean {
+        val (active, port) = synchronized(this) {
+            (server ?: return false) to (currentPort ?: return false)
+        }
+        return active.withLocalUploadTicket(port, block)
+    }
+
     @Synchronized
     fun update(enabled: Boolean, port: Int): Int? {
         if (!enabled) {
@@ -359,6 +366,8 @@ class LocalNightscoutServer internal constructor(
             auditLogger = auditLogger,
             onClinicalInputPersisted = onClinicalInputPersisted,
             authenticator = tlsMaterial.authenticator,
+            uploadCaDer = tlsMaterial.caCertificate.encoded,
+            uploadLeafDer = tlsMaterial.serverCertificate.encoded,
             runtimeReady = { runtimeState.value.status == LocalNightscoutRuntimeStatus.READY },
             onAuthenticatedSocket = ::onAuthenticatedSocket,
             socketNowMs = socketNowMs,
@@ -470,6 +479,8 @@ class LocalNightscoutServer internal constructor(
         private val auditLogger: AuditLogger,
         private val onClinicalInputPersisted: suspend () -> Unit,
         private val authenticator: LocalNightscoutApiAuthenticator,
+        private val uploadCaDer: ByteArray,
+        private val uploadLeafDer: ByteArray,
         private val runtimeReady: () -> Boolean,
         private val onAuthenticatedSocket: (EmbeddedServer, () -> Boolean) -> Boolean,
         private val socketNowMs: () -> Long,
@@ -497,6 +508,20 @@ class LocalNightscoutServer internal constructor(
         private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
         private val v3Entries = LocalNightscoutV3EntriesApi(db)
         private val v3Store = LocalNightscoutV3Store(db)
+
+        fun withLocalUploadTicket(port: Int, block: (android.os.Bundle) -> Boolean): Boolean {
+            val issue = v3Authentication.issueLocalUpload() as? LocalNightscoutTokenIssue.Issued ?: return false
+            return try {
+                block(android.os.Bundle().apply {
+                    putInt("port", port)
+                    putByteArray("root", uploadCaDer)
+                    putByteArray("leaf", uploadLeafDer)
+                    putString("bearer", issue.token)
+                })
+            } finally {
+                v3Authentication.revokeLocalUpload(issue.token)
+            }
+        }
 
         fun hasNativeStorageSubscription(): Boolean {
             val now = socketNowMs()
@@ -628,17 +653,30 @@ class LocalNightscoutServer internal constructor(
         ) {
             LocalNightscoutBearerAccess.UNAUTHORIZED -> jsonUnauthorized("invalid_bearer_token")
             LocalNightscoutBearerAccess.CLOCK_SKEW -> jsonUnauthorized("Date header out of tolerance")
-            LocalNightscoutBearerAccess.ALLOW -> {
-                val result = runBlocking {
-                    v3Entries.handle(session.method.name, session.uri, session.parameters) { readV3Body(session) }
-                }
-                val status = object : Response.IStatus {
-                    override fun getRequestStatus() = result.status
-                    override fun getDescription() = "${result.status} ${Response.Status.lookup(result.status)?.name ?: "Rejected"}"
-                }
-                newFixedLengthResponse(status, CONTENT_TYPE_JSON, result.body).withStandardApiHeaders().apply {
-                    result.revision?.let { addHeader("ETag", "W/\"$it\"") }
-                }
+            LocalNightscoutBearerAccess.ALLOW -> handleV3Documents(session)
+            LocalNightscoutBearerAccess.UPLOAD_ONLY -> {
+                if (allowsAapsLocalUploadRequest(session.method.name, session.uri, session.parameters.isEmpty()))
+                    handleV3Documents(session, uploadOnly = true)
+                else newFixedLengthResponse(Response.Status.FORBIDDEN, CONTENT_TYPE_JSON,
+                    """{"message":"upload_scope_required"}""").withStandardApiHeaders()
+            }
+        }
+
+        private fun handleV3Documents(session: IHTTPSession, uploadOnly: Boolean = false): Response {
+            val localBody = if (uploadOnly && session.method == Method.POST) readV3Body(session) else null
+            if (localBody != null && !allowsAapsLocalRecord(session.uri, localBody)) {
+                return newFixedLengthResponse(Response.Status.FORBIDDEN, CONTENT_TYPE_JSON,
+                    """{"message":"upload_record_not_allowed"}""").withStandardApiHeaders()
+            }
+            val result = runBlocking {
+                v3Entries.handle(session.method.name, session.uri, session.parameters, uploadOnly) { localBody ?: readV3Body(session) }
+            }
+            val status = object : Response.IStatus {
+                override fun getRequestStatus() = result.status
+                override fun getDescription() = "${result.status} ${Response.Status.lookup(result.status)?.name ?: "Rejected"}"
+            }
+            return newFixedLengthResponse(status, CONTENT_TYPE_JSON, result.body).withStandardApiHeaders().apply {
+                result.revision?.let { addHeader("ETag", "W/\"$it\"") }
             }
         }
 

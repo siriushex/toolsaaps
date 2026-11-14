@@ -712,6 +712,8 @@ fun CopilotFoundationRoot(
                                     nativeAapsConnectionState = viewModel.nativeAapsConnectionState.collectAsStateWithLifecycle().value,
                                     nativeAapsInbound = viewModel.nativeAapsInbound.collectAsStateWithLifecycle().value,
                                     onNativeAapsInboundCheck = viewModel::checkNativeAapsInbound,
+                                    localAapsV3Upload = viewModel.localAapsV3Upload.collectAsStateWithLifecycle(false).value,
+                                    onLocalAapsV3Upload = viewModel::setLocalAapsV3Upload,
                                     onNativeAapsPair = viewModel::pairNativeAaps,
                                     onNativeAapsCheck = viewModel::checkNativeAapsConnection,
                                     onNativeAapsRevoke = viewModel::revokeNativeAapsPairing,

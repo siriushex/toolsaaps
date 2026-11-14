@@ -11,8 +11,9 @@ test ! -e "$candidate"
 git -C "$AAPS_FINAL_DIR" worktree add --detach "$candidate" "$expected"
 cd "$candidate"
 patch="$root/tools/aaps4_compat/final-loopback-upload.patch"
-git apply --check "$patch"
-git apply --index "$patch"
+provider="$root/tools/aaps4_compat/final-android-local-upload.patch"
+git apply --check "$patch" "$provider"
+git apply --index "$patch" "$provider"
 # The final AAPS build refuses tracked changes. Commit only in this detached fixture.
 git -c user.name="Local fixture" -c user.email="fixture@example.invalid" \
     -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -m "Apply local upload transport for verification"

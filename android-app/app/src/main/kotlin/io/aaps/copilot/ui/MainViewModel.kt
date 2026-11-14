@@ -1824,6 +1824,17 @@ class MainViewModel(application: Application) :
     val nativeAapsConnectionState get() = container.nativeAapsConnectionState
     private val mutableNativeAapsInbound = MutableStateFlow<io.aaps.copilot.service.AapsV3InboundSummary?>(null)
     val nativeAapsInbound = mutableNativeAapsInbound.asStateFlow()
+    val localAapsV3Upload = container.settingsStore.settings.map { it.localAapsV3Upload }
+        .distinctUntilChanged()
+    fun setLocalAapsV3Upload(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { current ->
+                current.copy(localAapsV3Upload = enabled && current.localNightscoutEnabled &&
+                    current.localObservationEnabled)
+            }
+            mutableNativeAapsInbound.value = null
+        }
+    }
     private var nativeAapsInboundJob: kotlinx.coroutines.Job? = null
     fun checkNativeAapsInbound() {
         if (nativeAapsInboundJob?.isActive == true) return
