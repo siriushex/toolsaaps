@@ -205,6 +205,10 @@
 
     <string name="overview_empty">No glucose data yet</string>
     <string name="forecast_empty">No forecast data yet</string>
+    <string name="forecast_waiting_for_inputs">Forecast unavailable. Waiting for a verified calculation.</string>
+    <string name="aaps_v3_overview_source">Glucose from AAPS 4 (local v3)</string>
+    <string name="aaps_v3_forecast_more_data">Local AAPS 4 glucose. More readings are needed for the trend.</string>
+    <string name="aaps_v3_forecast_preview">Estimated AAPS 4 glucose trend. Does not account for insulin or meals and is not used for therapy.</string>
     <string name="uam_empty">No UAM data yet</string>
     <string name="safety_empty">No safety data yet</string>
     <string name="audit_empty">No audit records yet</string>

@@ -86,7 +86,8 @@ fun ForecastScreen(
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
-        errorText = state.errorText,
+        errorText = if (state.errorText == "forecast_tuple_snapshot_unavailable")
+            stringResource(R.string.forecast_waiting_for_inputs) else state.errorText,
         emptyText = stringResource(id = R.string.forecast_empty)
     ) {
         LazyColumn(
@@ -95,7 +96,11 @@ fun ForecastScreen(
         ) {
             item {
                 ScreenHeroHeader(
-                    subtitle = stringResource(id = R.string.forecast_subtitle),
+                    subtitle = stringResource(id = when {
+                        !state.aapsV3Observation -> R.string.forecast_subtitle
+                        state.futurePath.isEmpty() -> R.string.aaps_v3_forecast_more_data
+                        else -> R.string.aaps_v3_forecast_preview
+                    }),
                     midnightGlass = midnightGlass
                 )
             }
@@ -110,15 +115,17 @@ fun ForecastScreen(
                     midnightGlass = midnightGlass
                 )
             }
-            item {
-                ForecastHorizonsCard(horizons = state.horizons, midnightGlass = midnightGlass)
-            }
-            item {
-                DecompositionCard(
-                    state = state,
-                    showProMetrics = state.isProMode,
-                    midnightGlass = midnightGlass
-                )
+            if (!state.aapsV3Observation) {
+                item {
+                    ForecastHorizonsCard(horizons = state.horizons, midnightGlass = midnightGlass)
+                }
+                item {
+                    DecompositionCard(
+                        state = state,
+                        showProMetrics = state.isProMode,
+                        midnightGlass = midnightGlass
+                    )
+                }
             }
             if (state.qualityLines.isNotEmpty()) {
                 item {

@@ -206,6 +206,10 @@
 
     <string name="overview_empty">Данных сахара пока нет</string>
     <string name="forecast_empty">Данных прогноза пока нет</string>
+    <string name="forecast_waiting_for_inputs">Прогноз пока недоступен. Ожидается проверенный расчёт.</string>
+    <string name="aaps_v3_overview_source">Глюкоза из AAPS 4 (локальный v3)</string>
+    <string name="aaps_v3_forecast_more_data">Глюкоза из AAPS 4. Для оценки тренда нужно больше измерений.</string>
+    <string name="aaps_v3_forecast_preview">Оценка тренда по глюкозе AAPS 4. Не учитывает инсулин и еду и не используется для терапии.</string>
     <string name="uam_empty">Данных UAM пока нет</string>
     <string name="safety_empty">Данных безопасности пока нет</string>
     <string name="audit_empty">Записей аудита пока нет</string>

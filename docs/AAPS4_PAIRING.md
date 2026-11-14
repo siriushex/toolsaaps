@@ -151,3 +151,12 @@ bound repeated uploads without treating an edited record as a second dose.
 This is an observation store, not a complete delivery archive or a therapy
 input. It is not a command transport. On-device installation and freshness
 checks remain separate from the synthetic TLS fixture.
+
+When the accepted clinical forecast is unavailable, Copilot can show a
+separate observation-only view using recent local AAPS v3 glucose in explicit
+mg/dL. The preview requires one sensor source, unique timestamps, fresh data
+and enough contiguous history. The existing trend model is used without
+meals, insulin, calibration transfer or clinical confidence intervals.
+The preview does not replace a valid accepted forecast, populate its storage,
+or feed Target Manager, alerts or meal timing. Active profile and insulin
+records remain diagnostic until clinical completeness is independently proven.

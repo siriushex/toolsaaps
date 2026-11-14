@@ -284,6 +284,7 @@ data class OverviewUiState(
     val sampleAgeMinutes: Long? = null,
     val syncAgeMinutes: Long? = null,
     val forecastsCurrent: Boolean = false,
+    val aapsV3Observation: Boolean = false,
     val foodDisplayScope: FoodDisplayScope? = null,
     val acceptedFoodDisplay: AcceptedFoodDisplaySnapshot? = null,
     val foodDisplayScopeReset: Boolean = false,
@@ -391,7 +392,8 @@ data class ForecastUiState(
     val futurePath: List<ChartPointUi> = emptyList(),
     val futureCi: List<ChartCiPointUi> = emptyList(),
     val decomposition: ForecastDecompositionUi = ForecastDecompositionUi(),
-    val qualityLines: List<String> = emptyList()
+    val qualityLines: List<String> = emptyList(),
+    val aapsV3Observation: Boolean = false
 )
 
 data class UamEventUi(
