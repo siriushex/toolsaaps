@@ -1,0 +1,413 @@
+diff --git a/core/nssdk/build.gradle.kts b/core/nssdk/build.gradle.kts
+index d5920fd9858a445801fd62628dc0b819579cb69d..2fb95e5352c93f5762cc74578a740becaec338f8 100644
+--- a/core/nssdk/build.gradle.kts
++++ b/core/nssdk/build.gradle.kts
+@@ -66,6 +66,7 @@ kotlin {
+                 implementation(libs.kotlinx.coroutines.test)
+                 // A real HTTP server on localhost, so the contract tests exercise the whole stack.
+                 implementation(libs.com.squareup.okhttp3.mockwebserver)
++                implementation(libs.com.squareup.okhttp3.tls)
+             }
+         }
+     }
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
+index 47bf4ca1e233f0a7a3e739035c89bbf3902347fb..a8957e229679e31150d757181895cac39ada45cf 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/NSAndroidClientImpl.kt
+@@ -28,6 +28,7 @@ import app.aaps.core.nssdk.mapper.toRemoteTreatment
+ import app.aaps.core.nssdk.mapper.toSgv
+ import app.aaps.core.nssdk.mapper.toTreatment
+ import app.aaps.core.nssdk.networking.NsHttpResponse
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
+ import app.aaps.core.nssdk.networking.NsKtorClient
+ import app.aaps.core.nssdk.networking.NsUrl
+ import app.aaps.core.nssdk.remotemodel.LastModified
+@@ -62,14 +63,16 @@ class NSAndroidClientImpl(
+     accessToken: String,
+     logging: Boolean,
+     logger: (String) -> Unit,
+-    private val dispatcher: CoroutineDispatcher = nsIoDispatcher
++    private val dispatcher: CoroutineDispatcher = nsIoDispatcher,
++    private val loopbackUpload: NsLoopbackUploadIdentity? = null
+ ) : NSAndroidClient {
+ 
+     private val stack = NsKtorClient.stack(
+         baseUrl = NsUrl.toBaseUrl(baseUrl),
+         refreshToken = accessToken,
+         logging = logging,
+-        logger = logger
++        logger = logger,
++        loopbackUpload = loopbackUpload
+     )
+ 
+     internal val api = stack.api
+@@ -787,6 +790,8 @@ class NSAndroidClientImpl(
+ 
+     private suspend fun <T> callWrapper(dispatcher: CoroutineDispatcher, block: suspend () -> T): T =
+         withContext(dispatcher) {
++            // Never replay an ambiguous local upload after its request reached the peer.
++            if (loopbackUpload != null) return@withContext block()
+             retry(
+                 numberOfRetries = RETRIES,
+                 delayBetweenRetries = RETRY_DELAY,
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
+index d9179ac067a56e253461c89d5b7bfe0ef9ac1a95..64a8e06a20ac197c1991139b4858c373a9dd3cf8 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsKtorClient.kt
+@@ -18,6 +18,8 @@ import io.ktor.serialization.kotlinx.json.json
+ internal expect fun nsHttpClient(
+     logging: Boolean,
+     logger: (String) -> Unit,
++    loopbackUpload: NsLoopbackUploadIdentity?,
++    loopbackPort: Int?,
+     configure: HttpClientConfig<*>.() -> Unit
+ ): HttpClient
+ 
+@@ -57,15 +59,28 @@ internal object NsKtorClient {
+         }
+     }
+ 
+-    fun stack(baseUrl: String, refreshToken: String, logging: Boolean, logger: (String) -> Unit): Stack {
+-        val main = build(logging, logger)
+-        val refresh = build(logging, logger)
++    fun stack(
++        baseUrl: String,
++        refreshToken: String,
++        logging: Boolean,
++        logger: (String) -> Unit,
++        loopbackUpload: NsLoopbackUploadIdentity? = null
++    ): Stack {
++        val port = loopbackUpload?.let { loopbackUploadPort(baseUrl) }
++        val main = build(logging, logger, loopbackUpload, port)
++        val refresh = build(logging, logger, loopbackUpload, port)
+         NsAuth.install(main, refresh, baseUrl, refreshToken)
+         return Stack(NightscoutApi(main, baseUrl), main, refresh)
+     }
+ 
+-    fun build(logging: Boolean, logger: (String) -> Unit): HttpClient = nsHttpClient(logging, logger) {
++    fun build(
++        logging: Boolean,
++        logger: (String) -> Unit,
++        loopbackUpload: NsLoopbackUploadIdentity? = null,
++        loopbackPort: Int? = null
++    ): HttpClient = nsHttpClient(logging && loopbackUpload == null, logger, loopbackUpload, loopbackPort) {
+         expectSuccess = false
++        if (loopbackUpload != null) followRedirects = false
+ 
+         install(ContentNegotiation) {
+             json(nsSdkJson)
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadIdentity.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadIdentity.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..e590c2509a5d4ebe261e52fe25a20dd4ea18d166
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadIdentity.kt
+@@ -0,0 +1,15 @@
++package app.aaps.core.nssdk.networking
++
++/** Public DER certificates obtained from the explicitly paired local exporter, not from the TLS peer. */
++class NsLoopbackUploadIdentity(rootCa: ByteArray, serverCertificate: ByteArray) {
++    internal val rootCa = rootCa.copyOf()
++    internal val serverCertificate = serverCertificate.copyOf()
++}
++
++internal val loopbackUploadBase = Regex("https://127\\.0\\.0\\.1:([1-9][0-9]{0,4})/api/")
++
++internal fun loopbackUploadPort(baseUrl: String): Int {
++    val port = loopbackUploadBase.matchEntire(baseUrl)?.groupValues?.get(1)?.toInt()
++    require(port != null && port in 1..65535) { "Local upload requires an explicit HTTPS loopback port" }
++    return port
++}
+diff --git a/core/nssdk/src/iosMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.ios.kt b/core/nssdk/src/iosMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.ios.kt
+index 262dd01243b3be0d8c767d57433a36b889c938ab..2450564496642bb58009e3720e019d24a797f2fe 100644
+--- a/core/nssdk/src/iosMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.ios.kt
++++ b/core/nssdk/src/iosMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.ios.kt
+@@ -16,7 +16,10 @@ import io.ktor.client.engine.darwin.Darwin
+ internal actual fun nsHttpClient(
+     logging: Boolean,
+     logger: (String) -> Unit,
++    loopbackUpload: NsLoopbackUploadIdentity?,
++    loopbackPort: Int?,
+     configure: HttpClientConfig<*>.() -> Unit
+-): HttpClient = HttpClient(Darwin) {
+-    configure()
++): HttpClient {
++    require(loopbackUpload == null) { "Local upload is not supported on this platform" }
++    return HttpClient(Darwin) { configure() }
+ }
+diff --git a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
+index e6eb1341490f0929ed577715620f209b6a5a8a12..d450016574f19a56a1b22fe49d7f2664ad5700c1 100644
+--- a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
++++ b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsHttpClient.jvm.kt
+@@ -16,9 +16,15 @@ import io.ktor.client.engine.okhttp.OkHttp
+ internal actual fun nsHttpClient(
+     logging: Boolean,
+     logger: (String) -> Unit,
++    loopbackUpload: NsLoopbackUploadIdentity?,
++    loopbackPort: Int?,
+     configure: HttpClientConfig<*>.() -> Unit
+ ): HttpClient = HttpClient(OkHttp) {
+     configure()
++    if (loopbackUpload != null) {
++        val transport = NsLoopbackUploadTransport(loopbackUpload, requireNotNull(loopbackPort))
++        engine { config { with(transport) { restrictToLoopbackUpload() } } }
++    }
+     if (logging) {
+         engine {
+             addInterceptor { chain ->
+diff --git a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..eabfa7f3fb7868beaac37aa1f36002e6d20e84fc
+--- /dev/null
++++ b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt
+@@ -0,0 +1,88 @@
++package app.aaps.core.nssdk.networking
++
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import java.net.ProtocolException
++import java.net.Proxy
++import java.security.KeyStore
++import java.security.MessageDigest
++import java.security.cert.CertificateException
++import java.security.cert.CertificateFactory
++import java.security.cert.X509Certificate
++import javax.net.ssl.SSLContext
++import javax.net.ssl.TrustManagerFactory
++import javax.net.ssl.X509TrustManager
++
++internal class NsLoopbackUploadTransport(identity: NsLoopbackUploadIdentity, private val port: Int) {
++    private val root = readDer(identity.rootCa)
++    private val leaf = readDer(identity.serverCertificate)
++    private val chainTrust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).run {
++        init(KeyStore.getInstance(KeyStore.getDefaultType()).apply {
++            load(null, null)
++            setCertificateEntry("loopback-root", root)
++        })
++        trustManagers.filterIsInstance<X509TrustManager>().single()
++    }
++    private val trust = object : X509TrustManager {
++        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf(root)
++
++        override fun checkClientTrusted(chain: Array<out X509Certificate>, authType: String) {
++            throw CertificateException("Client certificates are not accepted")
++        }
++
++        override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String) {
++            val peer = chain.firstOrNull() ?: throw CertificateException("Missing local server certificate")
++            if (!MessageDigest.isEqual(leaf.encoded, peer.encoded)) throw CertificateException("Local server certificate changed")
++            root.checkValidity()
++            chainTrust.checkServerTrusted(chain, authType)
++        }
++    }
++    private val ssl = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
++
++    init {
++        require(root.basicConstraints >= 0 && leaf.basicConstraints == -1) { "Expected a root CA and a distinct server leaf" }
++    }
++
++    fun OkHttpClient.Builder.restrictToLoopbackUpload() {
++        sslSocketFactory(ssl.socketFactory, trust)
++        proxy(Proxy.NO_PROXY)
++        followRedirects(false)
++        followSslRedirects(false)
++        retryOnConnectionFailure(false)
++        addInterceptor { chain ->
++            val request = chain.request()
++            if (!permits(request)) throw ProtocolException("Request is not allowed for local upload")
++            chain.proceed(request)
++        }
++    }
++
++    private fun permits(request: Request): Boolean {
++        val url = request.url
++        if (!url.isHttps || url.host != "127.0.0.1" || url.port != port ||
++            url.username.isNotEmpty() || url.password.isNotEmpty() || url.query != null || url.fragment != null
++        ) return false
++        val path = url.encodedPath
++        return when (request.method) {
++            "GET"  -> path == "/api/v3/status" || path in PERMISSION_CHECKS || AUTH_PATH.matches(path)
++            "POST" -> path in UPLOAD_PATHS
++            else   -> false
++        }
++    }
++
++    private companion object {
++        val AUTH_PATH = Regex("/api/v2/authorization/request/[A-Za-z0-9_-]{1,128}")
++        val PERMISSION_CHECKS = setOf(
++            "/api/v2/authorization/debug/check/api:settings:create",
++            "/api/v2/authorization/debug/check/api:settings:update"
++        )
++        val UPLOAD_PATHS = setOf("/api/v3/entries", "/api/v3/profile", "/api/v3/treatments", "/api/v3/devicestatus")
++
++        fun readDer(bytes: ByteArray): X509Certificate {
++            require(bytes.size in 1..8192) { "Invalid local certificate length" }
++            val certificate = CertificateFactory.getInstance("X.509")
++                .generateCertificate(bytes.inputStream()) as X509Certificate
++            require(MessageDigest.isEqual(bytes, certificate.encoded)) { "Expected a single DER certificate" }
++            return certificate
++        }
++    }
++}
+diff --git a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..793633cb1882865a289366b5bc361f0f10fe2d80
+--- /dev/null
++++ b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt
+@@ -0,0 +1,145 @@
++package app.aaps.core.nssdk.networking
++
++import app.aaps.core.nssdk.NSAndroidClientImpl
++import app.aaps.core.nssdk.localmodel.treatment.EventType
++import app.aaps.core.nssdk.remotemodel.RemoteEntry
++import app.aaps.core.nssdk.remotemodel.RemoteTreatment
++import kotlinx.coroutines.runBlocking
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++import mockwebserver3.MockResponse
++import mockwebserver3.MockWebServer
++import okhttp3.tls.HandshakeCertificates
++import okhttp3.tls.HeldCertificate
++import org.junit.jupiter.api.Test
++import org.junit.jupiter.api.assertThrows
++import java.net.InetAddress
++import java.net.ProtocolException
++import java.util.concurrent.TimeUnit
++import javax.net.ssl.SSLHandshakeException
++import javax.net.ssl.SSLPeerUnverifiedException
++import kotlin.test.assertEquals
++import kotlin.test.assertFalse
++
++class NsLoopbackUploadTransportTest {
++    private val ca = HeldCertificate.Builder().certificateAuthority(0).build()
++    private val leaf = serverLeaf(ca)
++    private val identity = NsLoopbackUploadIdentity(ca.certificate.encoded, leaf.certificate.encoded)
++
++    @Test
++    fun `SDK authenticates over pinned TLS without logging and cannot import or dispatch`() {
++        withServer(ca, leaf) { server ->
++            server.enqueue(response(401))
++            server.enqueue(response(200, """{"token":"session-fixture","iat":1700000000,"exp":1700000900}"""))
++            server.enqueue(response(200, """{"result":{"version":"local","apiVersion":"3.0.0","srvDate":1800000000000,
++                "storage":{"storage":"sqlite","version":"1"},"apiPermissions":{"devicestatus":"cr","entries":"crud",
++                "food":"","profile":"cr","settings":"crud","treatments":"crud"}}}"""))
++            server.enqueue(response(200, """{"check":true}"""))
++            server.enqueue(response(200, """{"check":true}"""))
++            repeat(3) { server.enqueue(response(201, """{"identifier":"local-record"}""")) }
++            val log = mutableListOf<String>()
++            val client = client(server, log::add)
++            try {
++                runBlocking {
++                    assertFalse(client.getStatus().apiPermissions.isFull())
++                    assertThrows<ProtocolException> { runBlocking { client.getSgvs() } }
++                    val profile = buildJsonObject { put("date", 1_800_000_000_000L); put("defaultProfile", "Fixture") }
++                    assertThrows<ProtocolException> { runBlocking { client.api.createSetting(profile) } }
++                    assertEquals(201, client.api.createEntry(RemoteEntry(
++                        type = "sgv", date = 1_800_000_000_000L, sgv = 120.0
++                    )).code)
++                    assertEquals(201, client.api.createProfile(profile).code)
++                    assertEquals(201, client.api.createTreatment(RemoteTreatment(
++                        eventType = EventType.MEAL_BOLUS, date = 1_800_000_000_000L, insulin = 1.0
++                    )).code)
++                }
++                val requests = List(8) { checkNotNull(server.takeRequest(1, TimeUnit.SECONDS)).target }
++                assertEquals("/api/v3/status", requests[0])
++                assertEquals("/api/v2/authorization/request/local-fixture", requests[1])
++                assertEquals("/api/v3/status", requests[2])
++                assertEquals(listOf("/api/v3/entries", "/api/v3/profile", "/api/v3/treatments"), requests.takeLast(3))
++                assertEquals(8, server.requestCount)
++                assertEquals(emptyList(), log)
++            } finally {
++                client.close()
++            }
++        }
++    }
++
++    @Test
++    fun `another server leaf under the same CA cannot connect`() {
++        withServer(ca, serverLeaf(ca)) { server ->
++            val client = client(server)
++            try {
++                assertThrows<SSLHandshakeException> { runBlocking { client.api.statusSimple() } }
++                assertEquals(0, server.requestCount)
++            } finally {
++                client.close()
++            }
++        }
++    }
++
++    @Test
++    fun `a pinned leaf does not replace HTTPS hostname verification`() {
++        val wrongHost = serverLeaf(ca, "localhost")
++        val wrongHostIdentity = NsLoopbackUploadIdentity(ca.certificate.encoded, wrongHost.certificate.encoded)
++        withServer(ca, wrongHost) { server ->
++            val client = client(server, enrolledIdentity = wrongHostIdentity)
++            try {
++                assertThrows<SSLPeerUnverifiedException> { runBlocking { client.api.statusSimple() } }
++                assertEquals(0, server.requestCount)
++            } finally {
++                client.close()
++            }
++        }
++    }
++
++    @Test
++    fun `token refresh does not follow redirects to another origin`() {
++        withServer(ca, leaf) { server ->
++            MockWebServer().use { destination ->
++                destination.start()
++                server.enqueue(response(401))
++                server.enqueue(MockResponse.Builder().code(302).addHeader("Location", destination.url("/fixture")).build())
++                val client = client(server)
++                try {
++                    assertEquals(401, runBlocking { client.api.statusSimple().code })
++                    assertEquals(2, server.requestCount)
++                    assertEquals(0, destination.requestCount)
++                } finally {
++                    client.close()
++                }
++            }
++        }
++    }
++
++    @Test
++    fun `reject unsupported origin before creating a client`() {
++        listOf("http://127.0.0.1:17580", "https://localhost:17580", "https://127.0.0.1:65536",
++            "https://127.0.0.1:17580/other", "https://127.0.0.1:17580@example.invalid").forEach { origin ->
++            assertThrows<IllegalArgumentException> {
++                NSAndroidClientImpl(origin, "local-fixture", false, {}, loopbackUpload = identity).close()
++            }
++        }
++    }
++
++    private fun client(
++        server: MockWebServer,
++        logger: (String) -> Unit = {},
++        enrolledIdentity: NsLoopbackUploadIdentity = identity
++    ) = NSAndroidClientImpl("https://127.0.0.1:${server.port}", "local-fixture", true, logger,
++        loopbackUpload = enrolledIdentity)
++
++    private fun serverLeaf(root: HeldCertificate, host: String = "127.0.0.1") =
++        HeldCertificate.Builder().addSubjectAlternativeName(host).signedBy(root).build()
++
++    private fun withServer(root: HeldCertificate, peer: HeldCertificate, block: (MockWebServer) -> Unit) {
++        MockWebServer().use { server ->
++            server.useHttps(HandshakeCertificates.Builder().heldCertificate(peer, root.certificate).build().sslSocketFactory())
++            server.start(InetAddress.getByName("127.0.0.1"), 0)
++            block(server)
++        }
++    }
++
++    private fun response(status: Int, body: String = "{}") = MockResponse.Builder().code(status).body(body).build()
++}
+diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
+index c98639018f2f927e0338deeff536ae39fe317853..6383358a274a7c3b4d4d93934b3b92064cb4971f 100644
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -157,6 +157,7 @@ com-squareup-leakcanary-android = { group = "com.squareup.leakcanary", name = "l
+ com-squareup-okhttp3-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+ com-squareup-okhttp3-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+ com-squareup-okhttp3-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit5", version.ref = "okhttp" }
++com-squareup-okhttp3-tls = { group = "com.squareup.okhttp3", name = "okhttp-tls", version.ref = "okhttp" }
+ com-squareup-retrofit2-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+ com-squareup-retrofit2-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+ 

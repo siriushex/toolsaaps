@@ -125,3 +125,18 @@ unimplemented rights, or rely on saved receive flags for upload-only
 isolation. The initial route must not import records, dispatch commands or
 reuse another endpoint's synchronization cursors. Verify these properties
 on a stand before configuring the therapy phone.
+
+The optional final SDK patch limits both HTTP clients (status/upload and token
+refresh) to the configured numeric loopback origin. It trusts only the supplied
+root CA and exact leaf DER, retains normal hostname verification, and disables
+redirects, proxies and request logging for this transport. The allowed routes
+are status, token refresh, the SDK's two permission probes, and collection
+creates; data downloads, updates, deletions and settings publication are refused.
+The stock client does not opt into this patch. The CI fixture exercises the
+patched SDK against actual Copilot TLS and verifies retained synthetic glucose,
+effective profile and pump-associated insulin without clinical promotion.
+
+Still required for phone setup: a verified on-device enrollment mechanism for the
+certificate pair and credential, a bounded upload owner that does not share the
+stock client's Nightscout identifiers, and an on-device freshness and import
+isolation check. The patch is not a replacement for pairing or command control.

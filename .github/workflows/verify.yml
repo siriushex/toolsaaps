@@ -116,6 +116,11 @@ jobs:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_FINAL_DIR: ${{ github.workspace }}/android-app/build/aaps-4-final
         run: bash tools/aaps4_compat/prepare_final.sh
+      - name: Verify pinned same-phone upload transport
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_FINAL_DIR: ${{ github.workspace }}/android-app/build/aaps-4-final
+        run: bash tools/aaps4_compat/prepare_loopback.sh
       - name: Resolve pinned Android test runtimes
         working-directory: android-app
         run: ./gradlew :app:prepareRobolectricSdks --no-daemon --max-workers=2 --console=plain
@@ -125,6 +130,7 @@ jobs:
           AAPS_INTEROP_JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-interop/classpath.txt
           AAPS_FINAL_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-final-interop/classpath.txt
+          AAPS_LOOPBACK_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-loopback-interop/classpath.txt
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain
       - name: Verify APK size and preserved application classes
         run: >-

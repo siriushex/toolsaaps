@@ -604,6 +604,66 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun pinnedLocalSdkStoresGlucoseProfileAndInsulinWithoutClinicalPromotion() = runBlocking {
+        val classpath = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpath?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required local upload SDK fixture" }
+        }
+        Assume.assumeTrue("Requires the dedicated local upload SDK fixture",
+            classpath?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val root = File.createTempFile("loopback-root-", ".der")
+        val leaf = File.createTempFile("loopback-leaf-", ".der")
+        val output = File.createTempFile("loopback-result-", ".txt")
+        var child: Process? = null
+        try {
+            root.writeBytes(caCertificate.encoded)
+            val material = loadMaterial()
+            try {
+                leaf.writeBytes(material.serverCertificate.encoded)
+            } finally {
+                material.clearAuthenticator()
+            }
+            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(classpath).readText(),
+                "integration.finalupload.PinnedUploadInteropKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ROOT_DER"] = root.absolutePath
+                    environment()["ENTRY_TEST_LEAF_DER"] = leaf.absolutePath
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(output)
+                }.start()
+            child = process
+            check(process.waitFor(35, TimeUnit.SECONDS)) { "Local upload fixture timed out" }
+            val lines = output.readLines()
+            val failure = lines.singleOrNull {
+                Regex("PINNED_LOCAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+            }
+            check(process.exitValue() == 0 && "PINNED_LOCAL_WIRE_OK" in lines) {
+                "Local upload fixture failed: ${failure ?: "unclassified"}"
+            }
+            val store = LocalNightscoutV3Store(db)
+            val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
+            assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)
+            assertThat(observed.profile).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(observed.insulin).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
+            assertThat(observed.insulinRecordCount).isEqualTo(1)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(3)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+        } finally {
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            root.delete()
+            leaf.delete()
+            output.delete()
+        }
+    }
+
+    @Test
     fun pristineFinalSdkUsesRealTlsAuthenticationAndBoundedDeviceStatusHistory() = runBlocking {
         val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")

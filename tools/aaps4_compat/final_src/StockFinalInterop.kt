@@ -37,36 +37,7 @@ fun main() {
                 check(status.apiPermissions.settings.create && status.apiPermissions.settings.update)
                 check(!status.apiPermissions.isFull() && !status.apiPermissions.isClient())
                 val at = 1_800_000_000_000L
-                stage = "glucose"
-                val sample = NSSgvV3(at, "sdk-test-sensor", null, utcOffset = 0, isValid = true,
-                    sgv = 120.0, units = NsUnits.MG_DL, direction = Direction.FLAT, noise = null,
-                    filtered = null, unfiltered = null)
-                check(client.createSgv(sample).response == 201)
-                check(client.getSgvs().values!!.single().date == at)
-                stage = "effective-profile"
-                val effective = NSEffectiveProfileSwitch(date = at, utcOffset = 0, isValid = true,
-                    eventType = EventType.NOTE, notes = null, pumpId = null, endId = null, pumpType = null, pumpSerial = null,
-                    originalProfileName = "Synthetic", originalCustomizedName = "Synthetic",
-                    originalTimeshift = 0L, originalPercentage = 100, originalDuration = 0L, originalEnd = 0L,
-                    profileJson = """{"units":"mg/dl","timezone":"UTC",
-                        "carbratio":[{"time":"00:00","timeAsSeconds":0,"value":10}],
-                        "sens":[{"time":"00:00","timeAsSeconds":0,"value":45}],
-                        "basal":[{"time":"00:00","timeAsSeconds":0,"value":0.8}],
-                        "target_low":[{"time":"00:00","timeAsSeconds":0,"value":100}],
-                        "target_high":[{"time":"00:00","timeAsSeconds":0,"value":105}]}""",
-                    iCfg = NSICfg("synthetic insulin", 18_000_000, 4_500_000, 1.0))
-                check(client.createTreatment(effective).response == 201)
-                stage = "insulin"
-                val bolus = NSBolus(date = at, identifier = null, utcOffset = 0, isValid = true,
-                    eventType = EventType.MEAL_BOLUS, notes = null, pumpId = 123L, endId = null,
-                    pumpType = "ACCU_CHEK_COMBO", pumpSerial = "synthetic-pump", insulin = 1.2,
-                    type = NSBolus.BolusType.NORMAL, isBasalInsulin = false,
-                    iCfg = NSICfg("synthetic insulin", 18_000_000, 4_500_000, 1.0))
-                check(client.createTreatment(bolus).response == 201)
-                val treatments = client.getTreatmentsNewerThan("1970-01-01T00:00:00Z", 10).values!!
-                check(treatments.filterIsInstance<NSEffectiveProfileSwitch>().single().iCfg == effective.iCfg)
-                val read = treatments.filterIsInstance<NSBolus>().single()
-                check(read.pumpId == bolus.pumpId && read.iCfg == bolus.iCfg)
+                transferSamples(client, at, verifyReads = true) { stage = it }
                 stage = "device-status"
                 val created = client.createDeviceStatus(NSDeviceStatus(date = at, device = "sdk-test-pump"))
                 check(created.response == 201)
@@ -82,6 +53,41 @@ fun main() {
     } catch (failure: Exception) {
         println("STOCK_FINAL_WIRE_FAILED:$stage:${failure.javaClass.simpleName}")
         exitProcess(1)
+    }
+}
+
+internal suspend fun transferSamples(client: NSAndroidClientImpl, at: Long, verifyReads: Boolean, stage: (String) -> Unit) {
+    stage("glucose")
+    val sample = NSSgvV3(at, "sdk-test-sensor", null, utcOffset = 0, isValid = true,
+        sgv = 120.0, units = NsUnits.MG_DL, direction = Direction.FLAT, noise = null,
+        filtered = null, unfiltered = null)
+    check(client.createSgv(sample).response == 201)
+    if (verifyReads) check(client.getSgvs().values!!.single().date == at)
+    stage("effective-profile")
+    val effective = NSEffectiveProfileSwitch(date = at, utcOffset = 0, isValid = true,
+        eventType = EventType.NOTE, notes = null, pumpId = null, endId = null, pumpType = null, pumpSerial = null,
+        originalProfileName = "Synthetic", originalCustomizedName = "Synthetic",
+        originalTimeshift = 0L, originalPercentage = 100, originalDuration = 0L, originalEnd = 0L,
+        profileJson = """{"units":"mg/dl","timezone":"UTC",
+            "carbratio":[{"time":"00:00","timeAsSeconds":0,"value":10}],
+            "sens":[{"time":"00:00","timeAsSeconds":0,"value":45}],
+            "basal":[{"time":"00:00","timeAsSeconds":0,"value":0.8}],
+            "target_low":[{"time":"00:00","timeAsSeconds":0,"value":100}],
+            "target_high":[{"time":"00:00","timeAsSeconds":0,"value":105}]}""",
+        iCfg = NSICfg("synthetic insulin", 18_000_000, 4_500_000, 1.0))
+    check(client.createTreatment(effective).response == 201)
+    stage("insulin")
+    val bolus = NSBolus(date = at, identifier = null, utcOffset = 0, isValid = true,
+        eventType = EventType.MEAL_BOLUS, notes = null, pumpId = 123L, endId = null,
+        pumpType = "ACCU_CHEK_COMBO", pumpSerial = "synthetic-pump", insulin = 1.2,
+        type = NSBolus.BolusType.NORMAL, isBasalInsulin = false,
+        iCfg = NSICfg("synthetic insulin", 18_000_000, 4_500_000, 1.0))
+    check(client.createTreatment(bolus).response == 201)
+    if (verifyReads) {
+        val treatments = client.getTreatmentsNewerThan("1970-01-01T00:00:00Z", 10).values!!
+        check(treatments.filterIsInstance<NSEffectiveProfileSwitch>().single().iCfg == effective.iCfg)
+        val read = treatments.filterIsInstance<NSBolus>().single()
+        check(read.pumpId == bolus.pumpId && read.iCfg == bolus.iCfg)
     }
 }
 

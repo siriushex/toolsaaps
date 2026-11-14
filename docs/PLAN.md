@@ -1031,6 +1031,10 @@
 - [ ] Verify a same-phone, upload-only AAPS 4.0.0 route with isolated TLS trust;
       no remote imports or pairing required. Require fresh SGV, typed effective
       profile and insulin records at both ends before claiming device readiness.
+- [x] Verify the dedicated SDK transport on synthetic records against Copilot:
+      exact leaf and CA, hostname, no redirects/proxy, and no import or command routes.
+- [ ] Bind device enrollment and isolated upload progress to that transport
+      before configuring NSClientV3 on the phone.
 - [x] Add a distinct, signature-protected same-phone observation path with no
       HTTP credentials or write methods. It does not replace the continuous
       NSClientV3 or signed command channel.
