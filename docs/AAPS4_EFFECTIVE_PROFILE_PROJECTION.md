@@ -110,3 +110,24 @@ time, never proof that the true current profile or its history is complete.
 These observations are not yet connected to
 clinical calculations, AI context or production target publication. No currently
 selected insulin may fill historical gaps.
+
+## AAPS 4 Inbound Diagnostics
+
+In Copilot settings, **AAPS 4 connection > Check incoming data** reads the
+local v3 store without signed Client Control pairing, socket subscription,
+remote queries or pump requests. It reports a dated snapshot, not connection
+or source completeness:
+
+- An authenticated local-owner SGV acquired no more than five minutes before
+  the check is reported as fresh. Fingersticks and tombstones do not count.
+  Conflicting latest timestamps, future times, collection revisions later
+  than the check and exceeded scan limits cannot produce a fresh result.
+- The profile observation uses typed effective profile switch evidence, not
+  the catalog default. It reports the retained data, not the live AAPS state.
+- Insulin counts include non-invalidated records intersecting the last 24 hours.
+  Missing insulin configuration is distinguished from observed records.
+  Receipt of records never verifies pump delivery or archive completeness.
+
+This check does not write clinical data, admit forecasts, enable commands,
+or affect model timers. It does not solve Android TLS trust or upstream
+upload permissions.

@@ -1139,7 +1139,11 @@ class AppContainer(context: Context) {
                 verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }, block = publish)
         }
     )
+    private val nativeAapsInboundDiagnostics = AapsV3InboundDiagnostics(
+        io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
+    )
     val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
+    suspend fun checkNativeAapsInbound() = nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
     suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()

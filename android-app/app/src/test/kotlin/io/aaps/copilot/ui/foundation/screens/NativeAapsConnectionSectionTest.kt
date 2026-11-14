@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.Density
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3InboundGlucose
+import io.aaps.copilot.service.AapsV3InboundSummary
+import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
 import io.aaps.copilot.service.AapsV3ObservedProfileStatus
 import io.aaps.copilot.service.ComboTransferAudit
 import io.aaps.copilot.service.ComboTransferPhase
@@ -88,6 +91,19 @@ class NativeAapsConnectionSectionTest {
         screen(AapsV3ConnectionState(AapsV3ConnectionStatus.CONNECTED, observedProfile = AapsV3ObservedProfileStatus.OBSERVED)) {
             compose.onNodeWithTag("native_aaps_profile_status").assertTextEquals("Profile received. History completeness is not yet confirmed.")
             compose.onNodeWithText("AAPS 4 target control remains blocked", substring = true).assertIsDisplayed()
+        }
+    }
+
+    @Test fun unpairedScreenCanCheckIncomingDataWithoutContactingTheControlChannel() {
+        var checks = 0
+        screen(inbound = AapsV3InboundSummary(1_800_000_000_000L, AapsV3InboundGlucose.FRESH,
+            AapsV3ObservedProfileStatus.OBSERVED, AapsV3ObservedInsulinStatus.OBSERVED, 2),
+            onInboundCheck = { checks++ }) {
+            compose.onNodeWithTag("native_aaps_inbound_check").performScrollTo().performClick()
+            assertEquals(1, checks)
+            compose.onNodeWithTag("native_aaps_inbound_cgm").assertTextContains("sample received", substring = true)
+            compose.onNodeWithTag("native_aaps_inbound_profile").assertTextContains("Profile received", substring = true)
+            compose.onNodeWithTag("native_aaps_inbound_insulin").assertTextContains("Delivery not verified.", substring = true)
         }
     }
 
@@ -185,7 +201,9 @@ class NativeAapsConnectionSectionTest {
 
     private fun screen(state: AapsV3ConnectionState = AapsV3ConnectionState(),
         onPair: (CharArray) -> Unit = { it.fill('\u0000'); error("Unexpected pairing") },
-        onCheck: () -> Unit = { error("Unexpected check") }, fontScale: Float = 1f, test: () -> Unit) {
+        onCheck: () -> Unit = { error("Unexpected check") }, fontScale: Float = 1f,
+        inbound: AapsV3InboundSummary? = null, onInboundCheck: () -> Unit = { error("Unexpected inbound check") },
+        test: () -> Unit) {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity = controller.get()
         try {
@@ -194,7 +212,8 @@ class NativeAapsConnectionSectionTest {
                 CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                            NativeAapsConnectionSection(state, onPair, onCheck, { error("Unexpected revoke") })
+                            NativeAapsConnectionSection(state, onPair, onCheck, { error("Unexpected revoke") },
+                                inbound, onInboundCheck)
                         }
                     }
                 }

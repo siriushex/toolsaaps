@@ -165,6 +165,8 @@ fun SettingsScreen(
     onLocalNightscoutCertificateExport: () -> Unit = {},
     onLocalNightscoutIdentityReset: (Boolean) -> Unit = {},
     nativeAapsConnectionState: io.aaps.copilot.service.AapsV3ConnectionState = io.aaps.copilot.service.AapsV3ConnectionState(),
+    nativeAapsInbound: io.aaps.copilot.service.AapsV3InboundSummary? = null,
+    onNativeAapsInboundCheck: () -> Unit = {},
     onNativeAapsPair: (CharArray) -> Unit = { it.fill('\u0000') },
     onNativeAapsCheck: () -> Unit = {},
     onNativeAapsRevoke: () -> Unit = {},
@@ -426,7 +428,8 @@ fun SettingsScreen(
                         )
                     }
                     item {
-                        NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck, onNativeAapsRevoke)
+                        NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck,
+                            onNativeAapsRevoke, nativeAapsInbound, onNativeAapsInboundCheck)
                     }
                     item {
                         UamSettingsCard(

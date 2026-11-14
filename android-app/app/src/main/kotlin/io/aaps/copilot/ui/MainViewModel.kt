@@ -1822,6 +1822,15 @@ class MainViewModel(application: Application) :
 
     private val container = (application as CopilotApp).container
     val nativeAapsConnectionState get() = container.nativeAapsConnectionState
+    private val mutableNativeAapsInbound = MutableStateFlow<io.aaps.copilot.service.AapsV3InboundSummary?>(null)
+    val nativeAapsInbound = mutableNativeAapsInbound.asStateFlow()
+    private var nativeAapsInboundJob: kotlinx.coroutines.Job? = null
+    fun checkNativeAapsInbound() {
+        if (nativeAapsInboundJob?.isActive == true) return
+        nativeAapsInboundJob = viewModelScope.launch {
+            mutableNativeAapsInbound.value = withContext(Dispatchers.IO) { container.checkNativeAapsInbound() }
+        }
+    }
     fun pairNativeAaps(pin: CharArray) {
         viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
             .invokeOnCompletion { pin.fill('\u0000') }

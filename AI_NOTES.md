@@ -16095,3 +16095,17 @@ clinical admission follows from source verification.
   admitted, and no warning baseline/suppression was added.
 - Publication/exact-head CI and intended-phone USB acceptance are separate
   post-commit checks. No new server or therapy activation. See AI_FOCUS_PLUS.md.
+# AAPS 4 Incoming Data Check - 2026-11-14
+
+- Add an explicit local v3 snapshot check to Settings. Report CGM freshness,
+  effective-profile evidence and non-invalidated insulin record counts without
+  signed pairing, a foreground listener, clinical projection or commands.
+- AAPS 4.0 still needs a configured NSClientV3 endpoint and access token. It
+  does not trust the private loopback CA by default, and its uploader asks for
+  full collection permissions that the local adapter does not advertise.
+  No changes to AAPS or the local server's trust policy are included.
+- To verify: run AapsV3EffectiveProfileSourceTest and
+  NativeAapsConnectionSectionTest. Stock Android upload and independent
+  Combo delivery completeness are separate device acceptance checks.
+- Local verification: 35 focused tests passed, lint reported zero errors, and
+  the debug APK built successfully. No deployment.

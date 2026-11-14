@@ -710,6 +710,8 @@ fun CopilotFoundationRoot(
                                     onLocalNightscoutIdentityReset =
                                         viewModel::resetLocalNightscoutIdentity,
                                     nativeAapsConnectionState = viewModel.nativeAapsConnectionState.collectAsStateWithLifecycle().value,
+                                    nativeAapsInbound = viewModel.nativeAapsInbound.collectAsStateWithLifecycle().value,
+                                    onNativeAapsInboundCheck = viewModel::checkNativeAapsInbound,
                                     onNativeAapsPair = viewModel::pairNativeAaps,
                                     onNativeAapsCheck = viewModel::checkNativeAapsConnection,
                                     onNativeAapsRevoke = viewModel::revokeNativeAapsPairing,
