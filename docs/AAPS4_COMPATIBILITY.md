@@ -63,6 +63,21 @@ replace the active phone application before the remaining migration gates pass.
   Verify the actual enabled sender/output and fresh AAPS reading before migration;
   do not silently replace the CGM route or infer it from stale preference keys.
 
+## Final Release Wire Coverage
+
+The final SDK at `f77abd9b82b308e8fc330da0d7a31370fb4a0f49` differs from RC1:
+it probes settings permissions separately and sends `limit` on device-status
+history. The local server handles these two additions with unchanged authority
+and refuses partial history. The final SDK fixture is separate from the RC1
+fixtures for pairing and Combo history; it exchanges only synthetic
+observational data over loopback TLS.
+
+This does not authorize production sync. AAPS master upload is gated by full
+rights or live storage subscription, its load workers have additional collection
+requirements, and the stock Android build does not trust the local private CA.
+No unsupported rights are advertised. Receiving records in local v3 storage
+also does not project them to the clinical database.
+
 ## Implementation Sequence
 
 1. Correct both existing legacy broadcast send paths in Copilot: require an

@@ -16109,3 +16109,19 @@ clinical admission follows from source verification.
   Combo delivery completeness are separate device acceptance checks.
 - Local verification: 35 focused tests passed, lint reported zero errors, and
   the debug APK built successfully. No deployment.
+
+## AAPS 4.0.0 Final Wire Compatibility
+
+- Admit the final SDK's two settings capability probes with the existing v3
+  bearer gate. Answer only for existing owner operations. Do not advertise full
+  collection rights, register remote clients or change clinical admission.
+- Recognize the final SDK's bounded device-status history query. Overflow still
+  fails rather than claiming a complete page.
+- The external final-release SDK fixture tests TLS, status, SGV, effective
+  profile, insulin and device status over the real local server, without
+  touching clinical tables. CI retains the separate RC1 fixture.
+- The focused v3 and projection suites passed 153 tests with one existing
+  optional skip. The final SDK fixture ran and passed, not skipped.
+  Android lint and debug packaging also passed.
+- Release SDK success does not replace Android TLS trust, AAPS worker admission,
+  clinical projection or on-device delivery verification.

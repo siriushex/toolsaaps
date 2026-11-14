@@ -357,6 +357,40 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun v4SettingsCapabilityProbeRequiresV3BearerAndDoesNotWidenRights() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val prefix = "/api/v2/authorization/debug/check/"
+        val path = prefix + "api:settings:create"
+        assertThat(getCode(peer, port, path)).isEqualTo(401)
+        assertThat(getCode(peer, port, path, apiSecretSha1)).isEqualTo(401)
+        assertThat(getCode(peer, port, path + "?token=$localAccessToken")).isEqualTo(401)
+        val bearer = get(peer, port, "/api/v2/authorization/request/$localAccessToken").use {
+            JsonParser.parseString(it.body!!.string()).asJsonObject["token"].asString
+        }
+        val headers = mapOf("Authorization" to "Bearer $bearer")
+        for (permission in listOf("api:settings:create", "api%3Asettings%3Aupdate")) {
+            get(peer, port, prefix + permission, headers = headers).use {
+                assertThat(it.code).isEqualTo(200)
+                assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+                assertThat(it.body!!.string()).isEqualTo("""{"check":true}""")
+            }
+        }
+        for (permission in listOf("api:food:create", "api:settings:*", "api:settings:create/other")) {
+            get(peer, port, prefix + permission, headers = headers).use { assertThat(it.code).isEqualTo(403) }
+        }
+        get(peer, port, "$path?extra=1", headers = headers).use { assertThat(it.code).isEqualTo(400) }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port$path").header("Authorization", "Bearer $bearer")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()).execute().use {
+            assertThat(it.code).isEqualTo(405)
+        }
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(0)
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
     fun v3RefreshRequiresExactDecodedCredentialAndGet() {
         val port = freePort()
         server = newServer(MutableLocalNightscoutRuntimeState())
@@ -550,6 +584,60 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         assertThat(server?.update(true, port)).isEqualTo(port)
         post(token).use { assertThat(it.code).isEqualTo(401) }
         assertThat(db.localNightscoutV3Dao().count()).isEqualTo(1)
+    }
+
+    @Test
+    fun pristineFinalSdkUsesRealTlsAuthenticationAndBoundedDeviceStatusHistory() = runBlocking {
+        val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpath?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required AAPS 4.0.0 SDK fixture" }
+        }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare_final.sh for AAPS 4.0.0 interop",
+            classpath?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val trustFile = File.createTempFile("final-sdk-trust-", ".p12")
+        val output = File.createTempFile("final-sdk-result-", ".txt")
+        var process: Process? = null
+        try {
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            val child = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}",
+                "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", checkNotNull(classpath).readText(), "integration.finalupload.StockFinalInteropKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(output)
+                }.start()
+            process = child
+            check(child.waitFor(60, TimeUnit.SECONDS)) { "AAPS 4.0.0 SDK fixture timed out" }
+            val lines = output.readLines()
+            val safeFailure = lines.singleOrNull { Regex("STOCK_FINAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it) }
+            check(child.exitValue() == 0 && "STOCK_FINAL_WIRE_OK" in lines) {
+                "AAPS 4.0.0 SDK compatibility failed: ${safeFailure ?: "unclassified"}"
+            }
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(4)
+            val store = LocalNightscoutV3Store(db)
+            val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
+            assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)
+            assertThat(observed.profile).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(observed.insulin).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
+            assertThat(observed.insulinRecordCount).isEqualTo(1)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+        } finally {
+            process?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            trustFile.delete()
+            output.delete()
+        }
     }
 
     @Test

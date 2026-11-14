@@ -39,6 +39,13 @@ internal class LocalNightscoutV3EntriesApi(
         }
         require(query.size <= 8 && query.keys.all { it.length <= 64 })
         when {
+            path.startsWith(PERMISSION_PREFIX) -> {
+                require(query.isEmpty())
+                if (method != "GET") errorResponse(405)
+                else if (path.removePrefix(PERMISSION_PREFIX) in SETTINGS_PERMISSION_CHECKS)
+                    response(200, buildJsonObject { put("check", true) })
+                else errorResponse(403)
+            }
             path == "/api/v3/profile" || path.startsWith("/api/v3/profile/") ->
                 profiles.handle(method, path, query, readBody)
             path == "/api/v3/treatments" || path.startsWith("/api/v3/treatments/") ->
@@ -273,6 +280,10 @@ internal class LocalNightscoutV3EntriesApi(
     private fun errorResponse(status: Int) = response(status, buildJsonObject { put("status", status); put("message", "v3_request_rejected_$status") })
 
     companion object {
+        const val PERMISSION_PREFIX = "/api/v2/authorization/debug/check/"
+        // AAPS 4.0 probes these when status does not advertise full rights. Match the
+        // existing owner settings adapter; never imply rights on other collections.
+        private val SETTINGS_PERMISSION_CHECKS = setOf("api:settings:create", "api:settings:update")
         private const val SOURCE = "local-v3-owner"
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
         private val DECIMAL = Regex("0|[1-9][0-9]{0,14}")

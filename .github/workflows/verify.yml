@@ -73,6 +73,13 @@ jobs:
           ref: d5e7f5bdbb4aaefa4eaaa89a46fba257ef396fa0
           path: android-app/build/aaps-rc1
           persist-credentials: false
+      - name: Check out pristine AAPS 4.0.0 SDK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: nightscout/AndroidAPS
+          ref: f77abd9b82b308e8fc330da0d7a31370fb4a0f49
+          path: android-app/build/aaps-4-final
+          persist-credentials: false
       - name: Prepare upstream Java
         id: upstream-java
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
@@ -104,6 +111,11 @@ jobs:
           JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_RC1_DIR: ${{ github.workspace }}/android-app/build/aaps-rc1
         run: bash tools/aaps4_compat/prepare.sh
+      - name: Compile final SDK with synthetic wire integration fixture
+        env:
+          JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
+          AAPS_FINAL_DIR: ${{ github.workspace }}/android-app/build/aaps-4-final
+        run: bash tools/aaps4_compat/prepare_final.sh
       - name: Resolve pinned Android test runtimes
         working-directory: android-app
         run: ./gradlew :app:prepareRobolectricSdks --no-daemon --max-workers=2 --console=plain
@@ -112,6 +124,7 @@ jobs:
         env:
           AAPS_INTEROP_JAVA_HOME: ${{ steps.upstream-java.outputs.path }}
           AAPS_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-interop/classpath.txt
+          AAPS_FINAL_INTEROP_CLASSPATH: ${{ github.workspace }}/android-app/build/aaps4-final-interop/classpath.txt
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --max-workers=2 --console=plain
       - name: Verify APK size and preserved application classes
         run: >-

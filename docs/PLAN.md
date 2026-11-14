@@ -1026,6 +1026,12 @@
 
 ## Stock AAPS 4.0 Compatibility (2026-10-18)
 
+- [x] Verify final 4.0.0 SDK status permission probes and bounded status history
+      with the real loopback TLS listener, independently of the RC1 fixture.
+- [ ] Verify a same-phone, upload-only AAPS 4.0.0 route with isolated TLS trust;
+      no remote imports or pairing required. Require fresh SGV, typed effective
+      profile and insulin records at both ends before claiming device readiness.
+
 - [x] Implement immutable native profile catalog transport without clinical selection.
 - [x] Complete focused/full profile checks and actual pristine SDK round trip.
 - Profile-stage publication follows the exact-head CI and main integration gates

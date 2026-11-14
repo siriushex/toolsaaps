@@ -22,16 +22,23 @@ internal class LocalNightscoutV3DeviceStatusApi(
     private val collection = LocalV3Collection.DEVICE_STATUS
 
     suspend fun handle(method: String, path: String, query: Map<String, String>, readBody: () -> ByteArray): LocalV3HttpResult {
-        require(query.isEmpty())
         return when {
-            path == ROOT -> if (method == "POST") create(parse(readBody())) else rejected(405)
+            path == ROOT -> {
+                require(query.isEmpty())
+                if (method == "POST") create(parse(readBody())) else rejected(405)
+            }
             path.startsWith("$ROOT/history/") -> {
+                require(query.keys.all { it == "limit" })
+                val limit = query["limit"]?.let { raw ->
+                    require(Regex("[1-9][0-9]{0,3}").matches(raw))
+                    raw.toInt().also { require(it in 1..1000) }
+                } ?: 1000
                 val value = path.removePrefix("$ROOT/history/")
                 require(Regex("0|[1-9][0-9]{0,14}").matches(value))
                 val after = value.toLong().also { require(it in 0..LocalNightscoutV3Store.MAX_TIME) }
                 if (method != "GET") return rejected(405)
-                val page = store.history(collection, after, 1000)
-                // RC1 returns one list, without a continuation cursor. Never silently truncate it.
+                val page = store.history(collection, after, limit)
+                // The SDK result has no pagination metadata. Fail instead of silently truncating.
                 if (page.hasMore) throw LocalV3StoreException(LocalV3StoreError.PAGE_CAPACITY)
                 if (page.documents.any { it.deleted }) throw LocalV3StoreException(LocalV3StoreError.STATE)
                 val result = buildJsonObject { put("result", JsonArray(page.documents.map(::wire))) }
@@ -39,6 +46,7 @@ internal class LocalNightscoutV3DeviceStatusApi(
                 response(200, result, page.nextCursor)
             }
             else -> {
+                require(query.isEmpty())
                 val id = path.removePrefix("$ROOT/")
                 require(ID.matches(id))
                 if (method != "GET") rejected(405) else store.get(collection, id)?.takeUnless { it.deleted }?.let {

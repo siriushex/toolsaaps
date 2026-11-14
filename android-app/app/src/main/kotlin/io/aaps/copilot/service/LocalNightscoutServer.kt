@@ -535,7 +535,8 @@ class LocalNightscoutServer internal constructor(
                 if (path.startsWith(LocalNightscoutV3Authentication.REFRESH_PREFIX, ignoreCase = true)) {
                     return@runCatching handleV3TokenRequest(session, session.uri)
                 }
-                if (path.equals("/api/v3", ignoreCase = true) || path.startsWith("/api/v3/", ignoreCase = true)) {
+                if (path.equals("/api/v3", ignoreCase = true) || path.startsWith("/api/v3/", ignoreCase = true) ||
+                    path.startsWith(LocalNightscoutV3EntriesApi.PERMISSION_PREFIX, ignoreCase = true)) {
                     return@runCatching handleV3Request(session)
                 }
                 when (
