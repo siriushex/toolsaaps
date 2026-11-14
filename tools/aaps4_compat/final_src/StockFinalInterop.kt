@@ -2,6 +2,14 @@ package integration.finalupload
 
 import app.aaps.core.nssdk.NSAndroidClientImpl
 import app.aaps.core.nssdk.localmodel.devicestatus.NSDeviceStatus
+import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+import app.aaps.core.nssdk.localmodel.clientcontrol.AckPhase
+import app.aaps.core.nssdk.localmodel.clientcontrol.AckStatus
+import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+import app.aaps.core.nssdk.localmodel.clientcontrol.PongPayload
+import app.aaps.core.nssdk.utils.ClientControlCrypto
+import app.aaps.core.nssdk.utils.ClientControlPairingCrypto
+import app.aaps.core.nssdk.utils.MasterDocSigning
 import app.aaps.core.nssdk.localmodel.entry.Direction
 import app.aaps.core.nssdk.localmodel.entry.NSSgvV3
 import app.aaps.core.nssdk.localmodel.entry.NsUnits
@@ -11,6 +19,8 @@ import app.aaps.core.nssdk.localmodel.treatment.NSEffectiveProfileSwitch
 import app.aaps.core.nssdk.localmodel.treatment.NSICfg
 import kotlinx.coroutines.runBlocking
 import java.net.URI
+import java.util.Base64
+import kotlinx.serialization.json.*
 import kotlin.system.exitProcess
 
 fun main() {
@@ -62,6 +72,8 @@ fun main() {
                 check(created.response == 201)
                 check(client.getDeviceStatusModifiedSince(0, 1).single().date == at)
                 check(client.getDeviceStatusModifiedSince(created.lastModified!!, 1).isEmpty())
+                stage = "signed-fixtures"
+                publishSignedFixtures(client, at)
             }
         } finally {
             client.close()
@@ -70,5 +82,55 @@ fun main() {
     } catch (failure: Exception) {
         println("STOCK_FINAL_WIRE_FAILED:$stage:${failure.javaClass.simpleName}")
         exitProcess(1)
+    }
+}
+
+private suspend fun publishSignedFixtures(client: NSAndroidClientImpl, at: Long) {
+    val clientId = "11111111-2222-4333-8444-555555555555"
+    val master = "synthetic-master"
+    val shared = ByteArray(32) { it.toByte() }
+    val codec = Json { encodeDefaults = true }
+    val pair = MasterDocSigning.newKeyPair()
+    try {
+        val expires = at + 120_000L
+        val salt = ClientControlPairingCrypto.newSalt()
+        val iv = ClientControlPairingCrypto.newIv()
+        val fields = PairingPayload(1, master, clientId,
+            shared.joinToString("") { "%02x".format(it.toInt() and 255) }, expires, "Caregiver", "Synthetic")
+        val plain = codec.encodeToString(PairingPayload.serializer(), fields).encodeToByteArray()
+        val encrypted = try { ClientControlPairingCrypto.wrap(plain, "23456789", salt, iv) } finally { plain.fill(0) }
+        fun bytes(value: ByteArray) = Base64.getEncoder().encodeToString(value)
+        val offer = buildJsonObject {
+            put("schemaVersion", 1); put("clientId", clientId); put("expiresAt", expires)
+            put("kdfSaltB64", bytes(salt)); put("ivB64", bytes(iv)); put("wrappedB64", bytes(encrypted))
+        }
+        val pongPayload = codec.encodeToString(PongPayload.serializer(), PongPayload(pair.publicKey))
+        val pong = ClientControlCrypto.signAck(shared, AckEnvelope(clientId, 2L,
+            AckPhase.Done, AckStatus.Ok, payload = pongPayload, timestamp = at + 1, signature = ""))
+        val signed = buildJsonObject {
+            put("signedAt", at + 1)
+            putJsonObject("runningConfig") {
+                putJsonObject("syncedPrefs") { put("ns_allow_client_control", "true") }
+                putJsonObject("authorizedClients") {
+                    putJsonArray("clientIds") { add(clientId) }
+                    putJsonObject("roles") { put(clientId, "Caregiver") }
+                }
+            }
+        }.toString()
+        fun doc(version: Int, content: JsonObjectBuilder.() -> Unit) = buildJsonObject {
+            put("date", 946684800001L); put("utcOffset", 0); put("app", "AAPS")
+            put("schemaVersion", version)
+            content()
+        }
+        check(client.updateSettings("aaps_clientcontrol_offer_$clientId", doc(1) { put("offer", offer) }).response == 201)
+        check(client.updateSettings("aaps_clientcontrol_ack_$clientId", doc(1) {
+            put("ack", codec.encodeToJsonElement(AckEnvelope.serializer(), pong))
+        }).response == 201)
+        check(client.updateSettings("aaps", doc(2) {
+            put("signed", signed); put("signature", MasterDocSigning.sign(pair.privateKey, "aaps", signed))
+        }).response == 201)
+    } finally {
+        pair.privateKey.fill(0)
+        shared.fill(0)
     }
 }

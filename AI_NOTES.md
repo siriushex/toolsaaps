@@ -16140,3 +16140,15 @@ clinical admission follows from source verification.
   one AAPS observation test. The on-device signature permission and denied
   unprivileged call were verified. The same-phone observation UI received CGM,
   effective-profile and recorded-insulin data; no command was sent.
+
+## Final Client Control Proof
+
+- Add final-format PIN and Pong decoding and verification of the signed
+  role roster using the public key from the authenticated, correlated Pong.
+  Do not change the legacy enrollment path or production command admission.
+- Extend the actual 4.0.0 SDK TLS fixture with synthetic signed offers, ACKs
+  and roster. Check tampering, replay timestamp, counter and absent membership.
+- The final AAPS receiver test branch checks Hello, target-only and carb-only
+  preview, commit, signed acknowledgement and replay with a mock executor.
+- This is separate from the Xiaomi observation check. A production local
+  NSClientV3 endpoint, final runtime pairing and live commands are not enabled.

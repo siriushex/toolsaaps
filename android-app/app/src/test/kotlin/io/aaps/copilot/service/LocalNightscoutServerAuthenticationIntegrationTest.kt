@@ -624,13 +624,14 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             check(child.exitValue() == 0 && "STOCK_FINAL_WIRE_OK" in lines) {
                 "AAPS 4.0.0 SDK compatibility failed: ${safeFailure ?: "unclassified"}"
             }
-            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(4)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(7)
             val store = LocalNightscoutV3Store(db)
             val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
             assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)
             assertThat(observed.profile).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
             assertThat(observed.insulin).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
             assertThat(observed.insulinRecordCount).isEqualTo(1)
+            assertFinalSignedFixtures(store)
             assertThat(db.glucoseDao().since(0)).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
         } finally {
@@ -638,6 +639,41 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             trustFile.delete()
             output.delete()
         }
+    }
+
+    private suspend fun assertFinalSignedFixtures(store: LocalNightscoutV3Store) {
+        val at = 1_800_000_000_000L
+        val client = "11111111-2222-4333-8444-555555555555"
+        suspend fun settings(id: String) = io.aaps.copilot.data.repository.HistoryJson.parse(
+            checkNotNull(store.get(LocalV3Collection.SETTINGS, id)).payloadJson.toByteArray(), 65_536)
+        val offer = settings("aaps_clientcontrol_offer_$client").getValue("offer") as kotlinx.serialization.json.JsonObject
+        val pin = "23456789".toCharArray()
+        AapsV3PairingProtocol.unwrapFinal(offer, pin, at).use { credential ->
+            assertThat(credential.clientId).isEqualTo(client)
+            assertThat(credential.advertisedRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
+            val ack = settings("aaps_clientcontrol_ack_$client").getValue("ack") as kotlinx.serialization.json.JsonObject
+            val doc = settings("aaps")
+            credential.withSecret { shared ->
+                AapsV3SessionProtocol(shared).use { session ->
+                    val probe = session.ping(client, 2L, at)
+                    assertThat(session.isPong(probe, ack, at + 2)).isFalse()
+                    val key = checkNotNull(session.finalMasterKey(probe, ack, at + 2))
+                    val proof = checkNotNull(key.verifyRoster(doc, client, at + 2, at))
+                    assertThat(proof.member).isTrue()
+                    assertThat(proof.role).isEqualTo(AapsFinalClientRole.CAREGIVER)
+                    assertThat(proof.controlEnabled).isTrue()
+                    assertThat(key.verifyRoster(doc, client, at + 2, at + 2)).isNull()
+                    val other = "22222222-2222-4222-8222-222222222222"
+                    assertThat(key.verifyRoster(doc, other, at + 2, at)?.controlEnabled).isFalse()
+                    val tamperedDoc = kotlinx.serialization.json.JsonObject(doc + ("signed" to
+                        kotlinx.serialization.json.JsonPrimitive(doc.getValue("signed").toString() + " ")))
+                    assertThat(key.verifyRoster(tamperedDoc, client, at + 2, at)).isNull()
+                    val wrongProbe = session.ping(client, 3L, at)
+                    assertThat(session.finalMasterKey(wrongProbe, ack, at + 2)).isNull()
+                }
+            }
+        }
+        assertThat(pin.all { it == '\u0000' }).isTrue()
     }
 
     @Test

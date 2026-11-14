@@ -1039,6 +1039,11 @@
       expiry, revocation, one-time execution and correlated acknowledgements.
       Test targets and carb-only actions separately, and do not grant generic
       preference or insulin writes through the observation provider.
+- [x] Check final SDK PIN offer, correlated Pong key and signed roster over
+      test TLS, and final AAPS receiver confirmation with a mock executor.
+- [ ] Persist final pairing proof and verify client-to-master round trips.
+      Local NSClientV3 also requires Android trust scoped to the intended
+      loopback identity and isolation from the existing receive preferences.
 
 - [x] Implement immutable native profile catalog transport without clinical selection.
 - [x] Complete focused/full profile checks and actual pristine SDK round trip.

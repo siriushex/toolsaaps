@@ -86,3 +86,25 @@ stock receiver's clock capture across suspended/queued work, verify actual maste
 expiry/application behavior, resolve loopback Android CA trust, inspect signer
 and settings export, and preserve the phone's JugglucoNG input and pump state.
 No AAPS update or live therapy test has been performed by this stage.
+
+## Final 4.0.0 Wire Verification
+
+The final upstream SDK fixture publishes a PIN offer containing a role and a
+display name, an HMAC-signed Pong containing the master's public key, and a
+schema-2 settings document with a signed roster. Copilot validates these on
+the isolated TLS listener, including role, counter, tamper and replay checks.
+The role in an offer is informational; it is not permission to issue actions.
+The roster must verify with the key obtained from the correlated Pong.
+
+The final-format decoder is not attached to production enrollment. Runtime
+ownership must support bootstrapping the first key without admitting an
+unsigned roster, then retain the verified key and signing-time high-water
+mark across restarts. The legacy RC1 path does not accept a final-format
+offer or Pong.
+
+The AAPS master host test uses its actual receiver and a mocked executor:
+Hello promotes the pending client, separate target and carb-only prepares
+produce signed previews without execution, commit gets one signed result,
+and replay cannot invoke the executor again. This is not a pump test or an
+end-to-end Copilot action. No general action client or local NSClientV3 setup
+is enabled by these checks.
