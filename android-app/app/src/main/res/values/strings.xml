@@ -1232,12 +1232,12 @@
     <string name="settings_local_ns_reset_identity">Reset local TLS identity</string>
     <string name="settings_local_ns_reset_title">Reset Local Nightscout identity?</string>
     <string name="settings_local_ns_reset_confirm">Reset identity</string>
-    <string name="settings_local_ns_reset_body">This stops and disables Local Nightscout, removes its encrypted per-install TLS identity and API secret, and requires a new setup. Remove the legacy CA with SHA-256 C9:EF:07:C9:05:B6:56:23:0D:50:CB:F6:1D:85:A3:C3:60:6B:B7:B4:8F:9C:E9:00:2B:AD:96:D3:BE:FF:71:41 if it remains installed. Then export/install the newly generated CA, copy the new API secret into AAPS, and reconnect or restart NSClient. Clinical databases are not deleted.</string>
+    <string name="settings_local_ns_reset_body">This stops and disables Local Nightscout and removes its encrypted TLS identity and access credential. Any client using them must be set up again. If the legacy certificate shown in settings is still installed, remove it. Clinical records are preserved. Resetting does not configure AAPS 4 NSClientV3.</string>
     <string name="settings_local_ns_legacy_migration_fingerprint">Legacy CA to remove (SHA-256)</string>
     <string name="settings_local_ns_legacy_ca_sha256">C9:EF:07:C9:05:B6:56:23:0D:50:CB:F6:1D:85:A3:C3:60:6B:B7:B4:8F:9C:E9:00:2B:AD:96:D3:BE:FF:71:41</string>
     <string name="settings_local_ns_legacy_migration_ack">I removed the legacy CA and old AAPS credential</string>
     <string name="settings_local_ns_legacy_migration_body">Required before generating, installing, exporting, copying credentials, or enabling Local Nightscout.</string>
-    <string name="settings_local_ns_legacy_migration_info">Remove the listed legacy CA from Android trust settings and remove the old Local Nightscout API credential from AAPS NSClient. Then acknowledge this migration and configure the newly generated CA and API secret.</string>
+    <string name="settings_local_ns_legacy_migration_info">Remove the listed legacy CA from Android trust settings and the old Local Nightscout credential from AAPS NSClient before acknowledging. This does not configure AAPS 4 NSClientV3.</string>
     <string name="settings_strict_sender_validation">Strict sender validation</string>
     <string name="settings_data_sources_sender_subtitle">Allow only whitelisted sender packages</string>
     <string name="settings_uam_inference">Enable UAM inference</string>
@@ -1447,7 +1447,7 @@
     <string name="settings_info_ai_api_url">Base URL of the AI backend used for analysis jobs and reports. Wrong URL will break AI Analysis sync.</string>
     <string name="settings_info_ai_api_key">API key for AI backend access. Keep it private; invalid key will cause authorization errors.</string>
     <string name="settings_info_ui_style">Changes only the app appearance layer. Forecasts, ISF/CR, UAM and all safety logic keep the same inputs and outputs.</string>
-    <string name="settings_info_local_nightscout">Runs a local Nightscout endpoint on the phone. Useful for local AAPS connection without an external server.</string>
+    <string name="settings_info_local_nightscout">Runs a local Nightscout endpoint on this phone. For AAPS 4, use AAPS 4 Connection to check local data. Installing a certificate does not configure NSClientV3 or enable commands.</string>
     <string name="settings_info_local_broadcast_ingest">Reads glucose and therapy from Android broadcasts. If disabled, only Nightscout sync is used.</string>
     <string name="settings_info_strict_sender_validation">Accept data only from trusted sender packages. Improves safety, but unknown senders are blocked.</string>
     <string name="settings_info_uam_inference">Detects likely unannounced carbs from glucose behavior. This influences UAM, forecasts, and safety decisions.</string>

@@ -7584,7 +7584,7 @@ class MainViewModel(application: Application) :
                 )
             }.onSuccess {
                 messageState.value =
-                    "TLS certificates exported (root CA + server). Install root CA in Android, then reconnect AAPS NSClient."
+                    "TLS certificates exported (root CA + server). Exporting does not configure AAPS NSClientV3."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }

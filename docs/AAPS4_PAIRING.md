@@ -108,3 +108,20 @@ produce signed previews without execution, commit gets one signed result,
 and replay cannot invoke the executor again. This is not a pump test or an
 end-to-end Copilot action. No general action client or local NSClientV3 setup
 is enabled by these checks.
+
+## Same-Phone NSClientV3 Admission
+
+The signature-protected AAPS 4 data check is Android IPC; it is not a
+configured NSClientV3 session. The tested AAPS build does not trust a
+user-installed CA for its HTTPS client. In addition, the stock master
+uploader requires full rights across six collections (or a connected
+WebSocket), whereas Copilot advertises only the operations it implements.
+Passing an SDK request does not establish that the stock uploader will run.
+
+Do not fill the live NSClientV3 address or credential until the same-phone
+route can verify the expected Copilot TLS identity and isolate its upload
+state from the existing Nightscout endpoint. Do not widen TLS trust, grant
+unimplemented rights, or rely on saved receive flags for upload-only
+isolation. The initial route must not import records, dispatch commands or
+reuse another endpoint's synchronization cursors. Verify these properties
+on a stand before configuring the therapy phone.

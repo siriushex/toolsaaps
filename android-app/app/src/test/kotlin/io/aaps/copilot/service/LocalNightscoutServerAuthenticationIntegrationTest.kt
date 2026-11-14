@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -48,7 +49,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import org.junit.After
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Assume
 import org.junit.Test
@@ -429,6 +432,20 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         authorizeLocalServer(port)
         assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.READY)
         assertThat(getCode(peer, port, "/api/v1/status.json", apiSecretSha1)).isEqualTo(200)
+    }
+
+    @Test
+    fun localV3StatusRequiresBothTheIntendedCaAndBearer() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val path = "/api/v3/status"
+        val otherCa = HeldCertificate.Builder().certificateAuthority(0).build().certificate
+        assertThrows(SSLHandshakeException::class.java) {
+            getCode(trustedClient(otherCa), port, path)
+        }
+        assertThat(getCode(trustedClient(caCertificate), port, path)).isEqualTo(401)
+        assertThat(getCode(trustedClient(caCertificate), port, path, apiSecretSha1)).isEqualTo(401)
     }
 
     @Test
