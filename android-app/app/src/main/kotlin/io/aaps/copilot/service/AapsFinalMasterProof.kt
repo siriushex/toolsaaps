@@ -27,7 +27,7 @@ internal data class AapsFinalRosterProof(val signedAt: Long, val member: Boolean
                                        val role: AapsFinalClientRole, val controlEnabled: Boolean)
 
 /** Wire validation only. Does not enroll a device or grant command authority. */
-internal class AapsFinalMasterKey private constructor(private val key: PublicKey) {
+internal class AapsFinalMasterKey private constructor(private val key: PublicKey, val encodedPoint: String) {
     fun verifyRoster(doc: JsonObject, clientId: String, now: Long, minimumSignedAt: Long): AapsFinalRosterProof? = try {
         require(HistoryJson.long(doc.getValue("schemaVersion")) == 2L && "runningConfig" !in doc)
         val signed = HistoryJson.string(doc.getValue("signed"))
@@ -64,14 +64,20 @@ internal class AapsFinalMasterKey private constructor(private val key: PublicKey
         fun fromPong(payload: JsonElement?): AapsFinalMasterKey? = try {
             val body = HistoryJson.parse(HistoryJson.encodeUtf8(HistoryJson.string(checkNotNull(payload))), 256)
             HistoryJson.fields(body, setOf("signingKey"))
-            val point = decode64(HistoryJson.string(body.getValue("signingKey")), 65)
+            fromEncodedPoint(HistoryJson.string(body.getValue("signingKey")))
+        } catch (_: Exception) {
+            null
+        }
+
+        fun fromEncodedPoint(encodedPoint: String): AapsFinalMasterKey? = try {
+            val point = decode64(encodedPoint, 65)
             require(point[0] == 4.toByte())
             val params = AlgorithmParameters.getInstance("EC").apply { init(ECGenParameterSpec("secp256r1")) }
                 .getParameterSpec(ECParameterSpec::class.java)
             val x = BigInteger(1, point.copyOfRange(1, 33))
             val y = BigInteger(1, point.copyOfRange(33, 65))
             val key = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ECPoint(x, y), params))
-            AapsFinalMasterKey(key)
+            AapsFinalMasterKey(key, encodedPoint)
         } catch (_: Exception) {
             null
         }

@@ -20,7 +20,8 @@ internal class AapsV3PairingCredential internal constructor(
     val masterInstallId: String,
     val expiresAt: Long,
     secret: ByteArray,
-    val advertisedRole: AapsFinalClientRole? = null
+    val advertisedRole: AapsFinalClientRole? = null,
+    val requiresSignedRoster: Boolean = false
 ) : AutoCloseable {
     private val key = secret.copyOf().also { require(it.size == 32) }
     private var closed = false
@@ -79,7 +80,7 @@ internal object AapsV3PairingProtocol {
             val hex = HistoryJson.string(payload.getValue("secretHex"))
             require(masterId.matches(master) && secretHex.matches(hex))
             val secret = ByteArray(32) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
-            try { AapsV3PairingCredential(id, master, expiry, secret, role) } finally { secret.fill(0) }
+            try { AapsV3PairingCredential(id, master, expiry, secret, role, finalRelease) } finally { secret.fill(0) }
         } finally { plain.fill(0) }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { throw AapsV3PairingFailure() }

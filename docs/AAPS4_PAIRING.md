@@ -1,4 +1,4 @@
-# Native RC1 Pairing And Target Routing
+# Native AAPS 4 Pairing And Target Routing
 
 ## Scope
 
@@ -96,18 +96,33 @@ the isolated TLS listener, including role, counter, tamper and replay checks.
 The role in an offer is informational; it is not permission to issue actions.
 The roster must verify with the key obtained from the correlated Pong.
 
-The final-format decoder is not attached to production enrollment. Runtime
-ownership must support bootstrapping the first key without admitting an
-unsigned roster, then retain the verified key and signing-time high-water
-mark across restarts. The legacy RC1 path does not accept a final-format
-offer or Pong.
+New PIN enrollments in Copilot require a signed final-format roster. For
+bootstrapping, wait for the owner to permanently erase the one-use offer
+after Hello, then send a non-mutating Ping. The correlated HMAC Pong pins
+the master's P-256 key. The encrypted pairing record keeps the key and
+roster signing-time high-water mark across restarts. Unsigned, tampered or
+rolled-back rosters cannot authorize commands. Only a newer signed roster
+can remove membership or change roles. A key change requires re-pairing.
+Existing RC1 journals keep their original decoding path; new enrollments
+never downgrade based on the contents of an offer or a received roster.
+Temporary targets require the Caregiver or Admin role from the signed
+roster, not the role shown in the PIN offer.
 
 The AAPS master host test uses its actual receiver and a mocked executor:
 Hello promotes the pending client, separate target and carb-only prepares
 produce signed previews without execution, commit gets one signed result,
 and replay cannot invoke the executor again. This is not a pump test or an
 end-to-end Copilot action. No general action client or local NSClientV3 setup
-is enabled by these checks.
+is enabled by these checks. The installed observation-only configuration
+still lacks an authenticated settings/storage session, stock post-Hello
+key exchange and client-token handling, and accepted clinical projection.
+The clinical publication guard remains closed. The synthetic Copilot
+channel test exercises Eating Soon as a target-only batch and validates
+its commit ACK. Separately, the final AAPS executor test verifies one
+database write per target and no pump call; a temporary Room database
+test verifies the Overview's active-target query returns the recorded
+target, the replacement Eating Soon target and then no target after
+expiry. These checks do not read a target from the installed AAPS.
 
 ## Same-Phone NSClientV3 Admission
 

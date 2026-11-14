@@ -16152,3 +16152,15 @@ clinical admission follows from source verification.
   preview, commit, signed acknowledgement and replay with a mock executor.
 - This is separate from the Xiaomi observation check. A production local
   NSClientV3 endpoint, final runtime pairing and live commands are not enabled.
+
+## Final Runtime Signed Roster
+
+- New PIN enrollment requires final-format proof: offer erasure after
+  Hello, a fresh correlated Pong to pin the AAPS key, and a signed roster
+  with an increasing signing time. Pairing state remains encrypted and
+  the target role is rechecked in the same journal transaction as each
+  prepare or commit.
+- Test a target-only Eating Soon request and disconnected, tampered,
+  replayed and revoked states. Preserve the existing release clinical
+  guard; this stage does not configure NSClientV3 on the Xiaomi, implement
+  stock key rotation/token provisioning or authorize live commands.

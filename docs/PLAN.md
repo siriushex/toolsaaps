@@ -1045,7 +1045,9 @@
       preference or insulin writes through the observation provider.
 - [x] Check final SDK PIN offer, correlated Pong key and signed roster over
       test TLS, and final AAPS receiver confirmation with a mock executor.
-- [ ] Persist final pairing proof and verify client-to-master round trips.
+- [x] Persist final pairing proof and test bootstrap, restart, role enforcement,
+      rejected downgrade and revocation on a synthetic settings channel.
+- [ ] Verify client-to-master round trips with applied target readback in AAPS.
       Local NSClientV3 also requires Android trust scoped to the intended
       loopback identity and isolation from the existing receive preferences.
 

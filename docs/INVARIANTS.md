@@ -555,6 +555,9 @@
 - Hello/Ping/target commands share one durable counter. Active post-Hello roster,
   current storage subscription and new signed Pong are separate requirements.
   Native whole-client permissions must not be described as a target-only grant.
+- New AAPS 4 PIN enrollment never falls back to an unsigned roster. The pinned
+  master key and last verified signing time survive restart. Check the current
+  signed role again just before each target write, including commit.
 - PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
   cannot clear unknown commands or silently reset/reuse a retired identity.
 - Enrollment cannot overlap a pending legacy target. Paired routing never falls
