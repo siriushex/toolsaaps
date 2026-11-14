@@ -32,6 +32,7 @@ internal class LocalNightscoutV3EntriesApi(
     private val profiles = LocalNightscoutV3ProfileApi(db, now)
 
     suspend fun handle(method: String, path: String, parameters: Map<String, List<String>>,
+                       uploadOnly: Boolean = false,
                        readBody: () -> ByteArray = { byteArrayOf() }): LocalV3HttpResult = try {
         val query = parameters.mapValues { (_, values) ->
             require(values.size == 1 && values.single().length <= 128)
@@ -39,6 +40,13 @@ internal class LocalNightscoutV3EntriesApi(
         }
         require(query.size <= 8 && query.keys.all { it.length <= 64 })
         when {
+            path.startsWith(PERMISSION_PREFIX) -> {
+                require(query.isEmpty())
+                if (method != "GET") errorResponse(405)
+                else if (path.removePrefix(PERMISSION_PREFIX) in SETTINGS_PERMISSION_CHECKS)
+                    response(200, buildJsonObject { put("check", true) })
+                else errorResponse(403)
+            }
             path == "/api/v3/profile" || path.startsWith("/api/v3/profile/") ->
                 profiles.handle(method, path, query, readBody)
             path == "/api/v3/treatments" || path.startsWith("/api/v3/treatments/") ->
@@ -49,7 +57,7 @@ internal class LocalNightscoutV3EntriesApi(
                 deviceStatus.handle(method, path, query, readBody)
             path == "/api/v3/status" -> {
                 require(query.isEmpty())
-                if (method != "GET") errorResponse(405) else status()
+                if (method != "GET") errorResponse(405) else status(uploadOnly)
             }
             path == "/api/v3/lastModified" -> {
                 require(query.isEmpty())
@@ -109,7 +117,7 @@ internal class LocalNightscoutV3EntriesApi(
         errorResponse(400)
     }
 
-    private fun status() = response(200, buildJsonObject {
+    private fun status(uploadOnly: Boolean) = response(200, buildJsonObject {
         put("result", buildJsonObject {
             put("version", "local-v3-wire-2")
             put("apiVersion", "3.0.0")
@@ -117,14 +125,17 @@ internal class LocalNightscoutV3EntriesApi(
             put("storage", buildJsonObject { put("storage", "sqlite"); put("version", "36") })
             put("apiPermissions", buildJsonObject {
                 LocalV3Collection.entries.forEach {
-                    put(it.wireName, when (it) {
+                    val permissions = if (uploadOnly) {
+                        if (it == entries || it == LocalV3Collection.TREATMENTS) "c" else ""
+                    } else when (it) {
                         entries -> "crud"
                         LocalV3Collection.DEVICE_STATUS -> "cr"
                         LocalV3Collection.SETTINGS -> "crud"
                         LocalV3Collection.TREATMENTS -> "crud"
                         LocalV3Collection.PROFILE -> "cr"
                         else -> ""
-                    })
+                    }
+                    put(it.wireName, permissions)
                 }
             })
         })
@@ -273,6 +284,10 @@ internal class LocalNightscoutV3EntriesApi(
     private fun errorResponse(status: Int) = response(status, buildJsonObject { put("status", status); put("message", "v3_request_rejected_$status") })
 
     companion object {
+        const val PERMISSION_PREFIX = "/api/v2/authorization/debug/check/"
+        // AAPS 4.0 probes these when status does not advertise full rights. Match the
+        // existing owner settings adapter; never imply rights on other collections.
+        private val SETTINGS_PERMISSION_CHECKS = setOf("api:settings:create", "api:settings:update")
         private const val SOURCE = "local-v3-owner"
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
         private val DECIMAL = Regex("0|[1-9][0-9]{0,14}")

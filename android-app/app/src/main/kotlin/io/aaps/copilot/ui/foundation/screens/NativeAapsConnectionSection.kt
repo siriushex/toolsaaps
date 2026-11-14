@@ -23,14 +23,23 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.aaps.copilot.R
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3InboundGlucose
+import io.aaps.copilot.service.AapsV3InboundSummary
+import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
 import io.aaps.copilot.service.AapsV3ObservedProfileStatus
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 internal fun NativeAapsConnectionSection(
     state: AapsV3ConnectionState,
     onPair: (CharArray) -> Unit,
     onCheck: () -> Unit,
-    onRevoke: () -> Unit
+    onRevoke: () -> Unit,
+    inbound: AapsV3InboundSummary? = null,
+    onInboundCheck: () -> Unit = {},
+    localUpload: Boolean = false,
+    onLocalUpload: (Boolean) -> Unit = {}
 ) {
     var pairing by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
@@ -57,14 +66,8 @@ internal fun NativeAapsConnectionSection(
             AapsV3ConnectionStatus.ERROR -> R.string.native_aaps_error
         }), Modifier.testTag("native_aaps_status"), style = MaterialTheme.typography.bodyMedium)
         if (state.observedProfile != AapsV3ObservedProfileStatus.UNCHECKED) {
-            Text(stringResource(when (state.observedProfile) {
-                AapsV3ObservedProfileStatus.OBSERVED -> R.string.native_aaps_profile_observed
-                AapsV3ObservedProfileStatus.NOT_OBSERVED -> R.string.native_aaps_profile_missing
-                AapsV3ObservedProfileStatus.INVALIDATED -> R.string.native_aaps_profile_invalidated
-                AapsV3ObservedProfileStatus.CONFLICTING -> R.string.native_aaps_profile_conflicting
-                AapsV3ObservedProfileStatus.LIMIT_REACHED -> R.string.native_aaps_profile_limit
-                else -> R.string.native_aaps_profile_unavailable
-            }), Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(observedProfileLabel(state.observedProfile)),
+                Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)
         }
         Text(stringResource(R.string.native_aaps_control_unavailable), style = MaterialTheme.typography.bodySmall)
         if (state.status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.VERIFYING,
@@ -114,10 +117,62 @@ internal fun NativeAapsConnectionSection(
                 }
             }
         }
+        if (!pairing) {
+            Row(
+                Modifier.fillMaxWidth().toggleable(value = localUpload, role = Role.Switch, onValueChange = onLocalUpload)
+                    .testTag("native_aaps_local_upload"),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.native_aaps_local_upload), style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.native_aaps_local_upload_detail), style = MaterialTheme.typography.bodySmall)
+                }
+                androidx.compose.material3.Switch(checked = localUpload, onCheckedChange = null)
+            }
+            OutlinedButton(onClick = onInboundCheck, modifier = Modifier.testTag("native_aaps_inbound_check")) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Text(stringResource(R.string.native_aaps_inbound_check), Modifier.padding(start = 4.dp))
+            }
+            if (inbound != null) NativeAapsInboundSection(inbound)
+        }
     }
     if (revoking) AlertDialog(onDismissRequest = { revoking = false },
         title = { Text(stringResource(R.string.native_aaps_revoke)) },
         text = { Text(stringResource(R.string.native_aaps_revoke_help)) },
         confirmButton = { TextButton(onClick = { revoking = false; onRevoke() }) { Text(stringResource(R.string.native_aaps_revoke)) } },
         dismissButton = { TextButton(onClick = { revoking = false }) { Text(stringResource(android.R.string.cancel)) } })
+}
+
+@Composable
+private fun NativeAapsInboundSection(inbound: AapsV3InboundSummary) {
+    val style = MaterialTheme.typography.bodySmall
+    Text(stringResource(if (inbound.samePhone) R.string.native_aaps_local_checked else R.string.native_aaps_inbound_checked,
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(inbound.checkedAtMs))),
+        style = style)
+    Text(stringResource(when (inbound.glucose) {
+        AapsV3InboundGlucose.FRESH -> R.string.native_aaps_inbound_cgm_fresh
+        AapsV3InboundGlucose.STALE -> R.string.native_aaps_inbound_cgm_stale
+        AapsV3InboundGlucose.NOT_OBSERVED ->
+            if (inbound.samePhone) R.string.native_aaps_local_cgm_missing else R.string.native_aaps_inbound_cgm_missing
+        AapsV3InboundGlucose.CONFLICTING -> R.string.native_aaps_inbound_cgm_conflict
+        AapsV3InboundGlucose.CLOCK -> R.string.native_aaps_inbound_cgm_clock
+        else -> R.string.native_aaps_inbound_cgm_unavailable
+    }), Modifier.testTag("native_aaps_inbound_cgm"), style = style)
+    Text(stringResource(observedProfileLabel(inbound.profile)), Modifier.testTag("native_aaps_inbound_profile"), style = style)
+    val insulin = when (inbound.insulin) {
+        AapsV3ObservedInsulinStatus.OBSERVED -> stringResource(R.string.native_aaps_inbound_insulin, inbound.insulinRecordCount)
+        AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT -> stringResource(R.string.native_aaps_inbound_insulin_partial, inbound.insulinRecordCount)
+        AapsV3ObservedInsulinStatus.NOT_OBSERVED -> stringResource(R.string.native_aaps_inbound_insulin_missing)
+        else -> stringResource(R.string.native_aaps_inbound_insulin_unavailable)
+    }
+    Text(insulin, Modifier.testTag("native_aaps_inbound_insulin"), style = style)
+}
+
+private fun observedProfileLabel(status: AapsV3ObservedProfileStatus) = when (status) {
+    AapsV3ObservedProfileStatus.OBSERVED -> R.string.native_aaps_profile_observed
+    AapsV3ObservedProfileStatus.NOT_OBSERVED -> R.string.native_aaps_profile_missing
+    AapsV3ObservedProfileStatus.INVALIDATED -> R.string.native_aaps_profile_invalidated
+    AapsV3ObservedProfileStatus.CONFLICTING -> R.string.native_aaps_profile_conflicting
+    AapsV3ObservedProfileStatus.LIMIT_REACHED -> R.string.native_aaps_profile_limit
+    else -> R.string.native_aaps_profile_unavailable
 }

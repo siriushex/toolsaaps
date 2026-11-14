@@ -1,5 +1,15 @@
 # DEVOPS
 
+## Per-Read Counter Verification
+
+Run AapsV3ComboJournalReadTest and AapsV3ComboJournalStoreTest before the complete
+Android quality checks. The new synthetic cases must first demonstrate missing
+per-read gap warnings and later-catalog evidence loss. Keep the original failing
+XML privately. Check same-block, cross-block, unknown-event, clock-change,
+damaged-tail, unsigned-boundary and reopen/fill behavior without changing raw
+bytes. Existing transfer, clock and meal-admission tests remain required.
+Source CI does not qualify basal continuity, historical UTC or meal-time safety.
+
 ## Meal Planner Clock Verification
 
 Run MealTimingPlannerTest and MealStateEstimatorTest, then full Android quality

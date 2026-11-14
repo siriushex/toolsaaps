@@ -233,6 +233,7 @@ class AppSettingsStore internal constructor(
                     ?: prefs[KEY_NS_URL].orEmpty().isBlank()
                 ) && localNightscoutLegacyMigrationAcknowledged,
             localNightscoutPort = prefs[KEY_LOCAL_NIGHTSCOUT_PORT] ?: DEFAULT_LOCAL_NIGHTSCOUT_PORT,
+            localAapsV3Upload = currentInstallId != null && prefs[KEY_LOCAL_AAPS_V3_UPLOAD] == currentInstallId,
             localNightscoutLegacyMigrationAcknowledged =
                 localNightscoutLegacyMigrationAcknowledged,
             localCommandFallbackEnabled = prefs[KEY_LOCAL_COMMAND_FALLBACK_ENABLED] ?: true,
@@ -515,6 +516,11 @@ class AppSettingsStore internal constructor(
             prefs[KEY_LOCAL_BROADCAST_INGEST] = next.localBroadcastIngestEnabled
             prefs[KEY_STRICT_BROADCAST_VALIDATION] = next.strictBroadcastSenderValidation
             prefs[KEY_LOCAL_NIGHTSCOUT_ENABLED] = next.localNightscoutEnabled
+            if (next.localAapsV3Upload && next.localNightscoutEnabled && currentInstallId != null) {
+                prefs[KEY_LOCAL_AAPS_V3_UPLOAD] = currentInstallId
+            } else {
+                prefs.remove(KEY_LOCAL_AAPS_V3_UPLOAD)
+            }
             prefs[KEY_LOCAL_NIGHTSCOUT_PORT] = next.localNightscoutPort
             prefs[KEY_LOCAL_NIGHTSCOUT_LEGACY_MIGRATION_ACKNOWLEDGED] =
                 next.localNightscoutLegacyMigrationAcknowledged
@@ -1619,6 +1625,7 @@ class AppSettingsStore internal constructor(
         ): Boolean = currentInstallId != null && storedInstallId == currentInstallId
         private val KEY_STRICT_BROADCAST_VALIDATION = booleanPreferencesKey("strict_broadcast_sender_validation")
         private val KEY_LOCAL_NIGHTSCOUT_ENABLED = booleanPreferencesKey("local_nightscout_enabled")
+        private val KEY_LOCAL_AAPS_V3_UPLOAD = stringPreferencesKey("local_aaps_v3_upload_install_id")
         private val KEY_LOCAL_NIGHTSCOUT_PORT = intPreferencesKey("local_nightscout_port")
         private val KEY_LOCAL_NIGHTSCOUT_LEGACY_MIGRATION_ACKNOWLEDGED =
             booleanPreferencesKey("local_nightscout_legacy_migration_acknowledged_v1")
@@ -1973,6 +1980,7 @@ data class AppSettings(
     val localNightscoutEnabled: Boolean,
     val localNightscoutPort: Int,
     val localNightscoutLegacyMigrationAcknowledged: Boolean = false,
+    val localAapsV3Upload: Boolean = false,
     val localCommandFallbackEnabled: Boolean,
     val localCommandPackage: String,
     val localCommandAction: String,

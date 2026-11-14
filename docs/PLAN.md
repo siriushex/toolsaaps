@@ -1,5 +1,36 @@
 # PLAN
 
+## Per-Read Combo Continuity (2026-11-04)
+
+- [x] Verify main973c0917 and PR75/fbf210df exact-head CI; reuse its checked
+      tail-audit base without changing AAPS or the CPU optimization branch.
+- [x] Reproduce six failures for per-read gaps, damaged/unknown/clock cases and
+      a later read hiding an earlier gap after private-store reopen.
+- [x] Preserve forward counter jumps in the existing bounded event-order audit.
+- [x] Focused114tests passed, including seven new cases and the strengthened
+      unsigned-gap contract. All original raw-event and no-authority checks remain.
+- [x] Complete local Android quality and APK guard. The first run skipped11
+      native cases without interop settings; an explicit prepared-SDK follow-up
+      ran them. Combined by class:7165passed/six existing private-data skips.
+- [ ] Source integration after reviewed publication and exact-head CI; current
+      workflow results are recorded on the PR, not inferred from local checks.
+- [ ] Real source/basal/UTC coverage and prospective forecast/policy validation;
+      user continues without a phone. No live meal recommendation is enabled.
+
+## Combo Remaining-Event Audit (2026-10-29)
+
+- [x] Main973c0917/Verify40920901933 passed;0.1.20 published and independently
+      verified, including completed Range resume after a stalled first download.
+- [x] ADB empty; inspect pinned native reader/count and clock-conversion sources.
+- [x] Reproduce three missing tail/count warnings; retain failing XML privately.
+- [x] Add passive block audit and private reopen/catalog regression; first157
+      focused tests passed. Add unsigned/unknown/damaged-tail/clock combinations.
+- [x] Full Android7158passed/six prior skips; lint/compile/build and APK guard
+      passed. No new lint warnings. Manual focused code/diff review completed.
+- [ ] Exact-head CI and source integration.
+- [ ] Real Redmi source verification, historical UTC epochs and basal/delivery
+      continuity; prospective meal-time safety remains separate. No activation.
+
 ## Diagnostic Update 0.1.20 (2026-10-29)
 
 - [x] Main91bcd48a/Verify40908185065 verified successful; published0.1.19/code20
@@ -8,8 +39,8 @@
 - [x] Full local quality7149passed/six prior skips, lint/compile/build passed;
       release-helper14tests passed. Recreated distribution APK39946241bytes,
       version/package/minSdk, original signer and7357retained app classes checked.
-- [ ] Exact-head CI and source integration.
-- [ ] Atomic HTTPS publication, retained previous pointer/page and independent
+- [x] Exact-head CI and source integration: PR74/main973c0917, Verify40920901933.
+- [x] Atomic HTTPS publication, retained previous pointer/page and independent
       public metadata/hash/signature/Range checks. No service restart required.
 - This update distributes bounded native history transfer/readiness diagnostics
   and the causal-clock refusal. Matching history still cannot prove delivery or
@@ -994,6 +1025,31 @@
 - [ ] Verify the prepared internet APK and independently fetch published bytes.
 
 ## Stock AAPS 4.0 Compatibility (2026-10-18)
+
+- [x] Verify final 4.0.0 SDK status permission probes and bounded status history
+      with the real loopback TLS listener, independently of the RC1 fixture.
+- [ ] Verify a same-phone, upload-only AAPS 4.0.0 route with isolated TLS trust;
+      no remote imports or pairing required. Require fresh SGV, typed effective
+      profile and insulin records at both ends before claiming device readiness.
+- [x] Verify the dedicated SDK transport on synthetic records against Copilot:
+      exact leaf and CA, hostname, no redirects/proxy, and no import or command routes.
+- [ ] Bind device enrollment and isolated upload progress to that transport
+      before configuring NSClientV3 on the phone.
+- [x] Add a distinct, signature-protected same-phone observation path with no
+      HTTP credentials or write methods. It does not replace the continuous
+      NSClientV3 or signed command channel.
+- [ ] Verify final-version signed Client Control independently with the real
+      master and a mock executor: enrollment, role checks, confirmation,
+      expiry, revocation, one-time execution and correlated acknowledgements.
+      Test targets and carb-only actions separately, and do not grant generic
+      preference or insulin writes through the observation provider.
+- [x] Check final SDK PIN offer, correlated Pong key and signed roster over
+      test TLS, and final AAPS receiver confirmation with a mock executor.
+- [x] Persist final pairing proof and test bootstrap, restart, role enforcement,
+      rejected downgrade and revocation on a synthetic settings channel.
+- [ ] Verify client-to-master round trips with applied target readback in AAPS.
+      Local NSClientV3 also requires Android trust scoped to the intended
+      loopback identity and isolation from the existing receive preferences.
 
 - [x] Implement immutable native profile catalog transport without clinical selection.
 - [x] Complete focused/full profile checks and actual pristine SDK round trip.

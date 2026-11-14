@@ -110,3 +110,42 @@ time, never proof that the true current profile or its history is complete.
 These observations are not yet connected to
 clinical calculations, AI context or production target publication. No currently
 selected insulin may fill historical gaps.
+
+## AAPS 4 Inbound Diagnostics
+
+In Copilot settings, **AAPS 4 connection > Check incoming data** reads the
+local v3 store without signed Client Control pairing, socket subscription,
+remote queries or pump requests. It reports a dated snapshot, not connection
+or source completeness:
+
+- An authenticated local-owner SGV acquired no more than five minutes before
+  the check is reported as fresh. Fingersticks and tombstones do not count.
+  Conflicting latest timestamps, future times, collection revisions later
+  than the check and exceeded scan limits cannot produce a fresh result.
+- The profile observation uses typed effective profile switch evidence, not
+  the catalog default. It reports the retained data, not the live AAPS state.
+- Insulin counts include non-invalidated records intersecting the last 24 hours.
+  Missing insulin configuration is distinguished from observed records.
+  Receipt of records never verifies pump delivery or archive completeness.
+
+This check does not write clinical data, admit forecasts, enable commands,
+or affect model timers. It does not solve Android TLS trust or upstream
+upload permissions.
+
+### Same-Phone Observation
+
+On a compatible AAPS build, the same button asks the local AAPS provider
+for a versioned snapshot. The provider admits only the Copilot package with
+the same signing identity and a signature permission. Copilot checks that
+the authority, provider package, signatures and permission match before
+requesting the snapshot. There is no URI grant, query language, command,
+Nightscout URL, TLS override or network request in this path.
+
+The snapshot contains up to thirty minutes of CGM, a typed effective profile
+and records starting in the last 24 hours. Priming is excluded. History is
+bounded and not an assertion of complete pump delivery. Dates, conflicting
+CGM timestamps, insulin provenance and the profile structure are validated.
+Only the summary is retained in UI state; the source snapshot is not added
+to Room, sent to AI, or used by control and forecasts. If the provider exists
+but fails, the UI reports unavailability rather than presenting a prior v3
+receipt as success.

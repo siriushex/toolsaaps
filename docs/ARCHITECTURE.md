@@ -1,5 +1,30 @@
 # ARCHITECTURE
 
+## Per-Read Combo Counter Continuity
+
+The existing journal event-order audit retains forward counter discontinuities
+inside each validated read, including across block boundaries. All raw events,
+including unknown kinds and clock-change records, participate. The unsigned
+32-bit event counter is compared as a Long; ordinary signed-boundary crossings
+remain contiguous. No counter wrap or missing event is silently repaired.
+
+Per-read EVENT_COUNTER_GAP survives later raw corruption, private reopen and
+catalog reconciliation even when another read fills the aggregate interior gap.
+Thus zero current missing-counter values and a historical per-read warning may
+coexist. The warning is not an inferred missing insulin amount or a UTC epoch.
+No wire/schema, source bytes, AAPS commands or clinical permissions change.
+
+## Combo Retained Tail Audit
+
+The existing raw journal decoder also audits remaining-event headers after full
+block validation. A terminal flag with more declared events than raw records is
+adverse. Between blocks, an unexplained decrease beyond all preceding raw events
+is retained as a count discontinuity. Unknown types count as raw events; new
+arrivals and zero remaining counts carrying final events are supported. These
+findings propagate through the existing private-store reconciliation, including
+older reads omitted by a newer catalog. No wire/schema or AAPS command changes.
+Reader completion still does not establish full delivery or historical UTC.
+
 ## Meal Planner Observation Clock
 
 The research planner checks the posterior's last observation against the frozen

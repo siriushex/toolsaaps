@@ -115,7 +115,7 @@ internal class AapsV3TargetChannel(
                     HistoryJson.obj(body.getValue("offer"))
                 } catch (_: Exception) { continue }
                 try {
-                    val credential = AapsV3PairingProtocol.unwrap(offer, pin.copyOf(), clock())
+                    val credential = AapsV3PairingProtocol.unwrapFinal(offer, pin.copyOf(), clock())
                     if (row.identifier == "aaps_clientcontrol_offer_${credential.clientId}") matches += credential else credential.close()
                 } catch (_: AapsV3PairingFailure) { }
             }
@@ -165,15 +165,12 @@ internal class AapsV3TargetChannel(
             return@withLock
         }
         var pair = checkNotNull(journal.pairingSnapshot())
-        store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it) }
         val ackRow = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
-        if (ackRow != null && !ackRow.deleted && ackRow.source == "local-v3-owner") {
-            val ack = HistoryJson.parse(ackRow.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject
-            if (ack != null) {
-                journal.acknowledgeProbe(ack, clock())
-                journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
-            }
-        }
+        val ack = ackRow?.takeIf { !it.deleted && it.source == "local-v3-owner" }
+            ?.let { HistoryJson.parse(it.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject }
+        if (ack != null) journal.acknowledgeProbe(ack, clock())
+        store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it, clock()) }
+        if (ack != null) journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
         journal.expire(clock())
         if (runtimeAllowed && storageAvailable() && generation.get() == epoch) {
             journal.probe(clock(), sessionStartedAt)?.let { publication ->
@@ -301,7 +298,7 @@ internal class AapsV3TargetChannel(
                     currentCoroutineContext().ensureActive()
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
                     check(baselineGuard() == null && deliveryGuard() == null)
-                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter)
+                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)

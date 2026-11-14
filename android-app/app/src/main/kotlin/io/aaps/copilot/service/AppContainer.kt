@@ -186,6 +186,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class ClinicalAiProviderCredentialState(
@@ -523,6 +525,7 @@ class AppContainer(context: Context) {
     @Volatile
     private var runtimeControllersActive = false
     private var localNightscoutSettingsJob: Job? = null
+    private var localAapsUploadJob: Job? = null
     private var powerSaveSettingsJob: Job? = null
 
     val syncRepository = SyncRepository(
@@ -1139,7 +1142,15 @@ class AppContainer(context: Context) {
                 verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }, block = publish)
         }
     )
+    private val nativeAapsInboundDiagnostics = AapsV3InboundDiagnostics(
+        io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
+    )
     val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
+    suspend fun checkNativeAapsInbound(): AapsV3InboundSummary {
+        val settings = settingsStore.settings.first()
+        if (settings.localAapsV3Upload) return nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        return AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+    }
     suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()
@@ -1995,6 +2006,18 @@ class AppContainer(context: Context) {
                 }
             }
         }
+        if (localAapsUploadJob == null) {
+            localAapsUploadJob = appScope.launch(Dispatchers.IO) {
+                settingsStore.settings.map { it.localAapsV3Upload && it.localNightscoutEnabled }
+                    .distinctUntilChanged().collectLatest { enabled ->
+                        if (!enabled) return@collectLatest
+                        while (isActive) {
+                            localNightscoutServer.withLocalUploadTicket { AapsLocalUpload.send(appContext, it) }
+                            delay(60_000L)
+                        }
+                    }
+            }
+        }
     }
 
     internal suspend fun resetLocalNightscoutIdentity(
@@ -2002,7 +2025,7 @@ class AppContainer(context: Context) {
     ): LocalNightscoutIdentityResetResult = LocalNightscoutIdentityResetCoordinator(
         stopServer = localNightscoutServer::stop,
         disableIntegration = {
-            settingsStore.update { current -> current.copy(localNightscoutEnabled = false) }
+            settingsStore.update { current -> current.copy(localNightscoutEnabled = false, localAapsV3Upload = false) }
         },
         resetIdentity = { LocalNightscoutTls.resetIdentity(appContext) },
         runtimeState = LocalNightscoutRuntimeState
@@ -2017,6 +2040,8 @@ class AppContainer(context: Context) {
         runtimeControllersActive = false
         localNightscoutSettingsJob?.cancel()
         localNightscoutSettingsJob = null
+        localAapsUploadJob?.cancel()
+        localAapsUploadJob = null
         stopLocalActivitySensors()
         if (healthConnectEnabled) {
             stopHealthConnectCollection()

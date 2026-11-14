@@ -10,7 +10,7 @@ internal sealed interface LocalNightscoutTokenIssue {
     enum class Refused : LocalNightscoutTokenIssue { UNAUTHORIZED, LIMITED, UNAVAILABLE }
 }
 
-internal enum class LocalNightscoutBearerAccess { ALLOW, UNAUTHORIZED, CLOCK_SKEW }
+internal enum class LocalNightscoutBearerAccess { ALLOW, UPLOAD_ONLY, UNAUTHORIZED, CLOCK_SKEW }
 
 internal class LocalNightscoutV3Authentication(
     private val authenticator: LocalNightscoutApiAuthenticator,
@@ -22,7 +22,9 @@ internal class LocalNightscoutV3Authentication(
         val digest: ByteArray,
         val issuedEpochMs: Long,
         val issuedElapsedMs: Long,
-        val expiresEpochSeconds: Long
+        val expiresEpochSeconds: Long,
+        val lifetimeMs: Long,
+        val uploadOnly: Boolean
     )
 
     private val sessions = mutableListOf<Session>()
@@ -31,7 +33,26 @@ internal class LocalNightscoutV3Authentication(
     private var attempts = 0
 
     @Synchronized
-    fun issue(candidate: String?): LocalNightscoutTokenIssue {
+    fun issue(candidate: String?): LocalNightscoutTokenIssue = issueSession(candidate, uploadOnly = false)
+
+    @Synchronized
+    fun issueLocalUpload(): LocalNightscoutTokenIssue = issueSession(null, uploadOnly = true)
+
+    @Synchronized
+    fun revokeLocalUpload(token: String) {
+        val key = digest(token)
+        try {
+            sessions.removeAll {
+                (it.uploadOnly && MessageDigest.isEqual(it.digest, key)).also { remove ->
+                    if (remove) it.digest.fill(0)
+                }
+            }
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun issueSession(candidate: String?, uploadOnly: Boolean): LocalNightscoutTokenIssue {
         if (closed) return LocalNightscoutTokenIssue.Refused.UNAVAILABLE
         val now = epochMs()
         val elapsed = elapsedMs()
@@ -40,7 +61,7 @@ internal class LocalNightscoutV3Authentication(
         }
         prune(now, elapsed)
         if (!admitAttempt(elapsed)) return LocalNightscoutTokenIssue.Refused.LIMITED
-        if (!authenticator.acceptsRawSecret(candidate)) return LocalNightscoutTokenIssue.Refused.UNAUTHORIZED
+        if (!uploadOnly && !authenticator.acceptsRawSecret(candidate)) return LocalNightscoutTokenIssue.Refused.UNAUTHORIZED
         if (sessions.size >= MAX_SESSIONS) return LocalNightscoutTokenIssue.Refused.LIMITED
         val bytes = ByteArray(32)
         return try {
@@ -52,8 +73,9 @@ internal class LocalNightscoutV3Authentication(
                 LocalNightscoutTokenIssue.Refused.UNAVAILABLE
             } else {
                 val issued = now / 1_000L
-                val expires = issued + LIFETIME_MS / 1_000L
-                sessions.add(Session(digest, now, elapsed, expires))
+                val lifetime = if (uploadOnly) LOCAL_UPLOAD_LIFETIME_MS else LIFETIME_MS
+                val expires = issued + lifetime / 1_000L
+                sessions.add(Session(digest, now, elapsed, expires, lifetime, uploadOnly))
                 LocalNightscoutTokenIssue.Issued(token, issued, expires)
             }
         } finally {
@@ -80,8 +102,17 @@ internal class LocalNightscoutV3Authentication(
         val candidate = digest(token)
         return try {
             var accepted = false
-            sessions.forEach { accepted = MessageDigest.isEqual(it.digest, candidate) or accepted }
-            if (accepted) LocalNightscoutBearerAccess.ALLOW else LocalNightscoutBearerAccess.UNAUTHORIZED
+            var uploadOnly = false
+            sessions.forEach {
+                val matches = MessageDigest.isEqual(it.digest, candidate)
+                accepted = matches or accepted
+                uploadOnly = (matches and it.uploadOnly) or uploadOnly
+            }
+            when {
+                !accepted -> LocalNightscoutBearerAccess.UNAUTHORIZED
+                uploadOnly -> LocalNightscoutBearerAccess.UPLOAD_ONLY
+                else -> LocalNightscoutBearerAccess.ALLOW
+            }
         } finally {
             candidate.fill(0)
         }
@@ -112,7 +143,7 @@ internal class LocalNightscoutV3Authentication(
         while (iterator.hasNext()) {
             val session = iterator.next()
             if (now < session.issuedEpochMs || now / 1_000L >= session.expiresEpochSeconds ||
-                elapsed - session.issuedElapsedMs !in 0L until LIFETIME_MS) {
+                elapsed - session.issuedElapsedMs !in 0L until session.lifetimeMs) {
                 session.digest.fill(0)
                 iterator.remove()
             }
@@ -131,6 +162,7 @@ internal class LocalNightscoutV3Authentication(
     companion object {
         const val REFRESH_PREFIX = "/api/v2/authorization/request/"
         private const val LIFETIME_MS = 15 * 60_000L
+        private const val LOCAL_UPLOAD_LIFETIME_MS = 45_000L
         private const val CLOCK_TOLERANCE_MS = 5 * 60_000L
         private const val WINDOW_MS = 60_000L
         private const val MAX_ATTEMPTS = 60

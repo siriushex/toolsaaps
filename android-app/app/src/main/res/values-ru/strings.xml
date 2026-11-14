@@ -206,6 +206,10 @@
 
     <string name="overview_empty">Данных сахара пока нет</string>
     <string name="forecast_empty">Данных прогноза пока нет</string>
+    <string name="forecast_waiting_for_inputs">Прогноз пока недоступен. Ожидается проверенный расчёт.</string>
+    <string name="aaps_v3_overview_source">Глюкоза из AAPS 4 (локальный v3)</string>
+    <string name="aaps_v3_forecast_more_data">Глюкоза из AAPS 4. Для оценки тренда нужно больше измерений.</string>
+    <string name="aaps_v3_forecast_preview">Оценка тренда по глюкозе AAPS 4. Не учитывает инсулин и еду и не используется для терапии.</string>
     <string name="uam_empty">Данных UAM пока нет</string>
     <string name="safety_empty">Данных безопасности пока нет</string>
     <string name="audit_empty">Записей аудита пока нет</string>
@@ -1232,12 +1236,12 @@
     <string name="settings_local_ns_reset_identity">Сбросить локальную TLS-идентичность</string>
     <string name="settings_local_ns_reset_title">Сбросить идентичность локального Nightscout?</string>
     <string name="settings_local_ns_reset_confirm">Сбросить идентичность</string>
-    <string name="settings_local_ns_reset_body">Это остановит и отключит локальный Nightscout, удалит его зашифрованную TLS-идентичность и API secret для этой установки и потребует повторной настройки. Если старый CA еще установлен, удалите сертификат с SHA-256 C9:EF:07:C9:05:B6:56:23:0D:50:CB:F6:1D:85:A3:C3:60:6B:B7:B4:8F:9C:E9:00:2B:AD:96:D3:BE:FF:71:41. Затем экспортируйте и установите новый сгенерированный CA, скопируйте новый API secret в AAPS и переподключите или перезапустите NSClient. Клинические базы данных не удаляются.</string>
+    <string name="settings_local_ns_reset_body">Локальный Nightscout остановится и отключится. Его зашифрованные данные TLS и ключ доступа будут удалены. Клиенты, которые их используют, потребуется настроить заново. Если указанный в настройках старый сертификат ещё установлен, удалите его. Медицинские записи сохранятся. Сброс не настраивает NSClientV3 в AAPS 4.</string>
     <string name="settings_local_ns_legacy_migration_fingerprint">Старый CA для удаления (SHA-256)</string>
     <string name="settings_local_ns_legacy_ca_sha256">C9:EF:07:C9:05:B6:56:23:0D:50:CB:F6:1D:85:A3:C3:60:6B:B7:B4:8F:9C:E9:00:2B:AD:96:D3:BE:FF:71:41</string>
     <string name="settings_local_ns_legacy_migration_ack">Я удалил старый CA и старые учетные данные AAPS</string>
     <string name="settings_local_ns_legacy_migration_body">Требуется до генерации, установки, экспорта, копирования учетных данных или включения локального Nightscout.</string>
-    <string name="settings_local_ns_legacy_migration_info">Удалите указанный старый CA из настроек доверия Android и удалите старый API secret локального Nightscout из NSClient в AAPS. Затем подтвердите миграцию и настройте новый сгенерированный CA и API secret.</string>
+    <string name="settings_local_ns_legacy_migration_info">Прежде чем подтвердить удаление, уберите указанный старый сертификат из настроек Android, а старый ключ доступа к локальному Nightscout из NSClient. Это не настраивает NSClientV3 в AAPS 4.</string>
     <string name="settings_strict_sender_validation">Строгая валидация отправителя</string>
     <string name="settings_data_sources_sender_subtitle">Разрешать только пакеты из белого списка</string>
     <string name="settings_uam_inference">Включить UAM inference</string>
@@ -1447,7 +1451,7 @@
     <string name="settings_info_ai_api_url">Базовый адрес AI-backend для задач анализа и отчетов. Неверный адрес ломает синхронизацию AI Analysis.</string>
     <string name="settings_info_ai_api_key">API ключ для доступа к AI-backend. Храните ключ приватно; неверный ключ вызовет ошибки авторизации.</string>
     <string name="settings_info_ui_style">Меняет только визуальный слой интерфейса. Прогнозы, ISF/CR, UAM и вся safety-логика работают на тех же входах и дают те же решения.</string>
-    <string name="settings_info_local_nightscout">Запускает локальный Nightscout прямо в телефоне. Удобно для локальной связи с AAPS без внешнего сервера.</string>
+    <string name="settings_info_local_nightscout">Запускает Nightscout на этом телефоне. Для проверки локальных данных AAPS 4 откройте «Подключение AAPS 4». Установка сертификата не настраивает NSClientV3 и не включает команды.</string>
     <string name="settings_info_local_broadcast_ingest">Принимает сахар и терапию из Android broadcast. Если выключить, останется только синхронизация через Nightscout.</string>
     <string name="settings_info_strict_sender_validation">Принимать данные только от доверенных приложений. Повышает безопасность, но блокирует неизвестных отправителей.</string>
     <string name="settings_info_uam_inference">Оценивает необъявленные углеводы по поведению сахара. Влияет на UAM, прогноз и решения автоматики.</string>
@@ -2146,6 +2150,22 @@
     <string name="ai_advice_recent_incomplete">За последние три дня данных недостаточно для отдельного вывода.</string>
     <string name="ai_advice_other_reports">Советы из других отчётов</string>
     <string name="native_aaps_title">Подключение AAPS 4</string>
+    <string name="native_aaps_local_upload">Локальная выгрузка (NSClientV3)</string>
+    <string name="native_aaps_local_upload_detail">Нужны локальный Nightscout и совместимая сборка AAPS. Без команд и импорта.</string>
+    <string name="native_aaps_inbound_check">Проверить поступление данных</string>
+    <string name="native_aaps_inbound_checked">Записи v3 проверены: %1$s</string>
+    <string name="native_aaps_local_checked">AAPS на этом телефоне проверен: %1$s</string>
+    <string name="native_aaps_local_cgm_missing">CGM: в AAPS нет недавних измерений</string>
+    <string name="native_aaps_inbound_cgm_fresh">CGM: получено измерение за последние 5 мин</string>
+    <string name="native_aaps_inbound_cgm_stale">CGM: последнее измерение старше 5 мин</string>
+    <string name="native_aaps_inbound_cgm_missing">CGM: измерения по v3 не получены</string>
+    <string name="native_aaps_inbound_cgm_conflict">CGM: несколько измерений с одной отметкой времени</string>
+    <string name="native_aaps_inbound_cgm_clock">CGM: проверьте время на устройстве</string>
+    <string name="native_aaps_inbound_cgm_unavailable">CGM: не удалось проверить полученные измерения</string>
+    <string name="native_aaps_inbound_insulin">Записей инсулина за 24 ч: %1$d. Доставка не подтверждена.</string>
+    <string name="native_aaps_inbound_insulin_partial">Записей инсулина за 24 ч: %1$d. Не хватает настроек инсулина. Доставка не подтверждена.</string>
+    <string name="native_aaps_inbound_insulin_missing">Записи инсулина за последние 24 ч не получены.</string>
+    <string name="native_aaps_inbound_insulin_unavailable">Не удалось проверить полученные записи инсулина.</string>
 <string name="native_combo_title">История Combo</string>
 <string name="native_combo_expand">Показать проверку истории</string>
 <string name="native_combo_collapse">Скрыть проверку истории</string>

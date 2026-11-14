@@ -19,6 +19,22 @@ class LocalNightscoutV3AuthenticationTest {
     private fun access(token: String) = auth.authorize("Bearer $token", epoch.toString())
 
     @Test
+    fun localUploadTicketHasNarrowScopeAndDoesNotRevokeOtherSessions() {
+        val unrestricted = issued()
+        val local = auth.issueLocalUpload() as LocalNightscoutTokenIssue.Issued
+        val another = auth.issueLocalUpload() as LocalNightscoutTokenIssue.Issued
+        assertThat(local.exp - local.iat).isEqualTo(45L)
+        assertThat(access(local.token)).isEqualTo(LocalNightscoutBearerAccess.UPLOAD_ONLY)
+        assertThat(auth.issue(local.token)).isEqualTo(LocalNightscoutTokenIssue.Refused.UNAUTHORIZED)
+        auth.revokeLocalUpload(local.token)
+        assertThat(access(local.token)).isEqualTo(LocalNightscoutBearerAccess.UNAUTHORIZED)
+        assertThat(access(another.token)).isEqualTo(LocalNightscoutBearerAccess.UPLOAD_ONLY)
+        elapsed += 45_000L
+        assertThat(access(another.token)).isEqualTo(LocalNightscoutBearerAccess.UNAUTHORIZED)
+        assertThat(access(unrestricted.token)).isEqualTo(LocalNightscoutBearerAccess.ALLOW)
+    }
+
+    @Test
     fun exactRawCredentialOnlyAndNoPlaintextDiagnosticRendering() {
         val sha1 = MessageDigest.getInstance("SHA-1").digest(secret.toByteArray()).joinToString("") { "%02x".format(it) }
         listOf(null, "", sha1, secret.uppercase(), "$secret ", " $secret", "x".repeat(257), "\u0000", "\u00e9")

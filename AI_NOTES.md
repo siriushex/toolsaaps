@@ -1,3 +1,52 @@
+# Per-Read Combo Continuity - 2026-11-04
+
+- Main973c0917 Verify40920901933 and PR75/fbf210df exact-head checks are successful;
+  PR75 remains unmerged. Continue on its tail-audit base in an isolated branch.
+- No phone is available; user explicitly continues without it. Do not infer
+  historical UTC or complete bolus/basal delivery from the prior TBR readback.
+- Six new red regressions reproduce missing per-read event-counter gap warnings,
+  including a later retained read filling the aggregate gap after reopen. Original
+  failing XML/log are retained outside source. A seventh test covers unsigned
+  contiguous boundaries without inventing gaps.
+- Preserve forward counter jumps in the existing bounded raw-event order audit.
+  Unknown/clock-change events and block transitions participate. Preserve warnings
+  through damaged tails, reopen and clean catalog reconciliation; original bytes
+  remain unchanged. No schema, AAPS, timestamp repair, forecast coefficient,
+  notification gate, target or insulin action is changed.
+- Focused114tests passed. An older test expected large numeric gaps to produce
+  no warning; strengthen it to require EVENT_COUNTER_GAP while preserving exact
+  unsigned counters, raw bytes and false delivery/pairing authority. This does
+  not infer missing doses. Retain the initial failing report privately.
+- Complete local Android quality passed, followed by the prepared-SDK native
+  suites:7165passed/six existing private-data skips when reconciled by class.
+  Initial11native environment skips are not counted as passes. Lint has0errors,
+  379warnings/eight hints. APK guard:39,946,241bytes/7360retained app classes;
+  the artifact is test-only, not a published update. Exact-head workflow results
+  belong on the PR and are not inferred from this local result.
+- Clinical activation still requires independently qualified delivery/clock
+  coverage and prospective forecast/control-safety validation.
+
+# Combo Remaining-Event Audit - 2026-10-29
+
+- PR74/main973c0917 Verify40920901933 passed. Published0.1.20/code21 to the
+  existing static updater. Actual public manifest, complete resumed APK hash,
+  signer, metadata and ranges verified; previous pointer/page retained privately,
+  old APK retained. No service restart, phone installation or clinical activation.
+- Read-only ADB remains empty. Inspect pinned RC1 reader termination and its
+  current-offset event conversion; actual pump UTC epochs/basal coverage absent.
+- Three red regressions show returned reads lacking warnings for a declared
+  unconsumed tail and an unexplained drop between remaining-event counts.
+  Preserve their failing XML outside source; no private medical data in fixtures.
+- Audit fully validated raw blocks without changing native termination or commands.
+  Count unknown types too, allow new arrivals and zero final counts with records.
+  Keep contradictions adverse through private reopen and later clean catalogs.
+- Initial157focused tests passed; add unsigned boundary, corrupt-tail and combined
+  reader/event clock regressions. Full quality passed in3m30s:7158passed/six prior
+  skips, zero failures/errors; lint383warnings/eight hints unchanged, compile/build
+  passed. APK guard retained7357app classes. Nine new tests; exact-head CI pending.
+- No schema, transport, AAPS, model, notification, target or dose changes. These
+  source diagnostics do not establish complete delivery or a safe meal delay.
+
 # Diagnostic Update 0.1.20 Candidate - 2026-10-29
 
 - Main91bcd48a/Verify40908185065 successful:7149Android tests passed, six prior
@@ -16046,3 +16095,72 @@ clinical admission follows from source verification.
   admitted, and no warning baseline/suppression was added.
 - Publication/exact-head CI and intended-phone USB acceptance are separate
   post-commit checks. No new server or therapy activation. See AI_FOCUS_PLUS.md.
+# AAPS 4 Incoming Data Check - 2026-11-14
+
+- Add an explicit local v3 snapshot check to Settings. Report CGM freshness,
+  effective-profile evidence and non-invalidated insulin record counts without
+  signed pairing, a foreground listener, clinical projection or commands.
+- AAPS 4.0 still needs a configured NSClientV3 endpoint and access token. It
+  does not trust the private loopback CA by default, and its uploader asks for
+  full collection permissions that the local adapter does not advertise.
+  No changes to AAPS or the local server's trust policy are included.
+- To verify: run AapsV3EffectiveProfileSourceTest and
+  NativeAapsConnectionSectionTest. Stock Android upload and independent
+  Combo delivery completeness are separate device acceptance checks.
+- Local verification: 35 focused tests passed, lint reported zero errors, and
+  the debug APK built successfully. No deployment.
+
+## AAPS 4.0.0 Final Wire Compatibility
+
+- Admit the final SDK's two settings capability probes with the existing v3
+  bearer gate. Answer only for existing owner operations. Do not advertise full
+  collection rights, register remote clients or change clinical admission.
+- Recognize the final SDK's bounded device-status history query. Overflow still
+  fails rather than claiming a complete page.
+- The external final-release SDK fixture tests TLS, status, SGV, effective
+  profile, insulin and device status over the real local server, without
+  touching clinical tables. CI retains the separate RC1 fixture.
+- The focused v3 and projection suites passed 153 tests with one existing
+  optional skip. The final SDK fixture ran and passed, not skipped.
+  Android lint and debug packaging also passed.
+- Release SDK success does not replace Android TLS trust, AAPS worker admission,
+  clinical projection or on-device delivery verification.
+
+## AAPS Same-Phone Observation
+
+- The companion AAPS 4.0.0 patch provides a versioned read-only snapshot via
+  Android IPC. Both ends verify the package and signing identity. The snapshot
+  is requested from the existing incoming-data check; no daemon, remote import
+  or cloud sync is introduced.
+- Retain only diagnostic statuses and counts in the UI. Raw data is not used
+  for forecast, insulin delivery authority or commands.
+- Existing signed native-target and legacy action guards are unchanged.
+  Supporting all final AAPS Client Control actions is a separate milestone.
+- Both APKs built locally and the focused stages passed: 58 Copilot tests and
+  one AAPS observation test. The on-device signature permission and denied
+  unprivileged call were verified. The same-phone observation UI received CGM,
+  effective-profile and recorded-insulin data; no command was sent.
+
+## Final Client Control Proof
+
+- Add final-format PIN and Pong decoding and verification of the signed
+  role roster using the public key from the authenticated, correlated Pong.
+  Do not change the legacy enrollment path or production command admission.
+- Extend the actual 4.0.0 SDK TLS fixture with synthetic signed offers, ACKs
+  and roster. Check tampering, replay timestamp, counter and absent membership.
+- The final AAPS receiver test branch checks Hello, target-only and carb-only
+  preview, commit, signed acknowledgement and replay with a mock executor.
+- This is separate from the Xiaomi observation check. A production local
+  NSClientV3 endpoint, final runtime pairing and live commands are not enabled.
+
+## Final Runtime Signed Roster
+
+- New PIN enrollment requires final-format proof: offer erasure after
+  Hello, a fresh correlated Pong to pin the AAPS key, and a signed roster
+  with an increasing signing time. Pairing state remains encrypted and
+  the target role is rechecked in the same journal transaction as each
+  prepare or commit.
+- Test a target-only Eating Soon request and disconnected, tampered,
+  replayed and revoked states. Preserve the existing release clinical
+  guard; this stage does not configure NSClientV3 on the Xiaomi, implement
+  stock key rotation/token provisioning or authorize live commands.

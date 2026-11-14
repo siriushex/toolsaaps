@@ -1,5 +1,29 @@
 # INVARIANTS
 
+## Per-Read Counter Discontinuities
+
+- Every adjacent raw-event pair in one validated read participates in counter
+  continuity checks, including unknown events and pairs spanning blocks.
+- Preserve a forward jump as EVENT_COUNTER_GAP before aggregate reconciliation.
+  Later reads may fill current interior gaps but cannot erase the earlier warning.
+- Preserve the original gap through damaged tails, local reopen and newer clean
+  catalogs; never rewrite raw bytes to close a gap or infer a missing dose.
+- Clock-change warnings and unsigned counter boundaries remain independent.
+  Neither continuous counters nor a matching catalog grants UTC mapping,
+  complete basal/delivery history or meal-time notification authority.
+
+## Combo Remaining-Event Evidence
+
+- A returned/acknowledged read may still declare an unconsumed tail. Preserve
+  DECLARED_HISTORY_TAIL; never turn its count into missing insulin or a UTC time.
+- Compare consecutive validated block headers using all raw events, including
+  unmapped types. A final zero count may still carry events. New arrivals can
+  increase the count; they must not be rejected as missing history.
+- Preserve REMAINING_COUNT_DISCONTINUITY and earlier clock/unknown/failed-read
+  hazards through later blocks, damaged tails, private reopen and clean catalogs.
+- Do not rewrite raw bytes, change native reader termination, add pump requests
+  or grant clinical/meal-notification permission from this diagnostic audit.
+
 ## Meal Timing Causality
 
 - When present, the last posterior sample must be strictly after the meal record
@@ -531,6 +555,9 @@
 - Hello/Ping/target commands share one durable counter. Active post-Hello roster,
   current storage subscription and new signed Pong are separate requirements.
   Native whole-client permissions must not be described as a target-only grant.
+- New AAPS 4 PIN enrollment never falls back to an unsigned roster. The pinned
+  master key and last verified signing time survive restart. Check the current
+  signed role again just before each target write, including commit.
 - PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
   cannot clear unknown commands or silently reset/reuse a retired identity.
 - Enrollment cannot overlap a pending legacy target. Paired routing never falls

@@ -18,6 +18,12 @@ interface LocalNightscoutV3Dao {
     @Query("SELECT revision FROM local_ns_v3_clock WHERE singleton = 1")
     fun observeRevision(): Flow<Long?>
 
+    @Query("""SELECT * FROM local_ns_v3_documents
+        WHERE collection = 'entries' AND source = 'local-v3-owner' AND deleted = 0
+          AND eventAtMs BETWEEN :from AND :through
+        ORDER BY eventAtMs DESC, identifier DESC LIMIT :limit""")
+    suspend fun recentOwnerGlucose(from: Long, through: Long, limit: Int): List<LocalNightscoutV3DocumentEntity>
+
     @Query("""SELECT * FROM local_ns_v3_documents WHERE collection = 'settings' AND deleted = 0
         AND identifier GLOB 'aaps_clientcontrol_offer_*' ORDER BY modifiedRevision DESC LIMIT 9""")
     suspend fun pairingOffers(): List<LocalNightscoutV3DocumentEntity>

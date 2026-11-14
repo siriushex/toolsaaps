@@ -489,7 +489,8 @@ fun OverviewScreen(
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
-        errorText = state.errorText,
+        errorText = if (state.errorText == "forecast_tuple_snapshot_unavailable")
+            stringResource(R.string.forecast_waiting_for_inputs) else state.errorText,
         emptyText = stringResource(id = R.string.overview_empty)
     ) {
         if (LocalUiStyle.current == UiStyle.CLARITY) {
@@ -506,6 +507,9 @@ fun OverviewScreen(
                 onBaseTarget = { showTargetDialog = true },
                 onOpenClinicalReport = onOpenClinicalReport,
                 warningContent = {
+                    if (state.aapsV3Observation) {
+                        Text(stringResource(R.string.aaps_v3_overview_source), style = MaterialTheme.typography.bodySmall)
+                    }
                     state.warning?.let { warning ->
                         OverviewWarningBanner(warning, state, false, onDisablePowerSave, onOpenSensorLagAnalytics)
                     }
@@ -529,6 +533,9 @@ fun OverviewScreen(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
+            if (state.aapsV3Observation) {
+                item { Text(stringResource(R.string.aaps_v3_overview_source), style = MaterialTheme.typography.bodySmall) }
+            }
             state.warning?.let { warning ->
                 item {
                     OverviewWarningBanner(

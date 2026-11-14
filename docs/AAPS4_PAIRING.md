@@ -1,4 +1,4 @@
-# Native RC1 Pairing And Target Routing
+# Native AAPS 4 Pairing And Target Routing
 
 ## Scope
 
@@ -86,3 +86,92 @@ stock receiver's clock capture across suspended/queued work, verify actual maste
 expiry/application behavior, resolve loopback Android CA trust, inspect signer
 and settings export, and preserve the phone's JugglucoNG input and pump state.
 No AAPS update or live therapy test has been performed by this stage.
+
+## Final 4.0.0 Wire Verification
+
+The final upstream SDK fixture publishes a PIN offer containing a role and a
+display name, an HMAC-signed Pong containing the master's public key, and a
+schema-2 settings document with a signed roster. Copilot validates these on
+the isolated TLS listener, including role, counter, tamper and replay checks.
+The role in an offer is informational; it is not permission to issue actions.
+The roster must verify with the key obtained from the correlated Pong.
+
+New PIN enrollments in Copilot require a signed final-format roster. For
+bootstrapping, wait for the owner to permanently erase the one-use offer
+after Hello, then send a non-mutating Ping. The correlated HMAC Pong pins
+the master's P-256 key. The encrypted pairing record keeps the key and
+roster signing-time high-water mark across restarts. Unsigned, tampered or
+rolled-back rosters cannot authorize commands. Only a newer signed roster
+can remove membership or change roles. A key change requires re-pairing.
+Existing RC1 journals keep their original decoding path; new enrollments
+never downgrade based on the contents of an offer or a received roster.
+Temporary targets require the Caregiver or Admin role from the signed
+roster, not the role shown in the PIN offer.
+
+The AAPS master host test uses its actual receiver and a mocked executor:
+Hello promotes the pending client, separate target and carb-only prepares
+produce signed previews without execution, commit gets one signed result,
+and replay cannot invoke the executor again. This is not a pump test or an
+end-to-end Copilot action. No general action client or local NSClientV3 setup
+is enabled by these checks. The installed observation-only configuration
+still lacks an authenticated settings/storage session, stock post-Hello
+key exchange and client-token handling, and accepted clinical projection.
+The clinical publication guard remains closed. The synthetic Copilot
+channel test exercises Eating Soon as a target-only batch and validates
+its commit ACK. Separately, the final AAPS executor test verifies one
+database write per target and no pump call; a temporary Room database
+test verifies the Overview's active-target query returns the recorded
+target, the replacement Eating Soon target and then no target after
+expiry. These checks do not read a target from the installed AAPS.
+
+## Same-Phone NSClientV3 Admission
+
+The signature-protected AAPS 4 data check is Android IPC; it is not a
+configured NSClientV3 session. The tested AAPS build does not trust a
+user-installed CA for its HTTPS client. In addition, the stock master
+uploader requires full rights across six collections (or a connected
+WebSocket), whereas Copilot advertises only the operations it implements.
+Passing an SDK request does not establish that the stock uploader will run.
+
+Do not fill the live NSClientV3 address or credential until the same-phone
+route can verify the expected Copilot TLS identity and isolate its upload
+state from the existing Nightscout endpoint. Do not widen TLS trust, grant
+unimplemented rights, or rely on saved receive flags for upload-only
+isolation. The initial route must not import records, dispatch commands or
+reuse another endpoint's synchronization cursors. Verify these properties
+on a stand before configuring the therapy phone.
+
+The optional final SDK patch limits both HTTP clients (status/upload and token
+refresh) to the configured numeric loopback origin. It trusts only the supplied
+root CA and exact leaf DER, retains normal hostname verification, and disables
+redirects, proxies and request logging for this transport. The allowed routes
+are status, token refresh, the SDK's two permission probes, and collection
+creates; data downloads, updates, deletions and settings publication are refused.
+The stock client does not opt into this patch. The CI fixture exercises the
+patched SDK against actual Copilot TLS and verifies retained synthetic glucose,
+effective profile and pump-associated insulin without clinical promotion.
+
+The compatible Android build adds a bounded upload operation to the existing
+signature-protected same-phone observation provider. Copilot explicitly enables
+the upload per installation and supplies the two live listener certificates
+and a short-lived, non-renewable bearer over Binder. The server limits that
+bearer to status and creates for CGM, effective profile and insulin observations;
+it revokes the bearer when the call returns. Nothing installs a system CA or
+changes stock NSClient settings, identifiers, cursors, or receive flags.
+
+The upload scans the recent 30 minutes of CGM and the last 24 hours of insulin
+observations. It reads the effective profile active at the time of the scan.
+An in-memory acknowledgment cache and server-side exact-content deduplication
+bound repeated uploads without treating an edited record as a second dose.
+This is an observation store, not a complete delivery archive or a therapy
+input. It is not a command transport. On-device installation and freshness
+checks remain separate from the synthetic TLS fixture.
+
+When the accepted clinical forecast is unavailable, Copilot can show a
+separate observation-only view using recent local AAPS v3 glucose in explicit
+mg/dL. The preview requires one sensor source, unique timestamps, fresh data
+and enough contiguous history. The existing trend model is used without
+meals, insulin, calibration transfer or clinical confidence intervals.
+The preview does not replace a valid accepted forecast, populate its storage,
+or feed Target Manager, alerts or meal timing. Active profile and insulin
+records remain diagnostic until clinical completeness is independently proven.

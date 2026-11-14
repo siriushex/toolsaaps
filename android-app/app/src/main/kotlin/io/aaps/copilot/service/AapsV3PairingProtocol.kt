@@ -19,7 +19,9 @@ internal class AapsV3PairingCredential internal constructor(
     val clientId: String,
     val masterInstallId: String,
     val expiresAt: Long,
-    secret: ByteArray
+    secret: ByteArray,
+    val advertisedRole: AapsFinalClientRole? = null,
+    val requiresSignedRoster: Boolean = false
 ) : AutoCloseable {
     private val key = secret.copyOf().also { require(it.size == 32) }
     private var closed = false
@@ -39,7 +41,13 @@ internal object AapsV3PairingProtocol {
     private val secretHex = Regex("[0-9a-fA-F]{64}")
     private val fields = setOf("schemaVersion", "clientId", "expiresAt", "kdfSaltB64", "ivB64", "wrappedB64")
 
-    fun unwrap(offer: JsonObject, pin: CharArray, nowMs: Long): AapsV3PairingCredential = try {
+    fun unwrap(offer: JsonObject, pin: CharArray, nowMs: Long): AapsV3PairingCredential =
+        unwrap(offer, pin, nowMs, finalRelease = false)
+
+    fun unwrapFinal(offer: JsonObject, pin: CharArray, nowMs: Long): AapsV3PairingCredential =
+        unwrap(offer, pin, nowMs, finalRelease = true)
+
+    private fun unwrap(offer: JsonObject, pin: CharArray, nowMs: Long, finalRelease: Boolean): AapsV3PairingCredential = try {
         require(pin.size == 8 && pin.all { it in '0'..'9' })
         require(offer.keys == fields && HistoryJson.long(offer.getValue("schemaVersion")) == 1L)
         val id = HistoryJson.string(offer.getValue("clientId"))
@@ -58,14 +66,21 @@ internal object AapsV3PairingProtocol {
         } } finally { key.fill(0) }
         try {
             val payload = HistoryJson.parse(plain, 2048)
-            require(payload.keys == setOf("v", "masterInstallId", "clientId", "secretHex", "expiresAt"))
+            HistoryJson.fields(payload, setOf("v", "masterInstallId", "clientId", "secretHex", "expiresAt"),
+                if (finalRelease) setOf("role", "name") else emptySet())
+            val role = payload["role"]?.takeUnless { it == JsonNull }?.let {
+                AapsFinalClientRole.parse(HistoryJson.string(it))
+            }
+            payload["name"]?.takeUnless { it == JsonNull }?.let {
+                require(HistoryJson.string(it).let { name -> name.length <= 256 && name.none(Char::isISOControl) })
+            }
             require(HistoryJson.long(payload.getValue("v")) == 1L)
             require(HistoryJson.string(payload.getValue("clientId")) == id && HistoryJson.long(payload.getValue("expiresAt")) == expiry)
             val master = HistoryJson.string(payload.getValue("masterInstallId"))
             val hex = HistoryJson.string(payload.getValue("secretHex"))
             require(masterId.matches(master) && secretHex.matches(hex))
             val secret = ByteArray(32) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
-            try { AapsV3PairingCredential(id, master, expiry, secret) } finally { secret.fill(0) }
+            try { AapsV3PairingCredential(id, master, expiry, secret, role, finalRelease) } finally { secret.fill(0) }
         } finally { plain.fill(0) }
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { throw AapsV3PairingFailure() }
@@ -92,7 +107,15 @@ internal class AapsV3SessionProtocol(secret: ByteArray) : AutoCloseable {
         require(counter > 1L && at <= LocalNightscoutV3Store.MAX_TIME - 8000)
         return envelope(clientId, counter, at, at + 8000, true, "ping", """{"type":"ping"}""")
     }
-    fun isPong(request: JsonObject, ack: JsonObject, nowMs: Long): Boolean {
+    fun isPong(request: JsonObject, ack: JsonObject, nowMs: Long): Boolean =
+        verifyPong(request, ack, nowMs, allowSignedKey = false)
+
+    fun finalMasterKey(request: JsonObject, ack: JsonObject, nowMs: Long): AapsFinalMasterKey? {
+        if (!verifyPong(request, ack, nowMs, allowSignedKey = true)) return null
+        return AapsFinalMasterKey.fromPong(ack["payload"])
+    }
+
+    private fun verifyPong(request: JsonObject, ack: JsonObject, nowMs: Long, allowSignedKey: Boolean): Boolean {
         check(!closed)
         return try {
             val id = HistoryJson.string(request.getValue("clientId"))
@@ -104,12 +127,14 @@ internal class AapsV3SessionProtocol(secret: ByteArray) : AutoCloseable {
             require(ack.keys.all { it in setOf("clientId", "commandCounter", "phase", "status", "timestamp", "signature", "reason", "payload") })
             require(HistoryJson.string(ack.getValue("clientId")) == id && HistoryJson.long(ack.getValue("commandCounter")) == counter)
             require(ack["phase"] == JsonPrimitive("Done") && ack["status"] == JsonPrimitive("Ok"))
-            require(ack["reason"].let { it == null || it == JsonNull } && ack["payload"].let { it == null || it == JsonNull })
+            require(ack["reason"].let { it == null || it == JsonNull })
+            val payload = ack["payload"]?.takeUnless { it == JsonNull }?.let(HistoryJson::string)
+            require(payload == null || (allowSignedKey && payload.length <= 256))
             val timestamp = HistoryJson.long(ack.getValue("timestamp"))
             require(timestamp in (at - 5000)..minOf(at + 13_000, nowMs + 5000))
             val signature = HistoryJson.string(ack.getValue("signature"))
             require(Regex("[0-9a-f]{64}").matches(signature))
-            MessageDigest.isEqual(sign("$id|$counter|Done|Ok|||$timestamp").toByteArray(), signature.toByteArray())
+            MessageDigest.isEqual(sign("$id|$counter|Done|Ok||${payload.orEmpty()}|$timestamp").toByteArray(), signature.toByteArray())
         } catch (_: RuntimeException) { false }
     }
     private fun envelope(id: String, counter: Long, at: Long, until: Long, ack: Boolean, type: String, raw: String): JsonObject {

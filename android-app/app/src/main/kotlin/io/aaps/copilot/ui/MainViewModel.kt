@@ -173,6 +173,7 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.service.LocalNightscoutServiceController
+import io.aaps.copilot.service.AapsV3ForecastPreview
 import io.aaps.copilot.service.ClinicalAiProviderCredentialState
 import io.aaps.copilot.service.LocalNightscoutIdentityResetResult
 import io.aaps.copilot.service.LocalNightscoutRuntimeReason
@@ -235,6 +236,8 @@ import io.aaps.copilot.ui.foundation.screens.withClinicalReport
 import io.aaps.copilot.ui.foundation.screens.toAppHealthUiState
 import io.aaps.copilot.ui.foundation.screens.toAuditUiState
 import io.aaps.copilot.ui.foundation.screens.toForecastUiState
+import io.aaps.copilot.ui.foundation.screens.withAapsV3ForecastPreview
+import io.aaps.copilot.ui.foundation.screens.withAapsV3ObservedGlucose
 import io.aaps.copilot.ui.foundation.screens.toOverviewUiState
 import io.aaps.copilot.ui.foundation.screens.withSensitivityApplyPresentation
 import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
@@ -277,6 +280,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -1822,6 +1826,26 @@ class MainViewModel(application: Application) :
 
     private val container = (application as CopilotApp).container
     val nativeAapsConnectionState get() = container.nativeAapsConnectionState
+    private val mutableNativeAapsInbound = MutableStateFlow<io.aaps.copilot.service.AapsV3InboundSummary?>(null)
+    val nativeAapsInbound = mutableNativeAapsInbound.asStateFlow()
+    val localAapsV3Upload = container.settingsStore.settings.map { it.localAapsV3Upload }
+        .distinctUntilChanged()
+    fun setLocalAapsV3Upload(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { current ->
+                current.copy(localAapsV3Upload = enabled && current.localNightscoutEnabled &&
+                    current.localObservationEnabled)
+            }
+            mutableNativeAapsInbound.value = null
+        }
+    }
+    private var nativeAapsInboundJob: kotlinx.coroutines.Job? = null
+    fun checkNativeAapsInbound() {
+        if (nativeAapsInboundJob?.isActive == true) return
+        nativeAapsInboundJob = viewModelScope.launch {
+            mutableNativeAapsInbound.value = withContext(Dispatchers.IO) { container.checkNativeAapsInbound() }
+        }
+    }
     fun pairNativeAaps(pin: CharArray) {
         viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
             .invokeOnCompletion { pin.fill('\u0000') }
@@ -4129,6 +4153,27 @@ class MainViewModel(application: Application) :
 
     private val standaloneEatingSoonState = MutableStateFlow<io.aaps.copilot.ui.foundation.screens.EatingSoonUiState?>(null)
     private var acceptedFoodDisplayForOverview: io.aaps.copilot.ui.foundation.screens.AcceptedFoodDisplaySnapshot? = null
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsV3ForecastPreview = localAapsV3Upload.flatMapLatest { enabled ->
+        flow<AapsV3ForecastPreview?> {
+            emit(null)
+            if (!enabled) return@flow
+            while (currentCoroutineContext().isActive) {
+                val now = System.currentTimeMillis()
+                val preview = try {
+                    val dao = db.localNightscoutV3Dao()
+                    val model = AapsV3ForecastPreview
+                    model.from(dao.recentOwnerGlucose(now - model.WINDOW_MS, now, model.MAX_ROWS + 1), now)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                emit(preview)
+                delay(15_000L)
+            }
+        }
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, 0), null)
 
     val overviewUiState: StateFlow<OverviewUiState> = combine(
         timedOverviewRuntime,
@@ -4196,6 +4241,9 @@ class MainViewModel(application: Application) :
         .combine(container.pumpLinkMonitor.state) { state, pumpLink -> state.copy(pumpLinkStatus = pumpLink) }
         .combine(container.infusionSetReminder.state) { state, infusion -> state.copy(infusionSetStatus = infusion) }
         .combine(container.deliveryDiagnosticDisplay) { state, delivery -> state.copy(deliveryDiagnosticEvidence = delivery) }
+        .combine(aapsV3ForecastPreview) { state, preview ->
+            withAapsV3ObservedGlucose(state, preview, System.currentTimeMillis())
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -4247,9 +4295,13 @@ class MainViewModel(application: Application) :
         uiState,
         forecastRangeState,
         forecastLayersState,
-        proModeState
-    ) { state, range, layers, isProMode ->
-        state.toForecastUiState(range = range, layers = layers, isProMode = isProMode)
+        proModeState,
+        aapsV3ForecastPreview
+    ) { state, range, layers, isProMode, preview ->
+        withAapsV3ForecastPreview(
+            state.toForecastUiState(range = range, layers = layers, isProMode = isProMode),
+            preview, System.currentTimeMillis()
+        )
     }
         .stateIn(
             scope = viewModelScope,
@@ -7575,7 +7627,7 @@ class MainViewModel(application: Application) :
                 )
             }.onSuccess {
                 messageState.value =
-                    "TLS certificates exported (root CA + server). Install root CA in Android, then reconnect AAPS NSClient."
+                    "TLS certificates exported (root CA + server). Exporting does not configure AAPS NSClientV3."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }
