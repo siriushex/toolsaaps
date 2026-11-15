@@ -64,12 +64,12 @@ internal class LocalNightscoutV3SettingsApi(private val db: CopilotDatabase, now
             }
             "DELETE" -> {
                 require(query.isEmpty() || query == mapOf("permanent" to "true"))
-                if (query.isNotEmpty() && !OFFER_ID.matches(id)) return rejected(501)
+                if (query.isNotEmpty() && !LocalNightscoutV3Store.isSingleUsePairingDocument(id)) return rejected(501)
                 db.withTransaction {
                     val previous = store.get(collection, id) ?: return@withTransaction rejected(404)
                     if (previous.source != SOURCE) return@withTransaction rejected(403)
                     val write = if (query.isEmpty()) store.delete(collection, id, previous.modifiedRevision)
-                        else store.erasePairingOfferPayload(id)
+                        else store.erasePairingPayload(id)
                     written(write, false)
                 }
             }
@@ -164,7 +164,6 @@ internal class LocalNightscoutV3SettingsApi(private val db: CopilotDatabase, now
         private const val ROOT = "/api/v3/settings"
         private const val SOURCE = "local-v3-owner"
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
-        private val OFFER_ID = Regex("aaps_clientcontrol_offer_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         private val COMMON = setOf("date", "utcOffset", "app")
         private val METADATA = setOf("identifier", "_id", "srvCreated", "srvModified", "subject", "modifiedBy", "isReadOnly", "isValid")
     }

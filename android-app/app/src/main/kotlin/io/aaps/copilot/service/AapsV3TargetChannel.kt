@@ -165,6 +165,7 @@ internal class AapsV3TargetChannel(
             return@withLock
         }
         var pair = checkNotNull(journal.pairingSnapshot())
+        if (runtimeAllowed && storageAvailable() && generation.get() == epoch) journal.rotateFinalSecret(clock())
         val ackRow = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
         val ack = ackRow?.takeIf { !it.deleted && it.source == "local-v3-owner" }
             ?.let { HistoryJson.parse(it.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject }

@@ -16175,3 +16175,13 @@ clinical admission follows from source verification.
   No data is restored, copied to the clinical pipeline or used for decisions.
 - Replace the initialization diagnostic about missing ISF/CR model and profile
   revisions with a readable localised message on Overview and Settings.
+
+## Final AAPS PIN Secret Rotation
+
+- Bound the P-256 key exchange to the final PIN enrollment. Seal the pending
+  private key with the outbox, replace the original secret only on authenticated
+  correlation, and require a Pong signed with the new secret.
+- Use the stock 4.0.0 SDK as an independent interoperability check. Exercise
+  restart, rejected answers, stale secrets and target-only Eating Soon on the
+  fixture. Do not accept encrypted client tokens on this local route.
+- Keep the live release guard and current same-phone observation path unchanged.

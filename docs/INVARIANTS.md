@@ -558,6 +558,9 @@
 - New AAPS 4 PIN enrollment never falls back to an unsigned roster. The pinned
   master key and last verified signing time survive restart. Check the current
   signed role again just before each target write, including commit.
+- Final enrollment cannot probe or dispatch with the secret from the PIN offer. Only
+  the bound, timely, authenticated key answer can rotate it. Old final records
+  without rotation do not acquire command authority by upgrading the app.
 - PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
   cannot clear unknown commands or silently reset/reuse a retired identity.
 - Enrollment cannot overlap a pending legacy target. Paired routing never falls
@@ -565,8 +568,9 @@
 - Settings HTTP success is wire persistence, not target application. Only the
   target codec's correlated signed Done/Ok COMMIT is an application receipt;
   signed preparation remains a preview. Durable dispatch admission is separate.
-- The one-use pairing-offer cleanup may erase its wrapped payload while keeping
-  a non-secret tombstone; no other wire payload is purged or clock regressed.
+- The one-use pairing-offer and key-answer cleanup may erase their payloads
+  while keeping a non-secret tombstone; no other wire payload is purged or
+  clock regressed.
 - Native target-only commit cannot carry advisor correction, bolus/carbs,
   profile or running-mode actions. Existing clinical/armed ownership gates remain.
 

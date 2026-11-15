@@ -96,15 +96,22 @@ the isolated TLS listener, including role, counter, tamper and replay checks.
 The role in an offer is informational; it is not permission to issue actions.
 The roster must verify with the key obtained from the correlated Pong.
 
-New PIN enrollments in Copilot require a signed final-format roster. For
-bootstrapping, wait for the owner to permanently erase the one-use offer
-after Hello, then send a non-mutating Ping. The correlated HMAC Pong pins
+New PIN enrollments in Copilot require final-format key rotation and a signed
+roster. Hello carries a one-use P-256 key. The journal verifies the master's
+answer against the pairing identity, the original public key and the offer
+window, and replaces the secret atomically without resetting the counter.
+Wait for the owner to permanently erase the one-use offer and accept the new
+secret by answering a non-mutating Ping. Its correlated HMAC Pong pins
 the master's P-256 key. The encrypted pairing record keeps the key and
 roster signing-time high-water mark across restarts. Unsigned, tampered or
 rolled-back rosters cannot authorize commands. Only a newer signed roster
 can remove membership or change roles. A key change requires re-pairing.
 Existing RC1 journals keep their original decoding path; new enrollments
 never downgrade based on the contents of an offer or a received roster.
+Final-format enrollments from before key rotation must be revoked and
+re-enrolled. Keep the one-use exchange answer out of readable deletion
+history, preserving its non-secret revision. A token-bearing exchange
+is refused; the current route does not provision native client tokens.
 Temporary targets require the Caregiver or Admin role from the signed
 roster, not the role shown in the PIN offer.
 
@@ -114,8 +121,8 @@ produce signed previews without execution, commit gets one signed result,
 and replay cannot invoke the executor again. This is not a pump test or an
 end-to-end Copilot action. No general action client or local NSClientV3 setup
 is enabled by these checks. The installed observation-only configuration
-still lacks an authenticated settings/storage session, stock post-Hello
-key exchange and client-token handling, and accepted clinical projection.
+still lacks an authenticated settings/storage session, separate client-token
+handling and accepted clinical projection.
 The clinical publication guard remains closed. The synthetic Copilot
 channel test exercises Eating Soon as a target-only batch and validates
 its commit ACK. Separately, the final AAPS executor test verifies one

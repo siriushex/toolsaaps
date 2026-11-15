@@ -99,9 +99,16 @@ internal object AapsV3PairingProtocol {
 internal class AapsV3SessionProtocol(secret: ByteArray) : AutoCloseable {
     private val key = secret.copyOf().also { require(it.size == 32) }
     private var closed = false
-    fun hello(clientId: String, counter: Long, at: Long, expiresAt: Long): JsonObject {
+    fun hello(clientId: String, counter: Long, at: Long, expiresAt: Long, publicPoint: String? = null): JsonObject {
         require(counter == 1L && expiresAt - at in 1..600_000)
-        return envelope(clientId, counter, at, expiresAt, false, "hello", """{"type":"hello","protocolVersion":1}""")
+        val payload = buildJsonObject {
+            put("type", "hello"); put("protocolVersion", 1)
+            if (publicPoint != null) {
+                AapsFinalKeyExchange.decodePoint(publicPoint)
+                put("publicKey", publicPoint)
+            }
+        }
+        return envelope(clientId, counter, at, expiresAt, false, "hello", payload.toString())
     }
     fun ping(clientId: String, counter: Long, at: Long): JsonObject {
         require(counter > 1L && at <= LocalNightscoutV3Store.MAX_TIME - 8000)

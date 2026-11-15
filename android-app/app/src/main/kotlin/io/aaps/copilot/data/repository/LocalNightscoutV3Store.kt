@@ -107,11 +107,9 @@ internal class LocalNightscoutV3Store(
         return dao.get(collection.wireName, id)
     }
 
-    /** One-use PIN offers must not retain wrapped secrets in a readable deletion record. */
-    suspend fun erasePairingOfferPayload(id: String): LocalV3Write = db.withTransaction {
-        if (!Regex("aaps_clientcontrol_offer_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").matches(id)) {
-            fail(LocalV3StoreError.INVALID)
-        }
+    /** One-use offers and exchange answers must not retain encrypted credentials after deletion. */
+    suspend fun erasePairingPayload(id: String): LocalV3Write = db.withTransaction {
+        if (!isSingleUsePairingDocument(id)) fail(LocalV3StoreError.INVALID)
         val previous = dao.get(LocalV3Collection.SETTINGS.wireName, id) ?: fail(LocalV3StoreError.NOT_FOUND)
         if (previous.source != "local-v3-owner" || previous.readOnly) fail(LocalV3StoreError.READ_ONLY)
         if (previous.deleted && previous.payloadJson == "{}") return@withTransaction LocalV3Write(previous, false)
@@ -239,6 +237,8 @@ internal class LocalNightscoutV3Store(
     private fun fail(reason: LocalV3StoreError): Nothing = throw LocalV3StoreException(reason)
 
     companion object {
+        private val SINGLE_USE_PAIRING = Regex("aaps_clientcontrol_(?:offer|key)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        internal fun isSingleUsePairingDocument(id: String) = SINGLE_USE_PAIRING.matches(id)
         const val MAX_TIME = 253_402_300_799_999L
         const val MAX_PAYLOAD_BYTES = 65_536
         private val ID = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")

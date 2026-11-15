@@ -2,14 +2,8 @@ package io.aaps.copilot.service
 
 import io.aaps.copilot.data.repository.HistoryJson
 import java.math.BigInteger
-import java.security.AlgorithmParameters
-import java.security.KeyFactory
 import java.security.PublicKey
 import java.security.Signature
-import java.security.spec.ECGenParameterSpec
-import java.security.spec.ECParameterSpec
-import java.security.spec.ECPoint
-import java.security.spec.ECPublicKeySpec
 import java.util.Base64
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -70,14 +64,7 @@ internal class AapsFinalMasterKey private constructor(private val key: PublicKey
         }
 
         fun fromEncodedPoint(encodedPoint: String): AapsFinalMasterKey? = try {
-            val point = decode64(encodedPoint, 65)
-            require(point[0] == 4.toByte())
-            val params = AlgorithmParameters.getInstance("EC").apply { init(ECGenParameterSpec("secp256r1")) }
-                .getParameterSpec(ECParameterSpec::class.java)
-            val x = BigInteger(1, point.copyOfRange(1, 33))
-            val y = BigInteger(1, point.copyOfRange(33, 65))
-            val key = KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ECPoint(x, y), params))
-            AapsFinalMasterKey(key, encodedPoint)
+            AapsFinalMasterKey(AapsFinalKeyExchange.decodePoint(encodedPoint), encodedPoint)
         } catch (_: Exception) {
             null
         }

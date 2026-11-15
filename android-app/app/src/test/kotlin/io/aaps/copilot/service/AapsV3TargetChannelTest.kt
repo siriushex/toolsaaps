@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.*
@@ -44,6 +45,7 @@ class AapsV3TargetChannelTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client = "11111111-2222-4333-8444-555555555555"
     private val secret = ByteArray(32) { it.toByte() }
+    private var ackSecret = secret
     private val at = 1_800_000_000_000L
     private val now = AtomicLong(at + 200)
     private val cipher = KeystoreAapsV3JournalCipher { SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES") }
@@ -82,11 +84,12 @@ class AapsV3TargetChannelTest {
             LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_${type}_$client")
         }.filterNotNull().first().let { Json.parseToJsonElement(it.payloadJson).jsonObject.getValue("envelope").jsonObject }
     }
-    private suspend fun acknowledge(request: JsonObject, payload: String? = null, history: Boolean = false, status: String = "Ok") {
+    private suspend fun acknowledge(request: JsonObject, payload: String? = null, history: Boolean = false,
+                                    status: String = "Ok", signingSecret: ByteArray = ackSecret) {
         val counter = request.getValue("counter").jsonPrimitive.long
         val timestamp = request.getValue("timestamp").jsonPrimitive.long + 1
         val signature = Mac.getInstance("HmacSHA256").run {
-            init(SecretKeySpec(secret, "HmacSHA256"))
+            init(SecretKeySpec(signingSecret, "HmacSHA256"))
             doFinal("$client|$counter|Done|$status||${payload ?: ""}|$timestamp".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
         }
         settings(if (history) "aaps_clientcontrol_ack_history_$client" else "aaps_clientcontrol_ack_$client", buildJsonObject { put("ack", buildJsonObject {
@@ -114,10 +117,38 @@ class AapsV3TargetChannelTest {
             val slice = raw.takeLast(32).toByteArray()
             ByteArray(32 - slice.size) + slice
         }
-        fun pongPayload(): String = buildJsonObject {
-            val point = (keys.public as ECPublicKey).w
-            put("signingKey", Base64.getEncoder().encodeToString(byteArrayOf(4) + coordinate(point.affineX) + coordinate(point.affineY)))
-        }.toString()
+        private fun point(key: ECPublicKey): String = key.w.let {
+            Base64.getEncoder().encodeToString(byteArrayOf(4) + coordinate(it.affineX) + coordinate(it.affineY))
+        }
+        fun pongPayload(): String = buildJsonObject { put("signingKey", point(keys.public as ECPublicKey)) }.toString()
+        suspend fun keyAnswer(tamper: Boolean = false, token: Boolean = false) {
+            val store = LocalNightscoutV3Store(db)
+            val hello = checkNotNull(store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_$client"))
+            val envelope = Json.parseToJsonElement(hello.payloadJson).jsonObject.getValue("envelope").jsonObject
+            val payload = Json.parseToJsonElement(envelope.getValue("payload").jsonPrimitive.content).jsonObject
+            val clientPoint = payload.getValue("publicKey").jsonPrimitive.content
+            val exchange = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+            val masterPoint = point(exchange.public as ECPublicKey)
+            fun hmac(key: ByteArray, bytes: ByteArray) = Mac.getInstance("HmacSHA256").run {
+                init(SecretKeySpec(key, "HmacSHA256")); doFinal(bytes)
+            }
+            val timestamp = now.get()
+            val (iv, sealed) = if (token) "fixture-iv" to "fixture-sealed" else "" to ""
+            val tag = hmac(secret, "$client|$clientPoint|$masterPoint|$iv|$sealed|$timestamp".encodeToByteArray())
+            if (tamper) tag[0] = (tag[0].toInt() xor 1).toByte()
+            if (!tamper && !token) {
+                val shared = KeyAgreement.getInstance("ECDH").run {
+                    init(exchange.private); doPhase(AapsFinalKeyExchange.decodePoint(clientPoint), true); generateSecret()
+                }
+                ackSecret = hmac(hmac(secret, shared),
+                    "aaps-clientcontrol-key-v1|$client|$clientPoint|$masterPoint".encodeToByteArray() + byteArrayOf(1))
+            }
+            settings("aaps_clientcontrol_key_$client", buildJsonObject { putJsonObject("key") {
+                put("clientId", client); put("clientPublicKey", clientPoint); put("masterPublicKey", masterPoint)
+                put("timestamp", timestamp); put("signature", tag.joinToString("") { "%02x".format(it.toInt() and 255) })
+                if (token) { put("tokenIv", iv); put("token", sealed) }
+            } })
+        }
         suspend fun roster(signedAt: Long, role: String? = "Caregiver", controlEnabled: Boolean = true, tamper: Boolean = false) {
             val signed = buildJsonObject {
                 put("signedAt", signedAt)
@@ -157,7 +188,8 @@ class AapsV3TargetChannelTest {
             enterPin()
             roster(now.get(), role)
             assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_ping_$client"))
-            LocalNightscoutV3Store(db).erasePairingOfferPayload("aaps_clientcontrol_offer_$client")
+            LocalNightscoutV3Store(db).erasePairingPayload("aaps_clientcontrol_offer_$client")
+            keyAnswer()
             channel.checkConnection()
             acknowledge(request("ping"), pongPayload())
             channel.checkConnection()
@@ -176,7 +208,8 @@ class AapsV3TargetChannelTest {
     @Test fun finalPinRejectsUnsignedRosterEvenAfterAnAuthenticatedPong() = runBlocking {
         val master = FinalMaster()
         master.enterPin()
-        LocalNightscoutV3Store(db).erasePairingOfferPayload("aaps_clientcontrol_offer_$client")
+        LocalNightscoutV3Store(db).erasePairingPayload("aaps_clientcontrol_offer_$client")
+        master.keyAnswer()
         channel.checkConnection()
         acknowledge(request("ping"), master.pongPayload())
         settings("aaps", buildJsonObject { put("runningConfig", buildJsonObject {
@@ -186,6 +219,31 @@ class AapsV3TargetChannelTest {
         channel.checkConnection()
         assertEquals(AapsV3ConnectionStatus.WAITING, channel.state.value.status)
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+    }
+
+    @Test fun finalEnrollmentWaitsForValidRotationAndRejectsTheOldSecretAfterRestart() = runBlocking {
+        val master = FinalMaster()
+        master.enterPin()
+        val store = LocalNightscoutV3Store(db)
+        store.erasePairingPayload("aaps_clientcontrol_offer_$client")
+        val pingId = "aaps_clientcontrol_cmd_ping_$client"
+        master.keyAnswer(tamper = true)
+        channel.checkConnection()
+        assertNull(store.get(LocalV3Collection.SETTINGS, pingId))
+        master.keyAnswer(token = true)
+        channel.checkConnection()
+        assertNull(store.get(LocalV3Collection.SETTINGS, pingId))
+        channel.stop(); now.incrementAndGet(); channel = newChannel(); channel.start(scope)
+        master.keyAnswer()
+        master.roster(now.get())
+        channel.checkConnection()
+        val ping = request("ping")
+        acknowledge(ping, master.pongPayload(), signingSecret = secret)
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.WAITING, channel.state.value.status)
+        acknowledge(ping, master.pongPayload())
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
     }
 
     @Test fun finalRosterClockAndKeyArePinnedAcrossRestartAndTampering() = runBlocking {
