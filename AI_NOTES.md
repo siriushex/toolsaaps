@@ -16164,3 +16164,14 @@ clinical admission follows from source verification.
   replayed and revoked states. Preserve the existing release clinical
   guard; this stage does not configure NSClientV3 on the Xiaomi, implement
   stock key rotation/token provisioning or authorize live commands.
+
+## Fresh AAPS 4 Observation With Retained History
+
+- A stale clinical graph no longer hides a strictly newer local AAPS 4
+  observation. Preserve accepted current forecasts and never move the view
+  backwards when the clinical history has an equal or newer sample.
+- Label the observation and keep its values separate from stale IOB, COB,
+  ISF, CR and model output. Keep existing safety warnings and command gates.
+  No data is restored, copied to the clinical pipeline or used for decisions.
+- Replace the initialization diagnostic about missing ISF/CR model and profile
+  revisions with a readable localised message on Overview and Settings.

@@ -172,6 +172,10 @@ separate observation-only view using recent local AAPS v3 glucose in explicit
 mg/dL. The preview requires one sensor source, unique timestamps, fresh data
 and enough contiguous history. The existing trend model is used without
 meals, insulin, calibration transfer or clinical confidence intervals.
-The preview does not replace a valid accepted forecast, populate its storage,
-or feed Target Manager, alerts or meal timing. Active profile and insulin
-records remain diagnostic until clinical completeness is independently proven.
+The preview does not replace a current accepted forecast, populate its storage,
+or feed Target Manager, alerts or meal timing. When it is strictly newer than
+the stale clinical graph, the observation view can replace that graph for
+display. Do not attach the stale forecast, meal curve, IOB, COB, ISF or CR to
+the new sample. Safety warnings and settings stay in force. Active profile and
+insulin records remain diagnostic until clinical completeness is independently
+proven. Restoring an old database cannot recreate fresh signed session state.

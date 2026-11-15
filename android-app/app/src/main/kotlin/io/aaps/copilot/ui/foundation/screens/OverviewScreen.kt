@@ -1334,11 +1334,11 @@ private fun OverviewClinicalMatrix(
 
 @Composable
 internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
+    val error = state.sensitivitySourceApplyError?.takeIf(String::isNotBlank)?.let { sensitivitySourceErrorLabel(it) }
     val status = when {
         state.sensitivitySourceApplying -> "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
             state.sensitivitySourcePendingValue.orEmpty()
-        !state.sensitivitySourceApplyError.isNullOrBlank() -> state.sensitivitySourceApplyError
-        else -> null
+        else -> error
     } ?: return
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Text(status, modifier = Modifier.fillMaxWidth()
@@ -1346,6 +1346,13 @@ internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
         .padding(horizontal = 8.dp, vertical = 5.dp).testTag("overviewSensitivitySourceStatus"),
         style = MaterialTheme.typography.labelSmall,
         color = if (state.sensitivitySourceApplying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+}
+
+@Composable
+internal fun sensitivitySourceErrorLabel(error: String): String = when (error) {
+    "sensitivity candidates require active ISF/CR model and profile revisions" ->
+        stringResource(R.string.sensitivity_requires_profile_and_model)
+    else -> error
 }
 
 internal fun metricSourceSelectionShortLabel(sourceRaw: String): String = when (sourceRaw.trim().uppercase()) {

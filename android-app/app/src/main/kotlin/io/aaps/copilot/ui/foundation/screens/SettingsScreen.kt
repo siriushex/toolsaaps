@@ -1021,9 +1021,10 @@ private fun IsfCrSettingsCard(
                 color = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
             )
         } else if (!state.sensitivitySourceApplyError.isNullOrBlank()) {
+            val label = sensitivitySourceErrorLabel(state.sensitivitySourceApplyError.orEmpty())
             Text(
-                text = state.sensitivitySourceApplyError.orEmpty(),
-                modifier = Modifier.issueHelp(state.sensitivitySourceApplyError.orEmpty(), UiIssueKind.GENERIC_ERROR),
+                text = label,
+                modifier = Modifier.issueHelp(label, UiIssueKind.GENERIC_ERROR),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
