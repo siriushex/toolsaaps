@@ -16185,3 +16185,13 @@ clinical admission follows from source verification.
   restart, rejected answers, stale secrets and target-only Eating Soon on the
   fixture. Do not accept encrypted client tokens on this local route.
 - Keep the live release guard and current same-phone observation path unchanged.
+
+## Final AAPS Storage Stand
+
+- Use the final SDK with a throwaway stock AAPS database. Exercise Copilot's
+  real channel over loopback TLS and `/storage`. Acknowledge normal and Eating
+  Soon targets only after active-target readback in the test master.
+- Require the authenticated settings collection for channel liveness. A
+  data-only subscription, downgrade or disconnect cannot authorize publication.
+- No connected pump, real history, installed Android receiver or clinical
+  release enablement is part of the stand.

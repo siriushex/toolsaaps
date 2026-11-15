@@ -131,6 +131,23 @@ test verifies the Overview's active-target query returns the recorded
 target, the replacement Eating Soon target and then no target after
 expiry. These checks do not read a target from the installed AAPS.
 
+## Isolated Final Storage Round Trip
+
+The final interoperability suite runs the real Copilot channel and local
+TLS listener against an external synthetic master. The master uses stock
+4.0.0 SDK cryptography and settings APIs. It subscribes to `/storage`, consumes
+Hello, Ping, prepare and commit from live settings packets, and replies
+through authenticated settings writes. A data-only subscription does not
+admit the command path.
+
+For both a routine target and Eating Soon, the test master writes to a
+fresh stock AAPS database only after the matching zero-dose commit. It
+checks the active record and expiry with the same repository method that
+AAPS Overview uses, then returns the signed receipt. Resubmitting the
+same operation in Copilot creates no additional settings write. This is
+a synthetic master and storage test, not the Android service, Android UI
+or a physical pump. The clinical publication guard remains unchanged.
+
 ## Same-Phone NSClientV3 Admission
 
 The signature-protected AAPS 4 data check is Android IPC; it is not a

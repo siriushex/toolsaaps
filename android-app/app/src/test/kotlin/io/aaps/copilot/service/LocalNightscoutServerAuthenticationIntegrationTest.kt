@@ -24,9 +24,11 @@ import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.CarbsSendThrottle
 import io.aaps.copilot.data.repository.TempTargetSendThrottle
 import io.aaps.copilot.data.repository.NightscoutActionRepository
+import io.aaps.copilot.data.repository.NativeTargetOutcome
 import io.aaps.copilot.data.repository.SyncRepository
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.target.EatingSoonPolicy
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -37,10 +39,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLHandshakeException
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -166,6 +175,28 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun onlyAnAuthenticatedSettingsSubscriptionMakesNativeCommandsAvailable() = runBlocking {
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).startsWith("40/storage,")
+        for ((names, available) in listOf(
+            listOf("entries") to false, listOf("entries", "settings") to true, listOf("entries") to false,
+            listOf("settings") to true
+        )) {
+            postSocket(peer, port, sid, storageSubscribe(collections = names))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+            assertThat(listener.hasNativeStorageSubscription()).isEqualTo(available)
+        }
+        postSocket(peer, port, sid, "41/storage,")
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
     }
 
     @Test
@@ -755,6 +786,93 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(db.therapyDao().since(0)).isEmpty()
         } finally {
             process?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            trustFile.delete()
+            output.delete()
+        }
+    }
+
+    @Test
+    fun finalStorageRoundTripReadsBothTargetsFromIsolatedAapsDatabaseBeforeAck() = runBlocking {
+        val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = classpath?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing required final SDK fixture" }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare_final.sh", ready)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val runtime = SupervisorJob()
+        val now = AtomicLong(1_800_000_000_200L)
+        val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+            SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+        })
+        val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
+            { null }, { write -> write() }, now::get)
+        val trustFile = File.createTempFile("storage-stand-trust-", ".p12")
+        val output = File.createTempFile("storage-stand-result-", ".txt")
+        var child: Process? = null
+        fun failureCode() = output.readLines().singleOrNull {
+            Regex("FINAL_STORAGE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+        } ?: "unclassified"
+        try {
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            val process = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}", "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", checkNotNull(classpath).readText(), "integration.finalupload.FinalStorageStandKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(output)
+                }.start()
+            child = process
+            withTimeout(30_000) {
+                while ("FINAL_STORAGE_OFFER_READY" !in output.readLines()) {
+                    check(process.isAlive) { "Storage stand did not publish offer: ${failureCode()}" }
+                    delay(25)
+                }
+            }
+            assertThat(listener.hasNativeStorageSubscription()).isTrue()
+            channel.start(CoroutineScope(runtime + Dispatchers.IO))
+            channel.pair("23456789".toCharArray())
+            withTimeout(12_000) {
+                while (channel.state.value.status != AapsV3ConnectionStatus.CONNECTED) {
+                    check(process.isAlive) { "Storage stand could not pair: ${failureCode()}" }
+                    channel.checkConnection()
+                    delay(25)
+                }
+            }
+            fun target(id: String, mmol: Double, minutes: Int) = ActionCommand(
+                id, "temp_target", mapOf("targetMmol" to mmol.toString(), "durationMinutes" to minutes.toString()),
+                SafetySnapshot(false, false, null, 0), id
+            )
+            val commands = listOf(target("fixture-target", 6.0, 45),
+                target("manual:meal:fixture:eating-soon", EatingSoonPolicy.TARGET_MMOL, EatingSoonPolicy.DURATION_MINUTES))
+            for (command in commands) {
+                now.addAndGet(1_000)
+                val outcome = channel.send(command) { null }
+                check(outcome == NativeTargetOutcome.APPLIED) { "Stand target not confirmed: ${failureCode()}" }
+                assertThat(journal.status(command.idempotencyKey)).isEqualTo(AapsV3TargetPhase.APPLIED)
+            }
+            check(process.waitFor(12, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                "Storage stand did not finish: ${failureCode()}"
+            }
+            assertThat(output.readLines()).contains("FINAL_STORAGE_READBACK_OK")
+            val head = db.localNightscoutV3Dao().head("settings")
+            assertThat(channel.send(commands.last()) { error("A settled command cannot be resent") })
+                .isEqualTo(NativeTargetOutcome.APPLIED)
+            assertThat(db.localNightscoutV3Dao().head("settings")).isEqualTo(head)
+            assertThat(db.therapyDao().since(0)).isEmpty()
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+        } finally {
+            channel.stop()
+            runtime.cancelAndJoin()
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
             trustFile.delete()
             output.delete()
         }

@@ -526,7 +526,7 @@ class LocalNightscoutServer internal constructor(
         fun hasNativeStorageSubscription(): Boolean {
             val now = socketNowMs()
             // Lock-free snapshot: publication guards may already own a Room transaction.
-            return socketSessions.values.any { it.storageSubscribed && now - it.lastSeenAt in 0..35_000 }
+            return socketSessions.values.any { it.storageSettingsSubscribed && now - it.lastSeenAt in 0..35_000 }
         }
         private val storageGeneration = AtomicLong(0)
         private val storageObserver = object : InvalidationTracker.Observer("local_ns_v3_documents") {
@@ -1090,6 +1090,7 @@ class LocalNightscoutServer internal constructor(
                             session.storageSubscribed = true
                             session.storageSeenGeneration = -1
                             session.lastSeenAt = socketNowMs()
+                            session.storageSettingsSubscribed = LocalV3Collection.SETTINGS in session.storageCursors
                         }
                         val response = JsonObject().apply {
                             addProperty("success", heads != null)
@@ -1102,6 +1103,7 @@ class LocalNightscoutServer internal constructor(
         }
 
         private fun clearStorageLocked(session: SocketSession) {
+            session.storageSettingsSubscribed = false
             session.storageCursors.clear()
             session.storageSubscribed = false
             session.storageSeenGeneration = -1
@@ -1724,6 +1726,7 @@ class LocalNightscoutServer internal constructor(
                 if (session.closedStatus == null) session.closedStatus = status
                 session.authorized = false
                 session.storageConnected = false
+                session.storageSettingsSubscribed = false
                 session.storageSubscribed = false
                 session.storageCursors.clear()
                 session.initializing = false
@@ -2674,6 +2677,7 @@ class LocalNightscoutServer internal constructor(
             @Volatile var authorized: Boolean = false,
             var storageConnected: Boolean = false,
             @Volatile var storageSubscribed: Boolean = false,
+            @Volatile var storageSettingsSubscribed: Boolean = false,
             val storageCursors: MutableMap<LocalV3Collection, Long> = linkedMapOf(),
             var storageSeenGeneration: Long = -1,
             @Volatile var fromTs: Long = 0L,

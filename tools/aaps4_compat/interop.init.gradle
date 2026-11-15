@@ -7,6 +7,12 @@ gradle.projectsEvaluated {
     def querySource = System.getenv('AAPS_INTEROP_QUERY_SOURCE')
     if (!source || !output) throw new GradleException('Missing interop paths')
     sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(source)
+    sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(new File(new File(source).parentFile, 'shared_src'))
+    if (new File(source).name == 'final_src') {
+        sdk.kotlin.sourceSets.getByName('jvmTest').dependencies {
+            implementation(sdk.project(':database:impl'))
+        }
+    }
     if (querySource) sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(querySource)
     sdk.tasks.register('exportInteropClasspath') {
         dependsOn sdk.tasks.named('jvmTestClasses')

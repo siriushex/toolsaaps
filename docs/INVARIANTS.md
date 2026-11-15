@@ -539,6 +539,8 @@
 - Storage namespace authentication cannot authorize root or mark READY. Root
   authorization cannot release storage events; its reauthorization preserves
   separately authorized storage packets. Failed storage resubscribe revokes it.
+- Command liveness requires a live authenticated `settings` subscription.
+  Reading glucose or other storage collections is not command readiness.
 - Storage notifications read postcommit persistent revisions, including internal
   outbox writes. No rolled-back event, cursor regression or silent backlog skip.
   Overflow/read failure closes the session; reconnect catch-up remains HTTP-owned.
