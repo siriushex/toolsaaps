@@ -56,8 +56,7 @@ class LocalClientTokenProvider : ContentProvider() {
                 val handle = extras.getString("handle") ?: return null
                 val bytes = extras.getByteArray("pong") ?: return null
                 val accepted = runBlocking(Dispatchers.IO) {
-                    withTimeout(2500) { AapsV3TargetJournal(container.db, KeystoreAapsV3JournalCipher())
-                        .acceptLocalPong(container.localEnrollmentOffers, id, handle, bytes) }
+                    withTimeout(2500) { container.acceptLocalEnrollmentPong(id, handle, bytes) }
                 }
                 return Bundle().apply { putBoolean("accepted", accepted) }
             }

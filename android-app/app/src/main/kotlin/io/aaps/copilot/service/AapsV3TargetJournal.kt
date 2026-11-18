@@ -22,7 +22,7 @@ internal enum class AapsV3TargetPhase { PREPARED, PREVIEW, COMMITTED, UNKNOWN, A
 @Serializable internal enum class AapsV3PairingPhase { WAITING, ACTIVE, REVOKED }
 internal class AapsV3PairingSnapshot(val phase: AapsV3PairingPhase, val clientId: String,
     val masterInstallId: String, val controlEnabled: Boolean, val lastPongAt: Long, val pongCounter: Long,
-    val publication: LocalV3Write? = null) {
+    val publication: LocalV3Write? = null, val localEnrollment: Boolean = false) {
     override fun toString() = "AapsV3PairingSnapshot($phase)"
 }
 
@@ -256,6 +256,7 @@ internal class AapsV3TargetJournal(
         val bootstrap = pair.requiresSignedRoster && pair.phase == AapsV3PairingPhase.WAITING && nowMs < pair.expiresAt
         if (root.pending != null || (!active && !bootstrap)) return@transaction null
         val local = if (bootstrap && pair.localBinding != null) {
+            if (pair.pongCounter != 0L) return@transaction null
             val offer = localOffers?.current() ?: return@transaction null
             if (offer.clientId != pair.clientId || digest(offer.handle) != pair.localBinding ||
                 pair.verifiedSubject == null || !localOffers.ready(offer)) return@transaction null
@@ -769,7 +770,7 @@ internal class AapsV3TargetJournal(
         val rosterSignedAt: Long = 0, val verifiedRole: AapsFinalClientRole? = null,
         val pendingExchange: PendingExchange? = null, val secretRotated: Boolean = false,
         val pendingToken: PendingToken? = null, val verifiedSubject: String? = null, val localBinding: String? = null) {
-        fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled, lastPongAt, pongCounter, publication)
+        fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled, lastPongAt, pongCounter, publication, localBinding != null)
         override fun toString() = "NativePairing(redacted)"
     }
     @Serializable private class PendingToken(val subject: String, val token: String)

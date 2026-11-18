@@ -2196,6 +2196,12 @@
     <string name="native_aaps_check">Check connection</string>
     <string name="native_aaps_revoke">Revoke locally</string>
     <string name="native_aaps_pin">8-digit PIN</string>
+    <string name="native_aaps_route_phone">On this phone</string>
+    <string name="native_aaps_local_checked_before">Local PIN connection verified at %1$s. Target changes are not yet authorized.</string>
+    <string name="native_aaps_route_storage">NSClient settings channel</string>
+    <string name="native_aaps_local_pin_help">In AAPS, open Authorized clients, add a client and choose Copilot on this phone. Enter that PIN here.</string>
+    <string name="native_aaps_local_offer_missing">No current invitation from AAPS on this phone. Create a new local PIN in AAPS.</string>
+    <string name="native_aaps_local_offer_not_ready">AAPS has offered a PIN, but the local connection is not ready. Wait briefly and try again before the PIN expires.</string>
     <string name="native_aaps_pin_help">Open Client Control pairing in AAPS and enter its current PIN.</string>
     <string name="native_aaps_permission_consent">I understand that AAPS grants broad client control, including bolus commands. Copilot uses only a target-specific channel.</string>
     <string name="native_aaps_revoke_help">Copilot will stop using this pairing. Pending delivery is not cancelled. Also remove the client in AAPS to revoke its permission there.</string>

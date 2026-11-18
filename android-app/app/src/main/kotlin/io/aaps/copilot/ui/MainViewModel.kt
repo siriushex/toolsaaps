@@ -1846,8 +1846,8 @@ class MainViewModel(application: Application) :
             mutableNativeAapsInbound.value = withContext(Dispatchers.IO) { container.checkNativeAapsInbound() }
         }
     }
-    fun pairNativeAaps(pin: CharArray) {
-        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
+    fun pairNativeAaps(pin: CharArray, route: io.aaps.copilot.service.AapsV3PairingRoute) {
+        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin, route) }
             .invokeOnCompletion { pin.fill('\u0000') }
     }
     fun checkNativeAapsConnection() { viewModelScope.launch(Dispatchers.IO) { container.checkNativeAapsConnection() } }

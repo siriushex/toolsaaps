@@ -3,6 +3,8 @@ package io.aaps.copilot.ui.foundation.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
@@ -23,6 +25,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.aaps.copilot.R
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3PairingIssue
+import io.aaps.copilot.service.AapsV3PairingRoute
 import io.aaps.copilot.service.AapsV3InboundGlucose
 import io.aaps.copilot.service.AapsV3InboundSummary
 import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
@@ -33,7 +37,7 @@ import java.util.Date
 @Composable
 internal fun NativeAapsConnectionSection(
     state: AapsV3ConnectionState,
-    onPair: (CharArray) -> Unit,
+    onPair: (CharArray, AapsV3PairingRoute) -> Unit,
     onCheck: () -> Unit,
     onRevoke: () -> Unit,
     inbound: AapsV3InboundSummary? = null,
@@ -65,6 +69,17 @@ internal fun NativeAapsConnectionSection(
             AapsV3ConnectionStatus.OFFLINE -> R.string.native_aaps_offline
             AapsV3ConnectionStatus.ERROR -> R.string.native_aaps_error
         }), Modifier.testTag("native_aaps_status"), style = MaterialTheme.typography.bodyMedium)
+        state.localLinkCheckedAtMs?.let {
+            Text(stringResource(R.string.native_aaps_local_checked_before, DateFormat.getDateTimeInstance(
+                DateFormat.SHORT, DateFormat.SHORT).format(Date(it))), Modifier.testTag("native_aaps_local_checked_before"),
+                style = MaterialTheme.typography.bodySmall)
+        }
+        state.pairingIssue?.let {
+            Text(stringResource(when (it) {
+                AapsV3PairingIssue.LOCAL_INVITATION_MISSING -> R.string.native_aaps_local_offer_missing
+                AapsV3PairingIssue.LOCAL_NOT_READY -> R.string.native_aaps_local_offer_not_ready
+            }), Modifier.testTag("native_aaps_pair_issue"), style = MaterialTheme.typography.bodySmall)
+        }
         if (state.status == AapsV3ConnectionStatus.UNPAIRED) state.settingsSubscribedAtCheck?.let { subscribed ->
             Text(stringResource(if (subscribed) R.string.native_storage_seen else R.string.native_storage_not_seen),
                 Modifier.testTag("native_storage_status"), style = MaterialTheme.typography.bodySmall)
@@ -96,8 +111,22 @@ internal fun NativeAapsConnectionSection(
         if (pairing) {
             var pin by remember { mutableStateOf("") }
             var consent by remember { mutableStateOf(false) }
+            var route by remember { mutableStateOf(if (localUpload) AapsV3PairingRoute.SAME_PHONE else AapsV3PairingRoute.STORAGE) }
             DisposableEffect(Unit) { onDispose { pin = "" } }
-            Text(stringResource(R.string.native_aaps_pin_help))
+            Column(Modifier.selectableGroup()) {
+                for (option in AapsV3PairingRoute.entries) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = route == option,
+                        role = Role.RadioButton, onClick = {
+                            if (route != option) { pin = ""; consent = false; route = option }
+                        }).testTag("native_aaps_route_${option.name}"),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        RadioButton(selected = route == option, onClick = null)
+                        Text(stringResource(if (option == AapsV3PairingRoute.SAME_PHONE) R.string.native_aaps_route_phone
+                            else R.string.native_aaps_route_storage), modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+            Text(stringResource(if (route == AapsV3PairingRoute.SAME_PHONE) R.string.native_aaps_local_pin_help else R.string.native_aaps_pin_help))
             OutlinedTextField(value = pin, onValueChange = { raw ->
                 pin = raw.filter { it in '0'..'9' }.take(8)
             }, label = { Text(stringResource(R.string.native_aaps_pin)) }, singleLine = true,
@@ -115,7 +144,7 @@ internal fun NativeAapsConnectionSection(
                 }
                 Button(onClick = {
                     val ownedPin = pin.toCharArray(); pin = ""; pairing = false
-                    focus.clearFocus(force = true); onPair(ownedPin)
+                    focus.clearFocus(force = true); onPair(ownedPin, route)
                 }, enabled = pin.length == 8 && consent && !state.busy, modifier = Modifier.testTag("native_aaps_confirm")) {
                     Text(stringResource(R.string.native_aaps_pair))
                 }

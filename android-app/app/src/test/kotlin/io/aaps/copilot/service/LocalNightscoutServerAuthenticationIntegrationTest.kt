@@ -229,7 +229,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 }
             }
             channel.start(scope)
-            channel.pair("23456789".toCharArray())
+            channel.pair("23456789".toCharArray(), AapsV3PairingRoute.SAME_PHONE)
             val pair = checkNotNull(journal.pairingSnapshot())
             val point = receive()
             val unboundRefused = try {
@@ -269,7 +269,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             } catch (_: AapsV3TargetJournalFailure) { true }
             assertThat(stalePongRolledBack).isTrue()
             assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(0)
-            assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isTrue()
+            assertThat(channel.acceptLocalEnrollmentPong(pair.clientId, current.handle, pong)).isTrue()
             assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isFalse()
             assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(2)
             send("PONG_ACCEPTED")
@@ -277,6 +277,10 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
             assertThat(process.exitValue()).isEqualTo(0)
             assertThat(input.readLine()).isEqualTo("LOCAL_PONG_VERIFIED")
+            assertThat(offers.withdraw(pair.clientId, current.handle)).isTrue()
+            channel.checkConnection()
+            assertThat(channel.state.value.localLinkCheckedAtMs).isGreaterThan(0L)
+            assertThat(channel.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
             assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
             assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
@@ -321,11 +325,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             }.start()
             child = process
             withTimeout(20_000) {
-                while (!listener.hasNativeStorageSubscription()) {
+                while (!ticket.subscribed()) {
                     check(process.isAlive) { "Pinned settings peer terminated before subscription" }
                     delay(25)
                 }
             }
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
             val store = LocalNightscoutV3Store(db)
             store.create(storageInput("private-configuration"))
             store.create(pingPublication("01234567-0000-4000-8000-abcdef123457"))
@@ -1166,7 +1171,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             }
             assertThat(listener.hasNativeStorageSubscription()).isTrue()
             channel.start(CoroutineScope(runtime + Dispatchers.IO))
-            channel.pair("23456789".toCharArray())
+            channel.pair("23456789".toCharArray(), AapsV3PairingRoute.STORAGE)
             if (useToken) {
                 val pair = checkNotNull(journal.pairingSnapshot())
                 val hello = checkNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_${pair.clientId}"))

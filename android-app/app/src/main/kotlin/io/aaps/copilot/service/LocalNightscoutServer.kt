@@ -539,7 +539,7 @@ class LocalNightscoutServer internal constructor(
             // Lock-free snapshot: publication guards may already own a Room transaction.
             return socketSessions.values.any { session ->
                 val pingAt = session.awaitingPongSince
-                (grant == null || session.settingsGrant === grant) &&
+                session.settingsGrant === grant &&
                     session.storageSettingsSubscribed && session.settingsGrant?.live() != false &&
                     now - session.lastSeenAt in 0..minOf(35_000L, socketLimits.sessionTtlMs) &&
                     (pingAt == null || now - pingAt in 0L until SOCKET_PING_TIMEOUT_MS)

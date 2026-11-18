@@ -169,7 +169,7 @@ fun SettingsScreen(
     onNativeAapsInboundCheck: () -> Unit = {},
     localAapsV3Upload: Boolean = false,
     onLocalAapsV3Upload: (Boolean) -> Unit = {},
-    onNativeAapsPair: (CharArray) -> Unit = { it.fill('\u0000') },
+    onNativeAapsPair: (CharArray, io.aaps.copilot.service.AapsV3PairingRoute) -> Unit = { pin, _ -> pin.fill('\u0000') },
     onNativeAapsCheck: () -> Unit = {},
     onNativeAapsRevoke: () -> Unit = {},
     onLocalBroadcastIngestToggle: (Boolean) -> Unit = {},

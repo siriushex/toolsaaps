@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Density
 import io.aaps.copilot.config.UiStyle
 import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
+import io.aaps.copilot.service.AapsV3PairingRoute
 import io.aaps.copilot.service.AapsV3InboundGlucose
 import io.aaps.copilot.service.AapsV3InboundSummary
 import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
@@ -49,7 +50,7 @@ class NativeAapsConnectionSectionTest {
 
     @Test fun pairingRequiresPinAndExplicitConsentAndDoesNotRetainPinWhenReopened() {
         var calls = 0
-        screen(onPair = { pin -> assertArrayEquals("23456789".toCharArray(), pin); pin.fill('\u0000'); calls++ }) {
+        screen(onPair = { pin, route -> assertArrayEquals("23456789".toCharArray(), pin); assertEquals(AapsV3PairingRoute.SAME_PHONE, route); pin.fill('\u0000'); calls++ }) {
             compose.onNodeWithTag("native_aaps_pair").performClick()
             settle()
             saveCredentialRaster("normal")
@@ -59,6 +60,12 @@ class NativeAapsConnectionSectionTest {
             compose.onNodeWithTag("native_aaps_confirm").assertIsNotEnabled()
             compose.onNodeWithTag("native_aaps_consent").performScrollTo().performClick()
             settle()
+            compose.onNodeWithTag("native_aaps_route_SAME_PHONE").performScrollTo().performClick()
+            compose.onNodeWithTag("native_aaps_confirm").assertIsNotEnabled()
+            compose.onNodeWithTag("native_aaps_pin").assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+            compose.onNodeWithTag("native_aaps_consent").assertIsOff()
+            compose.onNodeWithTag("native_aaps_pin").performScrollTo().performTextInput("23456789")
+            compose.onNodeWithTag("native_aaps_consent").performScrollTo().performClick()
             compose.onNodeWithTag("native_aaps_confirm").performScrollTo().performClick()
             settle()
             assertEquals(1, calls)
@@ -202,7 +209,7 @@ class NativeAapsConnectionSectionTest {
     }
 
     private fun screen(state: AapsV3ConnectionState = AapsV3ConnectionState(),
-        onPair: (CharArray) -> Unit = { it.fill('\u0000'); error("Unexpected pairing") },
+        onPair: (CharArray, AapsV3PairingRoute) -> Unit = { pin, _ -> pin.fill('\u0000'); error("Unexpected pairing") },
         onCheck: () -> Unit = { error("Unexpected check") }, fontScale: Float = 1f,
         inbound: AapsV3InboundSummary? = null, onInboundCheck: () -> Unit = { error("Unexpected inbound check") },
         test: () -> Unit) {

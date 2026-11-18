@@ -1153,7 +1153,9 @@ class AppContainer(context: Context) {
         if (settings.localAapsV3Upload) return nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
         return AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
     }
-    suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
+    suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
+    internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentPong(id, handle, bytes)
     internal suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray) =
         nativeAapsTargetChannel.acceptLocalEnrollmentKey(id, handle, bytes)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()

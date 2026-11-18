@@ -2204,6 +2204,12 @@
     <string name="native_aaps_check">Проверить связь</string>
     <string name="native_aaps_revoke">Отозвать локально</string>
     <string name="native_aaps_pin">PIN из 8 цифр</string>
+    <string name="native_aaps_route_phone">На этом телефоне</string>
+    <string name="native_aaps_local_checked_before">Проверка связи по PIN пройдена: %1$s. Право менять цели пока не подтверждено.</string>
+    <string name="native_aaps_route_storage">Канал настроек NSClient</string>
+    <string name="native_aaps_local_pin_help">В AAPS откройте «Авторизованные клиенты», добавьте клиента и выберите «Copilot на этом телефоне». Введите полученный PIN здесь.</string>
+    <string name="native_aaps_local_offer_missing">Нет действующего приглашения от AAPS на этом телефоне. Создайте в AAPS новый локальный PIN.</string>
+    <string name="native_aaps_local_offer_not_ready">Приглашение получено, но локальная связь с AAPS ещё не установлена. Подождите немного и повторите попытку до истечения PIN.</string>
     <string name="native_aaps_pin_help">Откройте сопряжение Client Control в AAPS и введите текущий PIN.</string>
     <string name="native_aaps_permission_consent">Я понимаю, что AAPS выдаёт широкое разрешение, включая болюсы. Copilot использует только канал целей.</string>
     <string name="native_aaps_revoke_help">Copilot перестанет использовать сопряжение. Ожидающая команда не отменяется. Для отзыва разрешения со стороны AAPS удалите там этого клиента.</string>
