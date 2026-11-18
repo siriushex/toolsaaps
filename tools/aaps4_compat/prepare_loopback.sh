@@ -26,6 +26,9 @@ git apply --index "$reply"
 probe="$root/tools/aaps4_compat/final-local-probe.patch"
 git apply --check "$probe"
 git apply --index "$probe"
+picker="$root/tools/aaps4_compat/final-local-picker.patch"
+git apply --check "$picker"
+git apply --index "$picker"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -44,5 +47,6 @@ export AAPS_INTEROP_QUERY_SOURCE="$root/tools/aaps4_compat/loopback_src"
 export AAPS_INTEROP_CLASSPATH="$root/android-app/build/aaps4-loopback-interop/classpath.txt"
 ./gradlew --no-daemon --max-workers=2 --console=plain \
     -I "$root/tools/aaps4_compat/interop.init.gradle" :core:nssdk:jvmTest :core:nssdk:exportInteropClasspath \
-    :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest'
+    :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest' \
+    :app:compileFullReleaseKotlin
 test -s "$AAPS_INTEROP_CLASSPATH"
