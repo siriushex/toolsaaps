@@ -123,6 +123,11 @@ internal class AapsV3SessionProtocol(secret: ByteArray) : AutoCloseable {
         require(counter > 1L && at <= LocalNightscoutV3Store.MAX_TIME - 8000)
         return envelope(clientId, counter, at, at + 8000, true, "ping", """{"type":"ping"}""")
     }
+    fun localWitness(clientId: String, masterId: String, nonce: String, at: Long): JsonObject {
+        require(at in 1..(LocalNightscoutV3Store.MAX_TIME - 8_000L))
+        val body = buildJsonObject { put("masterInstallId", masterId); put("nonce", nonce) }
+        return envelope(clientId, 0, at, at + 8_000L, true, "local_session_witness_v1", body.toString())
+    }
     fun isPong(request: JsonObject, ack: JsonObject, nowMs: Long): Boolean =
         verifyPong(request, ack, nowMs, allowSignedKey = false)
 

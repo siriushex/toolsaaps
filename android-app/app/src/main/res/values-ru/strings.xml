@@ -2206,6 +2206,7 @@
     <string name="native_aaps_pin">PIN из 8 цифр</string>
     <string name="native_aaps_route_phone">На этом телефоне</string>
     <string name="native_local_role_receipt">Роль по данным AAPS на момент сопряжения: %1$s.</string>
+    <string name="native_local_membership_verified">AAPS подтвердил сопряжение в %2$s. Роль: %1$s. Применение целей проверяется отдельно.</string>
     <string name="native_role_read">Только чтение</string>
     <string name="native_role_meal">Помощник по питанию</string>
     <string name="native_role_caregiver">Помощник по уходу</string>

@@ -49,6 +49,23 @@ internal class AapsFinalMasterKey private constructor(private val key: PublicKey
         AapsLocalRoleReceipt(role, at)
     } catch (_: Exception) { null }
 
+    fun verifyLocalWitness(doc: JsonObject, client: String, master: String, nonce: String, issued: Long, now: Long): AapsLocalRoleReceipt? = try {
+        require(CLIENT_ID.matches(client) && CLIENT_ID.matches(nonce) && issued in 1..(HistoryJson.maxTime - 8_000L) &&
+            now in issued until issued + 8_000L)
+        HistoryJson.fields(doc, setOf("signed", "signature"))
+        val bytes = HistoryJson.encodeUtf8(HistoryJson.string(doc.getValue("signed")))
+        require(bytes.size in 1..1024 && signatureMatches("local_session_witness_v1_" + client, bytes,
+            decode64(HistoryJson.string(doc.getValue("signature")), 64)))
+        val body = HistoryJson.parse(bytes, 1024)
+        HistoryJson.fields(body, setOf("clientId","masterInstallId","nonce","role","issued","expiresAt","signedAt"))
+        require(body["clientId"] == JsonPrimitive(client) && body["masterInstallId"] == JsonPrimitive(master) &&
+            body["nonce"] == JsonPrimitive(nonce) && body["issued"] == JsonPrimitive(issued) &&
+            body["expiresAt"] == JsonPrimitive(issued + 8_000L))
+        val at = HistoryJson.long(body.getValue("signedAt"))
+        require(at in issued..now)
+        AapsLocalRoleReceipt(AapsFinalClientRole.entries.single { body["role"] == JsonPrimitive(it.wire) }, at)
+    } catch (_: Exception) { null }
+
     fun verifyRoster(doc: JsonObject, clientId: String, now: Long, minimumSignedAt: Long): AapsFinalRosterProof? = try {
         require(HistoryJson.long(doc.getValue("schemaVersion")) == 2L && "runningConfig" !in doc)
         val signed = HistoryJson.string(doc.getValue("signed"))

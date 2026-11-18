@@ -328,6 +328,29 @@ internal class AapsV3TargetJournal(
         true
     }
 
+    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?): AapsLocalRoleReceipt? {
+        val pair = transaction { pairingOrNull() } ?: return null
+        if (pair.localBinding == null || !pair.secretRotated || pair.phase == AapsV3PairingPhase.REVOKED ||
+            pair.verifiedSubject == null || pair.enrollmentRole == null) return null
+        val key = pair.masterPublicPoint?.let(AapsFinalMasterKey::fromEncodedPoint) ?: return null
+        val issued = clock()
+        val nonce = java.util.UUID.randomUUID().toString()
+        val secret = secretBytes(pair)
+        val request = try {
+            AapsV3SessionProtocol(secret).use { it.localWitness(pair.clientId, pair.masterInstallId, nonce, issued) }
+                .toString().encodeToByteArray()
+        } finally { secret.fill(0) }
+        // IPC must never hold the database transaction or prevent local revocation.
+        val bytes = try { ask(pair.masterInstallId, nonce, request) } finally { request.fill(0) } ?: return null
+        return try {
+            if (bytes.size !in 1..2048) return null
+            val doc = HistoryJson.parse(bytes, 2048)
+            transaction {
+                if (pairingOrNull() != pair) null else key.verifyLocalWitness(doc, pair.clientId, pair.masterInstallId, nonce, issued, clock())
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { null } finally { bytes.fill(0) }
+    }
+
     private suspend fun recordProbeAnswer(pair: Pairing, ack: JsonObject, nowMs: Long): Boolean {
         val probe = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) } ?: return false
         if (pair.requiresSignedRoster && !pair.secretRotated) return false

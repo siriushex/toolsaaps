@@ -38,7 +38,9 @@ data class AapsV3ConnectionState(
     val settingsSubscribedAtCheck: Boolean? = null,
     val pairingIssue: AapsV3PairingIssue? = null,
     val localLinkCheckedAtMs: Long? = null,
-    val localEnrollmentRole: AapsFinalClientRole? = null
+    val localEnrollmentRole: AapsFinalClientRole? = null,
+    val localMembershipVerifiedAtMs: Long? = null,
+    val localMembershipRole: AapsFinalClientRole? = null
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -50,11 +52,15 @@ internal class AapsV3TargetChannel(
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
     private val clock: () -> Long = System::currentTimeMillis,
     private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
-    private val localOffers: LocalEnrollmentOffers? = null
+    private val localOffers: LocalEnrollmentOffers? = null,
+    private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
+    private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long, val receipt: AapsLocalRoleReceipt?)
+    // Accessed under refreshMutex; never used for command admission.
+    private var membershipCheck: MembershipCheck? = null
     private val commandMutex = Mutex()
     private val enrollmentMutex = Mutex()
     private val generation = AtomicLong(0)
@@ -241,6 +247,19 @@ internal class AapsV3TargetChannel(
             profileSource.readEvidence(maxOf(1, observedAt - 86_400_000L), observedAt, clock()) else null
         // Profile IO may suspend; derive connectivity from the pairing again after that read.
         pair = checkNotNull(journal.pairingSnapshot())
+        val witnessPeer = localWitnessPeer
+        val witness = if (witnessPeer != null && runtimeAllowed && epoch == generation.get() && pair.localEnrollment &&
+            pair.enrollmentRole != null && pair.phase != AapsV3PairingPhase.REVOKED && localOffers?.current() == null) {
+            val now = clock()
+            val previous = membershipCheck
+            if (previous != null && previous.epoch == epoch && previous.client == pair.clientId &&
+                now - previous.attempted in 0 until 60_000L) previous.receipt
+            else {
+                val result = journal.checkLocalMembership(clock, witnessPeer)
+                membershipCheck = MembershipCheck(epoch, pair.clientId, now, result)
+                result
+            }
+        } else { membershipCheck = null; null }
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
             !runtimeAllowed || !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
@@ -273,7 +292,8 @@ internal class AapsV3TargetChannel(
             if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0,
             mutableHistoryState.value, pairingIssue = mutableState.value.pairingIssue,
             localLinkCheckedAtMs = pair.lastPongAt.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING && pair.pongCounter == 2L && it > 0 },
-            localEnrollmentRole = pair.enrollmentRole.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING })
+            localEnrollmentRole = pair.enrollmentRole.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING },
+            localMembershipVerifiedAtMs = witness?.signedAt, localMembershipRole = witness?.role)
             if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch)
             else stopHistory(clearAudit = status != AapsV3ConnectionStatus.VERIFYING)
         }

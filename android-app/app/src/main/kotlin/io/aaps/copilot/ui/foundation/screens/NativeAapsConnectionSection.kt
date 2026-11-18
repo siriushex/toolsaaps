@@ -75,14 +75,18 @@ internal fun NativeAapsConnectionSection(
                 DateFormat.SHORT, DateFormat.SHORT).format(Date(it))), Modifier.testTag("native_aaps_local_checked_before"),
                 style = MaterialTheme.typography.bodySmall)
         }
-        state.localEnrollmentRole?.let { role ->
+        (state.localMembershipRole ?: state.localEnrollmentRole)?.let { role ->
             val label = when (role) {
                 AapsFinalClientRole.READ_ONLY -> R.string.native_role_read
                 AapsFinalClientRole.MEAL_ASSISTANT -> R.string.native_role_meal
                 AapsFinalClientRole.CAREGIVER -> R.string.native_role_caregiver
                 AapsFinalClientRole.ADMIN -> R.string.native_role_admin
             }
-            Text(stringResource(R.string.native_local_role_receipt, stringResource(label)),
+            val verifiedAt = state.localMembershipVerifiedAtMs
+            val roleText = if (verifiedAt != null) stringResource(R.string.native_local_membership_verified, stringResource(label),
+                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(verifiedAt)))
+                else stringResource(R.string.native_local_role_receipt, stringResource(label))
+            Text(roleText,
                 Modifier.testTag("native_local_role_receipt"), style = MaterialTheme.typography.bodySmall)
         }
         state.pairingIssue?.let {

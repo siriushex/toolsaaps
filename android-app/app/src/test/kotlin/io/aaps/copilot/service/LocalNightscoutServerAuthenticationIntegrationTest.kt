@@ -301,11 +301,24 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.pairingSnapshot()?.enrollmentRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
             assertThat(journal.pairingSnapshot()?.controlEnabled).isFalse()
             send("ROLE_OBSERVED")
+            assertThat(offers.withdraw(pair.clientId, current.handle)).isTrue()
+            val reopened = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+                SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+            })
+            val afterPin = current.expires + 60_000L
+            lateinit var reply: String
+            val member = reopened.checkLocalMembership({ afterPin }) { master, nonce, bytes ->
+                assertThat(master).isEqualTo(pair.masterInstallId)
+                send(nonce); send(bytes.decodeToString())
+                reply = receive()
+                reply.encodeToByteArray()
+            }
+            assertThat(member?.role).isEqualTo(AapsFinalClientRole.READ_ONLY)
+            assertThat(reopened.checkLocalMembership({ afterPin }) { _, _, _ -> reply.encodeToByteArray() }).isNull()
             output.close()
             check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
             assertThat(process.exitValue()).isEqualTo(0)
             assertThat(input.readLine()).isEqualTo("LOCAL_PONG_VERIFIED")
-            assertThat(offers.withdraw(pair.clientId, current.handle)).isTrue()
             channel.checkConnection()
             assertThat(channel.state.value.localLinkCheckedAtMs).isGreaterThan(0L)
             assertThat(channel.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)

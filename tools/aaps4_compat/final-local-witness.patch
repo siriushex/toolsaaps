@@ -1,0 +1,223 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index a4dfe4d6a2..09e88fbe65 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -8,4 +8,5 @@
+     <uses-permission android:name="io.aaps.predictivecopilot.permission.ISSUE_LOCAL_CLIENT_TOKEN" />
++    <permission android:name="${applicationId}.permission.CHECK_LOCAL_CLIENT_SESSION" android:protectionLevel="signature" />
+     <queries>
+         <package android:name="io.aaps.predictivecopilot" />
+     </queries>
+@@ -73,6 +74,11 @@
+             android:name="com.google.android.gms.car.application"
+             android:resource="@xml/automotive_app_desc" />
+
++        <provider android:name="app.aaps.localsession.LocalSessionProvider"
++            android:authorities="${applicationId}.localsession"
++            android:permission="${applicationId}.permission.CHECK_LOCAL_CLIENT_SESSION"
++            android:exported="true" android:grantUriPermissions="false" />
++
+         <activity
+             android:name="app.aaps.ComposeMainActivity"
+             android:exported="true"
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 97162ef28c..11c6b6b866 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -148,6 +148,12 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     private val plugins get() = metroGraphs.allPlugins(aapsLogger)
+     private val persistenceLayer get() = metroGraphs.persistenceLayer
+     private val dateUtil get() = metroGraphs.dateUtil
++    internal suspend fun localSessionWitness(request: app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope,
++                                             master: String, nonce: String): app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey.Signed? {
++        if (AndroidStorage.failure != null || !config.initProgressFlow.value.done) return null
++        return metroGraphs.rootGraph.authorizedClientsRepository.localSessionWitness(request, master, nonce,
++            metroGraphs.rootGraph.localWitnessSigner, System::currentTimeMillis)
++    }
+     internal suspend fun readLocalObservation(now: Long): ByteArray {
+         check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
+         return app.aaps.localobservation.readLocalObservation(persistenceLayer, dateUtil, now)
+diff --git a/app/src/main/kotlin/app/aaps/di/metro/AppRootGraph.kt b/app/src/main/kotlin/app/aaps/di/metro/AppRootGraph.kt
+index 676b596591..73ca0938e4 100644
+--- a/app/src/main/kotlin/app/aaps/di/metro/AppRootGraph.kt
++++ b/app/src/main/kotlin/app/aaps/di/metro/AppRootGraph.kt
+@@ -425,6 +425,7 @@ interface AppRootGraph : MetroViewModelMultibindings {
+     val clientPairingRepository: ClientPairingRepository
+     val clientControlPublisher: ClientControlPublisher
+     val authorizedClientsRepository: AuthorizedClientsRepository
++    val localWitnessSigner: app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey
+     val receiverDelegate: ReceiverDelegate
+     val nsClientV3Plugin: NSClientV3Plugin
+     val workManager: WorkManager
+diff --git a/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt b/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt
+new file mode 100644
+index 0000000000..9f0577bea3
+--- /dev/null
++++ b/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt
+@@ -0,0 +1,60 @@
++package app.aaps.localsession
++
++import android.content.ContentProvider
++import android.content.ContentValues
++import android.content.pm.PackageManager
++import android.database.Cursor
++import android.net.Uri
++import android.os.Binder
++import android.os.Bundle
++import android.os.Process
++import android.os.SystemClock
++import app.aaps.MainApp
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withTimeoutOrNull
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++import java.util.concurrent.atomic.AtomicBoolean
++
++/** Same-signature, single-peer, proof of current membership only. No settings or therapy operations. */
++class LocalSessionProvider : ContentProvider() {
++    private val busy = AtomicBoolean(false)
++    private var lastAttempt = -5_000L
++    override fun onCreate() = true
++    override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
++        val app = checkNotNull(context).applicationContext as MainApp
++        val uid = Binder.getCallingUid()
++        if (app.packageName != "info.nightscout.androidaps" || callingPackage != PEER ||
++            app.packageManager.getPackagesForUid(uid)?.singleOrNull() != PEER ||
++            app.checkCallingPermission(app.packageName + ".permission.CHECK_LOCAL_CLIENT_SESSION") != PackageManager.PERMISSION_GRANTED ||
++            app.packageManager.checkSignatures(uid, Process.myUid()) != PackageManager.SIGNATURE_MATCH) throw SecurityException("denied")
++        require(method == "witness_v1" && arg == null && extras != null && extras.keySet() == setOf("master", "nonce", "request"))
++        val master = extras.getString("master")?.takeIf { it.length in 1..128 } ?: return Bundle()
++        val nonce = extras.getString("nonce")?.takeIf { it.length == 36 } ?: return Bundle()
++        val bytes = extras.getByteArray("request")?.takeIf { it.size in 1..2048 } ?: return Bundle()
++        if (!busy.compareAndSet(false, true)) return Bundle()
++        try {
++            val elapsed = SystemClock.elapsedRealtime()
++            if (elapsed - lastAttempt < 5_000L) return Bundle()
++            lastAttempt = elapsed
++            val token = Binder.clearCallingIdentity()
++            try {
++                val request = Json.decodeFromString(SignedEnvelope.serializer(), bytes.decodeToString(throwOnInvalidSequence = true))
++                val witness = runBlocking(Dispatchers.IO) {
++                    withTimeoutOrNull(2500) { app.localSessionWitness(request, master, nonce) }
++                } ?: return Bundle()
++                val reply = buildJsonObject { put("signed", witness.text); put("signature", witness.signature) }
++                return Bundle().apply { putByteArray("witness", reply.toString().encodeToByteArray()) }
++            } catch (_: Exception) { return Bundle() } finally { Binder.restoreCallingIdentity(token) }
++        } finally { bytes.fill(0); busy.set(false) }
++    }
++    override fun getType(uri: Uri): String? = null
++    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? = null
++    override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
++    override fun delete(uri: Uri, selection: String?, args: Array<out String>?): Int = throw UnsupportedOperationException()
++    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?): Int = throw UnsupportedOperationException()
++    private companion object { const val PEER = "io.aaps.predictivecopilot" }
++}
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalSessionWitness.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalSessionWitness.kt
+new file mode 100644
+index 0000000000..b468425ae2
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalSessionWitness.kt
+@@ -0,0 +1,26 @@
++package app.aaps.core.nssdk.utils
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++
++/** Read-only reconnect proof. It has its own domain and never occupies a command counter. */
++object LocalSessionWitness {
++    private val id = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
++    private val masterId = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
++    fun identifier(client: String) = "local_session_witness_v1_" + client
++
++    fun accepts(request: SignedEnvelope, master: String, nonce: String, now: Long): Boolean =
++        id.matches(request.clientId) && masterId.matches(master) && id.matches(nonce) &&
++            request.type == "local_session_witness_v1" && request.counter == 0L && request.wantsAck &&
++            request.timestamp in 1..(Long.MAX_VALUE - 8_000L) && request.validUntil == request.timestamp + 8_000L &&
++            now in request.timestamp until request.validUntil && request.payload == buildJsonObject {
++                put("masterInstallId", master); put("nonce", nonce)
++            }.toString()
++
++    fun signedBody(request: SignedEnvelope, master: String, nonce: String, role: String, signedAt: Long) =
++        buildJsonObject {
++            put("clientId", request.clientId); put("masterInstallId", master); put("nonce", nonce)
++            put("role", role); put("issued", request.timestamp); put("expiresAt", request.validUntil); put("signedAt", signedAt)
++        }.toString()
++}
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index 753e566608..e3b3bf3e61 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -135,8 +135,28 @@ internal class AuthorizedClientsRepositoryTest {
+                 assertThat(active.counterReceived).isEqualTo(2L)
+                 assertThat(active.pendingSecret).isNull()
+                 assertThat(checkNotNull(sut.secretLookup(entry.clientId)).secretBytes.contentEquals(key)).isTrue()
++                now = entry.pairExpiresAt + 90_000L
++                val nonce = "ab010000-0000-4000-8000-000000000001"
++                val request = ClientControlCrypto.signEnvelope(key, SignedEnvelope(entry.clientId, 0L, now, "local_session_witness_v1",
++                    """{"masterInstallId":"$master","nonce":"$nonce"}""", "", now + 8_000, true))
++                whenever(signer.sign(any(), any())).thenAnswer {
++                    @Suppress("UNCHECKED_CAST") val body = it.arguments[1] as (Long) -> String
++                    MasterSigningKey.Signed(body(now), "fixture-signature")
++                }
++                sut.setRole(entry.clientId, ClientRole.ReadOnly)
++                val before = checkNotNull(sut.findRaw(entry.clientId))
++                assertThat(sut.localSessionWitness(request, master, nonce, signer) { now }!!.text).contains("\"role\":\"ReadOnly\"")
++                assertThat(sut.findRaw(entry.clientId)).isEqualTo(before)
++                assertThat(sut.localSessionWitness(request.copy(signature = ""), master, nonce, signer) { now }).isNull()
++                assertThat(sut.localSessionWitness(request, "other", nonce, signer) { now }).isNull()
++                assertThat(sut.localSessionWitness(request, master, handle, signer) { now }).isNull()
++                assertThat(sut.localSessionWitness(request, master, nonce, signer) { request.validUntil }).isNull()
++                whenever(preferences.hardenedMode).thenReturn(false)
++                assertThat(sut.localSessionWitness(request, master, nonce, signer) { now }).isNull()
++                whenever(preferences.hardenedMode).thenReturn(true)
+                 sut.delete(entry.clientId)
+                 assertThat(updated.confirmPeerAccepted()).isFalse()
++                assertThat(sut.localSessionWitness(request, master, nonce, signer) { now }).isNull()
+             }
+         }
+     }
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 7d312cc89a..30ceec4248 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -13,6 +13,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+ import app.aaps.core.nssdk.utils.LocalFirstPong
+ import app.aaps.core.nssdk.utils.LocalEnrollmentRole
++import app.aaps.core.nssdk.utils.LocalSessionWitness
+ import app.aaps.core.nssdk.utils.ClientControlCrypto
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.Inject
+@@ -211,6 +212,28 @@ class AuthorizedClientsRepository(
+         }
+     }
+
++    /** One same-phone membership check, including after PIN expiry. No command, role or counter mutation. */
++    suspend fun localSessionWitness(request: SignedEnvelope, master: String, nonce: String, signer: MasterSigningKey,
++                                    clock: () -> Long): MasterSigningKey.Signed? = mutex.withLock {
++        fun live() = preferences.hardenedMode && preferences.get(StringNonKey.NsClientControlOwnInstallId) == master &&
++            LocalSessionWitness.accepts(request, master, nonce, clock())
++        if (!live()) return@withLock null
++        val entry = decode().singleOrNull { it.clientId == request.clientId } ?: return@withLock null
++        val role = ClientRole.entries.singleOrNull { it.name == entry.role } ?: return@withLock null
++        if (!entry.localCopilot || entry.state != ClientState.Active || entry.counterReceived < 2L ||
++            entry.pendingSecret != null || request.timestamp < entry.lastSeenAt ||
++            !secureEncrypt.isValidDataString(entry.encryptedSecret)) return@withLock null
++        val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(entry.encryptedSecret))
++        val authentic = try { key.size == 32 && ClientControlCrypto.verifyEnvelope(key, request) } finally { key.fill(0) }
++        if (!authentic || !live()) return@withLock null
++        var signedAt = 0L
++        val result = signer.sign(LocalSessionWitness.identifier(entry.clientId)) { at ->
++            signedAt = at
++            LocalSessionWitness.signedBody(request, master, nonce, role.name, at)
++        }
++        result.takeIf { it.signature != null && live() && signedAt in request.timestamp..clock() && signedAt < request.validUntil }
++    }
++
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */
+     suspend fun promotePendingSecret(clientId: String): Unit = mutex.withLock {
+         val list = decode()

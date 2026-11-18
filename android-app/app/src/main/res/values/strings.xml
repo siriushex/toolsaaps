@@ -2198,6 +2198,7 @@
     <string name="native_aaps_pin">8-digit PIN</string>
     <string name="native_aaps_route_phone">On this phone</string>
     <string name="native_local_role_receipt">Role reported by AAPS during pairing: %1$s.</string>
+    <string name="native_local_membership_verified">AAPS confirmed this client at %2$s. Role: %1$s. Target delivery is verified separately.</string>
     <string name="native_role_read">Read only</string>
     <string name="native_role_meal">Meal assistant</string>
     <string name="native_role_caregiver">Caregiver</string>

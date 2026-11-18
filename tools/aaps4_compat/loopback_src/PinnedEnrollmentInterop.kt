@@ -7,6 +7,8 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
 import app.aaps.core.nssdk.utils.MasterDocSigning
 import app.aaps.core.nssdk.utils.LocalFirstPong
 import app.aaps.core.nssdk.utils.LocalEnrollmentRole
+import app.aaps.core.nssdk.utils.LocalSessionWitness
+import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
 import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import app.aaps.core.nssdk.utils.ClientControlPinOffer
@@ -39,6 +41,7 @@ fun main() {
             File(System.getenv("SETTINGS_TEST_LEAF")).readBytes())
         runBlocking {
             var saved: ByteArray? = null
+            val signer = MasterDocSigning.newKeyPair()
             try {
                 check(LocalPinHelloPeer.exchange(System.getenv("SETTINGS_TEST_PORT").toInt(), identity, bearer, pending, accept = { hello ->
                     val answer = LocalPinKeyResponder.answer(pending, hello, issue = { point ->
@@ -50,8 +53,6 @@ fun main() {
                     System.out.flush()
                     readln() == "KEY_ACCEPTED"
                 }, confirmProbe = { ping ->
-                    val signer = MasterDocSigning.newKeyPair()
-                    try {
                         val ack = LocalFirstPong.sign(checkNotNull(saved), id, ping, pending.expiresAt - 120_000,
                             pending.expiresAt, System.currentTimeMillis(), signer.publicKey)
                         println(Json.encodeToString(AckEnvelope.serializer(), checkNotNull(ack)))
@@ -65,9 +66,15 @@ fun main() {
                         })
                         System.out.flush()
                         readln() == "ROLE_OBSERVED"
-                    } finally { signer.privateKey.fill(0) }
                 }))
-            } finally { saved?.fill(0) }
+                val nonce = readln()
+                val request = Json.decodeFromString(SignedEnvelope.serializer(), readln())
+                check(request.timestamp > pending.expiresAt && LocalSessionWitness.accepts(request, pending.masterInstallId, nonce, request.timestamp))
+                check(ClientControlCrypto.verifyEnvelope(checkNotNull(saved), request))
+                val signed = LocalSessionWitness.signedBody(request, pending.masterInstallId, nonce, "ReadOnly", request.timestamp)
+                println(buildJsonObject { put("signed", signed); put("signature", MasterDocSigning.sign(signer.privateKey, LocalSessionWitness.identifier(id), signed)) })
+                System.out.flush()
+            } finally { signer.privateKey.fill(0); saved?.fill(0) }
         }
     }.isSuccess
     println(if (ok) "LOCAL_PONG_VERIFIED" else "LOCAL_PONG_FAILED")

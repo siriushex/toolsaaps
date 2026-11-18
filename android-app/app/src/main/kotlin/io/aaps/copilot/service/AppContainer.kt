@@ -1135,6 +1135,7 @@ class AppContainer(context: Context) {
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
         localOffers = localEnrollmentOffers,
+        localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
