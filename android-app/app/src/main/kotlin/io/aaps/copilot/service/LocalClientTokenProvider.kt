@@ -60,6 +60,16 @@ class LocalClientTokenProvider : ContentProvider() {
                 }
                 return Bundle().apply { putBoolean("accepted", accepted) }
             }
+            if (method == "local_pin_role_v1") {
+                if (extras.keySet() != setOf("client", "handle", "role")) return null
+                val id = extras.getString("client") ?: return null
+                val handle = extras.getString("handle") ?: return null
+                val bytes = extras.getByteArray("role") ?: return null
+                val accepted = runBlocking(Dispatchers.IO) {
+                    withTimeout(2500) { container.acceptLocalEnrollmentRole(id, handle, bytes) }
+                }
+                return Bundle().apply { putBoolean("accepted", accepted) }
+            }
             if (method != "issue_pending_v1") return null
             if (extras.keySet() != setOf("client", "master", "point", "subject")) return null
             val id = extras.getString("client")?.takeIf { it.length == 36 } ?: return null

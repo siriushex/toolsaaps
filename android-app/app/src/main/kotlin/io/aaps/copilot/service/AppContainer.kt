@@ -1156,6 +1156,8 @@ class AppContainer(context: Context) {
     suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
     internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =
         nativeAapsTargetChannel.acceptLocalEnrollmentPong(id, handle, bytes)
+    internal suspend fun acceptLocalEnrollmentRole(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentRole(id, handle, bytes)
     internal suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray) =
         nativeAapsTargetChannel.acceptLocalEnrollmentKey(id, handle, bytes)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()

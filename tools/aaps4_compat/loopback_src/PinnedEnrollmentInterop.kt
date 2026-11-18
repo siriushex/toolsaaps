@@ -6,6 +6,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
 import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
 import app.aaps.core.nssdk.utils.MasterDocSigning
 import app.aaps.core.nssdk.utils.LocalFirstPong
+import app.aaps.core.nssdk.utils.LocalEnrollmentRole
 import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import app.aaps.core.nssdk.utils.ClientControlPinOffer
@@ -15,6 +16,8 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.system.exitProcess
 
 /** Synthetic Binder calls go through private pipes. No tokens or documents go to test logs. */
@@ -31,6 +34,7 @@ fun main() {
         println(Json { encodeDefaults = true }.encodeToString(PairingOffer.serializer(), offer))
         System.out.flush()
         val bearer = checkNotNull(readlnOrNull())
+        val handle = readln()
         val identity = NsLoopbackUploadIdentity(File(System.getenv("SETTINGS_TEST_CA")).readBytes(),
             File(System.getenv("SETTINGS_TEST_LEAF")).readBytes())
         runBlocking {
@@ -47,11 +51,21 @@ fun main() {
                     readln() == "KEY_ACCEPTED"
                 }, confirmProbe = { ping ->
                     val signer = MasterDocSigning.newKeyPair()
-                    val ack = try { LocalFirstPong.sign(checkNotNull(saved), id, ping, pending.expiresAt - 120_000,
-                        pending.expiresAt, System.currentTimeMillis(), signer.publicKey) } finally { signer.privateKey.fill(0) }
-                    println(Json.encodeToString(AckEnvelope.serializer(), checkNotNull(ack)))
-                    System.out.flush()
-                    readln() == "PONG_ACCEPTED"
+                    try {
+                        val ack = LocalFirstPong.sign(checkNotNull(saved), id, ping, pending.expiresAt - 120_000,
+                            pending.expiresAt, System.currentTimeMillis(), signer.publicKey)
+                        println(Json.encodeToString(AckEnvelope.serializer(), checkNotNull(ack)))
+                        System.out.flush()
+                        check(readln() == "PONG_ACCEPTED")
+                        val text = LocalEnrollmentRole.body(id, pending.masterInstallId, handle, "Caregiver", ping.counter,
+                            System.currentTimeMillis(), minOf(ping.validUntil, pending.expiresAt))
+                        println(buildJsonObject {
+                            put("signed", text)
+                            put("signature", MasterDocSigning.sign(signer.privateKey, LocalEnrollmentRole.identifier(id), text))
+                        })
+                        System.out.flush()
+                        readln() == "ROLE_OBSERVED"
+                    } finally { signer.privateKey.fill(0) }
                 }))
             } finally { saved?.fill(0) }
         }

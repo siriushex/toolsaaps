@@ -37,7 +37,8 @@ data class AapsV3ConnectionState(
     val comboTransfer: ComboTransferState = ComboTransferState(),
     val settingsSubscribedAtCheck: Boolean? = null,
     val pairingIssue: AapsV3PairingIssue? = null,
-    val localLinkCheckedAtMs: Long? = null
+    val localLinkCheckedAtMs: Long? = null,
+    val localEnrollmentRole: AapsFinalClientRole? = null
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -179,6 +180,15 @@ internal class AapsV3TargetChannel(
         return true
     }
 
+    suspend fun acceptLocalEnrollmentRole(id: String, handle: String, bytes: ByteArray): Boolean {
+        val offers = localOffers ?: return false
+        if (!runtimeAllowed || !journal.acceptLocalRole(offers, id, handle, bytes, clock)) return false
+        synchronized(this) {
+            if (runtimeAllowed) runtimeScope?.launch(Dispatchers.IO) { checkConnection() }
+        }
+        return true
+    }
+
     suspend fun revoke() = try {
         stopHistory()
         localOffers?.clear()
@@ -262,7 +272,8 @@ internal class AapsV3TargetChannel(
             if (showEvidence) evidence?.comboHistory?.status ?: AapsV3ComboHistoryStatus.UNCHECKED else AapsV3ComboHistoryStatus.UNCHECKED,
             if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0,
             mutableHistoryState.value, pairingIssue = mutableState.value.pairingIssue,
-            localLinkCheckedAtMs = pair.lastPongAt.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING && pair.pongCounter == 2L && it > 0 })
+            localLinkCheckedAtMs = pair.lastPongAt.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING && pair.pongCounter == 2L && it > 0 },
+            localEnrollmentRole = pair.enrollmentRole.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING })
             if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch)
             else stopHistory(clearAudit = status != AapsV3ConnectionStatus.VERIFYING)
         }

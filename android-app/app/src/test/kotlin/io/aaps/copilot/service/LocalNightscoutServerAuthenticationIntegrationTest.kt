@@ -222,6 +222,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
             send(checkNotNull(ticket.getString("bearer")))
             val current = checkNotNull(offers.current())
+            send(current.handle)
             withTimeout(18_000) {
                 while (!offers.ready(current)) {
                     check(process.isAlive) { "Peer exited before subscribing" }
@@ -273,6 +274,33 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isFalse()
             assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(2)
             send("PONG_ACCEPTED")
+            val role = receive().toByteArray()
+            val doc = io.aaps.copilot.data.repository.HistoryJson.parse(role, 2048)
+            val body = io.aaps.copilot.data.repository.HistoryJson.parse(doc.getValue("signed").jsonPrimitive.content.toByteArray(), 1024)
+            val issued = body.getValue("signedAt").jsonPrimitive.content.toLong()
+            val deadline = body.getValue("expiresAt").jsonPrimitive.content.toLong()
+            val masterKey = checkNotNull(AapsFinalMasterKey.fromPong(ack["payload"]))
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, pair.masterInstallId, current.handle, issued, deadline, issued)?.role)
+                .isEqualTo(AapsFinalClientRole.CAREGIVER)
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, "another-master", current.handle, issued, deadline, issued)).isNull()
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, pair.masterInstallId, current.handle, issued, deadline, deadline)).isNull()
+            var roleClockReads = 0
+            val staleRoleRolledBack = try {
+                journal.acceptLocalRole(offers, pair.clientId, current.handle, role) {
+                    if (roleClockReads++ == 0) System.currentTimeMillis() else deadline
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(staleRoleRolledBack).isTrue()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, "wrong", role)).isFalse()
+            val edited = role.decodeToString().replace("Caregiver", "Admin").toByteArray()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, edited)).isFalse()
+            assertThat(journal.pairingSnapshot()?.enrollmentRole).isNull()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, role)).isTrue()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, role)).isFalse()
+            assertThat(journal.pairingSnapshot()?.enrollmentRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
+            assertThat(journal.pairingSnapshot()?.controlEnabled).isFalse()
+            send("ROLE_OBSERVED")
             output.close()
             check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
             assertThat(process.exitValue()).isEqualTo(0)
@@ -281,6 +309,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             channel.checkConnection()
             assertThat(channel.state.value.localLinkCheckedAtMs).isGreaterThan(0L)
             assertThat(channel.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
+            assertThat(channel.state.value.localEnrollmentRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
             assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
             assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()

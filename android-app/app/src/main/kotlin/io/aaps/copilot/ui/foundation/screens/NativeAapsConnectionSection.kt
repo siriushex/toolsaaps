@@ -27,6 +27,7 @@ import io.aaps.copilot.service.AapsV3ConnectionState
 import io.aaps.copilot.service.AapsV3ConnectionStatus
 import io.aaps.copilot.service.AapsV3PairingIssue
 import io.aaps.copilot.service.AapsV3PairingRoute
+import io.aaps.copilot.service.AapsFinalClientRole
 import io.aaps.copilot.service.AapsV3InboundGlucose
 import io.aaps.copilot.service.AapsV3InboundSummary
 import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
@@ -73,6 +74,16 @@ internal fun NativeAapsConnectionSection(
             Text(stringResource(R.string.native_aaps_local_checked_before, DateFormat.getDateTimeInstance(
                 DateFormat.SHORT, DateFormat.SHORT).format(Date(it))), Modifier.testTag("native_aaps_local_checked_before"),
                 style = MaterialTheme.typography.bodySmall)
+        }
+        state.localEnrollmentRole?.let { role ->
+            val label = when (role) {
+                AapsFinalClientRole.READ_ONLY -> R.string.native_role_read
+                AapsFinalClientRole.MEAL_ASSISTANT -> R.string.native_role_meal
+                AapsFinalClientRole.CAREGIVER -> R.string.native_role_caregiver
+                AapsFinalClientRole.ADMIN -> R.string.native_role_admin
+            }
+            Text(stringResource(R.string.native_local_role_receipt, stringResource(label)),
+                Modifier.testTag("native_local_role_receipt"), style = MaterialTheme.typography.bodySmall)
         }
         state.pairingIssue?.let {
             Text(stringResource(when (it) {

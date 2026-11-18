@@ -22,7 +22,8 @@ internal enum class AapsV3TargetPhase { PREPARED, PREVIEW, COMMITTED, UNKNOWN, A
 @Serializable internal enum class AapsV3PairingPhase { WAITING, ACTIVE, REVOKED }
 internal class AapsV3PairingSnapshot(val phase: AapsV3PairingPhase, val clientId: String,
     val masterInstallId: String, val controlEnabled: Boolean, val lastPongAt: Long, val pongCounter: Long,
-    val publication: LocalV3Write? = null, val localEnrollment: Boolean = false) {
+    val publication: LocalV3Write? = null, val localEnrollment: Boolean = false,
+    val enrollmentRole: AapsFinalClientRole? = null) {
     override fun toString() = "AapsV3PairingSnapshot($phase)"
 }
 
@@ -304,6 +305,25 @@ internal class AapsV3TargetJournal(
         val deadline = minOf(pair.expiresAt, HistoryJson.long(request.getValue("validUntil")))
         if (at >= deadline) return@transaction false
         if (ack["commandCounter"] != JsonPrimitive(2L) || !recordProbeAnswer(pair, ack, at)) return@transaction false
+        check(offers.ready(offer) && clock() in at until deadline)
+        true
+    }
+
+    suspend fun acceptLocalRole(offers: LocalEnrollmentOffers, id: String, handle: String, bytes: ByteArray,
+                                clock: () -> Long = System::currentTimeMillis): Boolean = transaction {
+        val offer = offers.current() ?: return@transaction false
+        if (bytes.size !in 1..2048 || offer.clientId != id || offer.handle != handle || !offers.ready(offer)) return@transaction false
+        val pair = pairingOrNull() ?: return@transaction false
+        if (pair.phase != AapsV3PairingPhase.WAITING || pair.localBinding != digest(handle) || pair.clientId != id ||
+            pair.pongCounter != 2L || pair.enrollmentRole != null || pair.verifiedSubject == null || !pair.secretRotated) return@transaction false
+        val point = pair.masterPublicPoint?.let(AapsFinalMasterKey::fromEncodedPoint) ?: return@transaction false
+        val request = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it).request } ?: return@transaction false
+        if (request["counter"] != JsonPrimitive(2L) || request["clientId"] != JsonPrimitive(id)) return@transaction false
+        val at = clock()
+        val deadline = minOf(pair.expiresAt, HistoryJson.long(request.getValue("validUntil")))
+        val proof = point.verifyLocalRole(HistoryJson.parse(bytes, 2048), id, pair.masterInstallId, handle,
+            maxOf(pair.enrolledAt, pair.lastPongAt), deadline, at) ?: return@transaction false
+        put(PAIRING, json.encodeToString(pair.copy(enrollmentRole = proof.role)))
         check(offers.ready(offer) && clock() in at until deadline)
         true
     }
@@ -769,8 +789,10 @@ internal class AapsV3TargetJournal(
         val requiresSignedRoster: Boolean = false, val enrolledAt: Long = 0, val masterPublicPoint: String? = null,
         val rosterSignedAt: Long = 0, val verifiedRole: AapsFinalClientRole? = null,
         val pendingExchange: PendingExchange? = null, val secretRotated: Boolean = false,
-        val pendingToken: PendingToken? = null, val verifiedSubject: String? = null, val localBinding: String? = null) {
-        fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled, lastPongAt, pongCounter, publication, localBinding != null)
+        val pendingToken: PendingToken? = null, val verifiedSubject: String? = null, val localBinding: String? = null,
+        val enrollmentRole: AapsFinalClientRole? = null) {
+        fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled,
+            lastPongAt, pongCounter, publication, localBinding != null, enrollmentRole)
         override fun toString() = "NativePairing(redacted)"
     }
     @Serializable private class PendingToken(val subject: String, val token: String)

@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-internal enum class AapsFinalClientRole(val wire: String) {
+enum class AapsFinalClientRole(val wire: String) {
     READ_ONLY("ReadOnly"), MEAL_ASSISTANT("MealAssistant"), CAREGIVER("Caregiver"), ADMIN("Admin");
 
     companion object {
@@ -19,21 +19,43 @@ internal enum class AapsFinalClientRole(val wire: String) {
 
 internal data class AapsFinalRosterProof(val signedAt: Long, val member: Boolean,
                                        val role: AapsFinalClientRole, val controlEnabled: Boolean)
+internal data class AapsLocalRoleReceipt(val role: AapsFinalClientRole, val signedAt: Long)
 
 /** Wire validation only. Does not enroll a device or grant command authority. */
 internal class AapsFinalMasterKey private constructor(private val key: PublicKey, val encodedPoint: String) {
+    private fun signatureMatches(identifier: String, bytes: ByteArray, signature: ByteArray) =
+        Signature.getInstance("SHA256withECDSA").run {
+            initVerify(key)
+            update("aaps-settings-v1|$identifier|".toByteArray(Charsets.UTF_8))
+            update(bytes)
+            verify(toDer(signature))
+        }
+
+    fun verifyLocalRole(doc: JsonObject, clientId: String, masterId: String, handle: String,
+                        issued: Long, deadline: Long, now: Long): AapsLocalRoleReceipt? = try {
+        require(CLIENT_ID.matches(clientId) && CLIENT_ID.matches(handle) && now in issued until deadline)
+        HistoryJson.fields(doc, setOf("signed", "signature"))
+        val bytes = HistoryJson.encodeUtf8(HistoryJson.string(doc.getValue("signed")))
+        require(bytes.size in 1..1024 && signatureMatches("local_enrollment_role_v1_" + clientId, bytes,
+            decode64(HistoryJson.string(doc.getValue("signature")), 64)))
+        val body = HistoryJson.parse(bytes, 1024)
+        HistoryJson.fields(body, setOf("clientId","masterInstallId","handle","role","counter","signedAt","expiresAt","controlEnabled"))
+        require(body["clientId"] == JsonPrimitive(clientId) && body["masterInstallId"] == JsonPrimitive(masterId) &&
+            body["handle"] == JsonPrimitive(handle) && body["controlEnabled"] == JsonPrimitive(true) &&
+            body["counter"] == JsonPrimitive(2L) && body["expiresAt"] == JsonPrimitive(deadline))
+        val at = HistoryJson.long(body.getValue("signedAt"))
+        require(at in issued..now)
+        val role = AapsFinalClientRole.entries.single { body["role"] == JsonPrimitive(it.wire) }
+        AapsLocalRoleReceipt(role, at)
+    } catch (_: Exception) { null }
+
     fun verifyRoster(doc: JsonObject, clientId: String, now: Long, minimumSignedAt: Long): AapsFinalRosterProof? = try {
         require(HistoryJson.long(doc.getValue("schemaVersion")) == 2L && "runningConfig" !in doc)
         val signed = HistoryJson.string(doc.getValue("signed"))
         val bytes = HistoryJson.encodeUtf8(signed)
         val signature = decode64(HistoryJson.string(doc.getValue("signature")), 64)
         require(bytes.size in 1..48_000)
-        require(Signature.getInstance("SHA256withECDSA").run {
-            initVerify(key)
-            update("aaps-settings-v1|aaps|".toByteArray(Charsets.UTF_8))
-            update(bytes)
-            verify(toDer(signature))
-        })
+        require(signatureMatches("aaps", bytes, signature))
         val envelope = HistoryJson.parse(bytes, 48_000)
         HistoryJson.fields(envelope, setOf("signedAt", "runningConfig"))
         val signedAt = HistoryJson.long(envelope.getValue("signedAt"))

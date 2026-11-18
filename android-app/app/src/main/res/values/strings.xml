@@ -2197,6 +2197,11 @@
     <string name="native_aaps_revoke">Revoke locally</string>
     <string name="native_aaps_pin">8-digit PIN</string>
     <string name="native_aaps_route_phone">On this phone</string>
+    <string name="native_local_role_receipt">Role reported by AAPS during pairing: %1$s.</string>
+    <string name="native_role_read">Read only</string>
+    <string name="native_role_meal">Meal assistant</string>
+    <string name="native_role_caregiver">Caregiver</string>
+    <string name="native_role_admin">Administrator</string>
     <string name="native_aaps_local_checked_before">Local PIN connection verified at %1$s. Target changes are not yet authorized.</string>
     <string name="native_aaps_route_storage">NSClient settings channel</string>
     <string name="native_aaps_local_pin_help">In AAPS, open Authorized clients, add a client and choose Copilot on this phone. Enter that PIN here.</string>

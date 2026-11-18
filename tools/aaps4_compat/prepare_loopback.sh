@@ -29,6 +29,9 @@ git apply --index "$probe"
 picker="$root/tools/aaps4_compat/final-local-picker.patch"
 git apply --check "$picker"
 git apply --index "$picker"
+role="$root/tools/aaps4_compat/final-local-role.patch"
+git apply --check "$role"
+git apply --index "$role"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET

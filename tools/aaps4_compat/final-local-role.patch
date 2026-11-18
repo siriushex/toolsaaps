@@ -1,0 +1,133 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalEnrollmentRole.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalEnrollmentRole.kt
+new file mode 100644
+index 0000000000..43c3818882
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalEnrollmentRole.kt
+@@ -0,0 +1,16 @@
++package app.aaps.core.nssdk.utils
++
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++
++/** A signed receipt for this enrollment, not a command grant or a global roster. */
++object LocalEnrollmentRole {
++    fun identifier(clientId: String) = "local_enrollment_role_v1_" + clientId
++
++    fun body(clientId: String, masterId: String, handle: String, role: String,
++             counter: Long, signedAt: Long, expiresAt: Long): String = buildJsonObject {
++        put("clientId", clientId); put("masterInstallId", masterId); put("handle", handle)
++        put("role", role); put("counter", counter); put("signedAt", signedAt); put("expiresAt", expiresAt)
++        put("controlEnabled", true)
++    }.toString()
++}
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index b158e19951..8e42a7be09 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -98,6 +98,21 @@ internal class AuthorizedClientsRepositoryTest {
+             val pong = sut.answerLocalProbe(offer, ping, signingPoint) { 1_005 }
+             assertThat(pong != null).isEqualTo(local)
+             if (pong != null) assertThat(ClientControlCrypto.verifyAck(key, pong)).isTrue()
++            val signer = org.mockito.kotlin.mock<MasterSigningKey>()
++            val handle = "01234567-0000-4000-8000-abcdef123456"
++            whenever(signer.sign(any(), any())).thenAnswer {
++                @Suppress("UNCHECKED_CAST") val body = it.arguments[1] as (Long) -> String
++                MasterSigningKey.Signed(body(1_006), "fixture-signature")
++            }
++            sut.setRole(entry.clientId, ClientRole.ReadOnly)
++            val receipt = sut.localEnrollmentRole(offer, ping, handle, signer) { 1_006 }
++            assertThat(receipt != null).isEqualTo(local)
++            if (local) assertThat(receipt!!.text).contains("\"role\":\"ReadOnly\"")
++            assertThat(sut.localEnrollmentRole(offer, ping.copy(signature = ""), handle, signer) { 1_006 }).isNull()
++            assertThat(sut.localEnrollmentRole(offer, ping, handle, signer) { 9_004 }).isNull()
++            whenever(preferences.hardenedMode).thenReturn(false)
++            assertThat(sut.localEnrollmentRole(offer, ping, handle, signer) { 1_006 }).isNull()
++            whenever(preferences.hardenedMode).thenReturn(true)
+             assertThat(sut.answerLocalProbe(offer, ping, signingPoint) { 1_006 }).isNull()
+             assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
+         }
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+index 01994b935b..b5a00a6a1b 100644
+--- a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -20,6 +20,8 @@ import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.withContext
+ import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
+ import java.util.UUID
+
+ /** One explicit local enrollment. No Nightscout settings, global TLS or stored session changes. */
+@@ -82,12 +84,29 @@ class LocalCopilotPinEnrollment(private val context: Context, private val client
+                                 val pong = clients.answerLocalProbe(pending, ping, point, System::currentTimeMillis) ?: return@probe false
+                                 if (!trusted()) return@probe false
+                                 val bytes = codec.encodeToString(AckEnvelope.serializer(), pong).encodeToByteArray()
+-                                try {
++                                val pongAccepted = try {
+                                     val result = provider.call("local_pin_pong_v1", null, Bundle().apply {
+                                         putString("client", pending.clientId); putString("handle", handle); putByteArray("pong", bytes)
+                                     })
+                                     result?.keySet() == setOf("accepted") && result.getBoolean("accepted")
+                                 } finally { bytes.fill(0) }
++                                if (!pongAccepted) return@probe false
++                                val role = clients.localEnrollmentRole(pending, ping, handle, signingKey, System::currentTimeMillis)
++                                if (role != null && trusted()) {
++                                    val roleBytes = buildJsonObject {
++                                        put("signed", role.text); put("signature", role.signature)
++                                    }.toString().encodeToByteArray()
++                                    try {
++                                        provider.call("local_pin_role_v1", null, Bundle().apply {
++                                            putString("client", pending.clientId); putString("handle", handle); putByteArray("role", roleBytes)
++                                        })
++                                    } catch (_: android.os.RemoteException) {
++                                        // The verified contact remains valid, but no role is assumed.
++                                    } catch (_: IllegalArgumentException) {
++                                        // Older peer without this optional receipt.
++                                    } finally { roleBytes.fill(0) }
++                                }
++                                true
+                             })
+                         } finally {
+                             // Same acquired peer and offer only. Unknown IPC outcomes are never retried.
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 07e8372007..7e6b4765ce 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -12,6 +12,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+ import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+ import app.aaps.core.nssdk.utils.LocalFirstPong
++import app.aaps.core.nssdk.utils.LocalEnrollmentRole
+ import app.aaps.core.nssdk.utils.ClientControlCrypto
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.Inject
+@@ -173,6 +174,28 @@ class AuthorizedClientsRepository(
+         ack
+     }
+
++    /** Read the role under the same lock as setRole and deletion. No state transition. */
++    internal suspend fun localEnrollmentRole(pending: PairingPayload, ping: SignedEnvelope, handle: String,
++                                            signer: MasterSigningKey, clock: () -> Long): MasterSigningKey.Signed? = mutex.withLock {
++        val entry = decode().singleOrNull { it.clientId == pending.clientId } ?: return@withLock null
++        val role = ClientRole.entries.singleOrNull { it.name == entry.role } ?: return@withLock null
++        val deadline = minOf(entry.pairExpiresAt, ping.validUntil)
++        fun valid() = preferences.hardenedMode && preferences.get(StringNonKey.NsClientControlOwnInstallId) == pending.masterInstallId &&
++            clock() in maxOf(ping.timestamp, entry.createdAt) until deadline
++        if (!entry.localCopilot || entry.state != ClientState.Pending || entry.pendingSecret == null || entry.name != pending.name ||
++            entry.pairExpiresAt != pending.expiresAt || entry.counterReceived != 2L || ping.counter != entry.counterReceived ||
++            ping.clientId != entry.clientId || ping.type != "ping" || !ping.wantsAck ||
++            ping.payload != """{"type":"ping"}""" || ping.validUntil - ping.timestamp != 8_000L ||
++            !valid() || !secureEncrypt.isValidDataString(entry.pendingSecret)) return@withLock null
++        val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(checkNotNull(entry.pendingSecret)))
++        val authentic = try { key.size == 32 && ClientControlCrypto.verifyEnvelope(key, ping) } finally { key.fill(0) }
++        if (!authentic) return@withLock null
++        val signed = signer.sign(LocalEnrollmentRole.identifier(entry.clientId)) { at ->
++            LocalEnrollmentRole.body(entry.clientId, pending.masterInstallId, handle, role.name, ping.counter, at, deadline)
++        }
++        signed.takeIf { it.signature != null && valid() }
++    }
++
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */
+     suspend fun promotePendingSecret(clientId: String): Unit = mutex.withLock {
+         val list = decode()
