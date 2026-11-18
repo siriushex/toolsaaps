@@ -34,10 +34,21 @@ journals the first Hello. Expiry, withdrawal or replacement cannot complete
 the withdrawn offer. AAPS verifies the signature, counter, client ID, time and
 Hello payload. No command handler runs on this route.
 
-The loopback fixture runs the production AAPS Hello receiver and the real
-Copilot listener in separate processes. A verified Hello is not a connected
-client. The local enrollment UI, signed key reply, signed roster, ongoing
-session ownership and post-disconnect reconciliation must precede phone use.
+The signed key reply comes back through the acquired Android provider, not
+the Nightscout settings feed. AAPS stages the rotated secret in its encrypted
+client record, under the repository lock, checking the actual master identity,
+consent, time, existing role and signed counter. The ordinary receiver ignores
+clients originating from the separate local enrollment. Copilot accepts the
+key only for that live offer and its previously issued subject token. A lost
+lease or deadline during the Room write rolls it back. The local bootstrap
+Ping does not rely on deletion of an unrelated Nightscout offer.
+
+The loopback fixture runs the AAPS Hello receiver and Copilot listener in
+separate processes. It passes synthetic provider calls and the resulting
+Ping over private test pipes; AAPS verifies the Ping with its rotated key.
+This proves key agreement, not live Ping delivery or a connected client.
+The local enrollment UI, signed Pong and roster, ongoing session ownership
+and post-disconnect reconciliation must precede phone use.
 Do not reuse upload tickets or overwrite Nightscout settings. The separate
 target round-trip test reads ordinary and Eating Soon targets from an isolated
 AAPS database; it does not demonstrate application on the phone.

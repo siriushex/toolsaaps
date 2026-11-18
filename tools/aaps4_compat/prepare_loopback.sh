@@ -20,6 +20,9 @@ git apply --index "$polling"
 enrollment="$root/tools/aaps4_compat/final-pin-enrollment.patch"
 git apply --check "$enrollment"
 git apply --index "$enrollment"
+reply="$root/tools/aaps4_compat/final-local-key-reply.patch"
+git apply --check "$reply"
+git apply --index "$reply"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -37,5 +40,6 @@ export AAPS_INTEROP_SOURCE="$root/tools/aaps4_compat/final_src"
 export AAPS_INTEROP_QUERY_SOURCE="$root/tools/aaps4_compat/loopback_src"
 export AAPS_INTEROP_CLASSPATH="$root/android-app/build/aaps4-loopback-interop/classpath.txt"
 ./gradlew --no-daemon --max-workers=2 --console=plain \
-    -I "$root/tools/aaps4_compat/interop.init.gradle" :core:nssdk:jvmTest :core:nssdk:exportInteropClasspath
+    -I "$root/tools/aaps4_compat/interop.init.gradle" :core:nssdk:jvmTest :core:nssdk:exportInteropClasspath \
+    :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest'
 test -s "$AAPS_INTEROP_CLASSPATH"

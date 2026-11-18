@@ -1,3 +1,15 @@
+# Same-phone signed key return (2026-11-18)
+
+- Final AAPS stores a pending key for a local-only owner-approved client.
+  Ordinary Nightscout messages cannot promote that local client. Stock client
+  registration and its existing QR workflow retain their original contract.
+- The local offer's scoped subscriber and returned key are bound to the same
+  enrollment. Copilot requires its own encrypted token inside the signed reply;
+  wrong handle, wrong signature, expiry during persistence and replay cannot
+  complete the exchange. The stock document path cannot rotate a local key.
+- The SDK fixture verifies the bootstrap Ping with the rotated key. It does
+  not send a Pong, attest an active role, or enable the phone's target channel.
+
 # Same-phone encrypted offer and signed Hello (2026-11-18)
 
 - A final AAPS PIN offer can cross same-signer Android IPC as ciphertext. Its

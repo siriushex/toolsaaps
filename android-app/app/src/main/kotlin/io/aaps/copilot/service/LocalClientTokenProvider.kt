@@ -40,6 +40,17 @@ class LocalClientTokenProvider : ContentProvider() {
                 val handle = extras.getString("handle") ?: return null
                 return Bundle().apply { putBoolean("withdrawn", container.localEnrollmentOffers.withdraw(id, handle)) }
             }
+            if (method == "local_pin_key_v1") {
+                if (extras.keySet() != setOf("client", "handle", "key")) return null
+                val id = extras.getString("client") ?: return null
+                val handle = extras.getString("handle") ?: return null
+                val bytes = extras.getByteArray("key") ?: return null
+                val accepted = runBlocking(Dispatchers.IO) {
+                    withTimeout(2500) { AapsV3TargetJournal(container.db, KeystoreAapsV3JournalCipher())
+                        .acceptLocalKey(container.localEnrollmentOffers, id, handle, bytes) }
+                }
+                return Bundle().apply { putBoolean("accepted", accepted) }
+            }
             if (method != "issue_pending_v1") return null
             if (extras.keySet() != setOf("client", "master", "point", "subject")) return null
             val id = extras.getString("client")?.takeIf { it.length == 36 } ?: return null
@@ -49,7 +60,7 @@ class LocalClientTokenProvider : ContentProvider() {
             val db = container.db
             val bytes = runBlocking(Dispatchers.IO) {
                 withTimeout(2500) { AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher())
-                    .issuePendingClientToken(id, master, point, subject, System.currentTimeMillis()) }
+                    .issuePendingClientToken(id, master, point, subject, System.currentTimeMillis(), container.localEnrollmentOffers) }
             }
             Bundle().apply { putByteArray("token", bytes) }
         } catch (_: Exception) { null } finally { permit.release() }

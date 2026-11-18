@@ -63,13 +63,15 @@ internal class AapsV3TargetJournal(
     }
 
     suspend fun enroll(credential: AapsV3PairingCredential, nowMs: Long,
+                       localHandle: String? = null,
                        routeReady: () -> Boolean = { true }): AapsV3PairingSnapshot = transaction {
         check(routeReady())
+        val localBinding = localHandle?.let { require(CLIENT_ID.matches(it) && credential.requiresSignedRoster); digest(it) }
         val oldRoot = rootOrNull()
         val oldPair = pairingOrNull()
         if (oldPair != null && oldPair.clientId == credential.clientId) {
             check(oldPair.masterInstallId == credential.masterInstallId &&
-                oldPair.requiresSignedRoster == credential.requiresSignedRoster)
+                oldPair.requiresSignedRoster == credential.requiresSignedRoster && oldPair.localBinding == localBinding)
             credential.withSecret { check(secretHex(it) == oldPair.secretHex) }
             return@transaction oldPair.snapshot()
         }
@@ -95,7 +97,7 @@ internal class AapsV3TargetJournal(
             val publication = publish(AapsV3TargetRequest(hello))
             val pair = Pairing(credential.clientId, credential.masterInstallId, secretHex(secret),
                 credential.expiresAt, publication.document.modifiedRevision, requiresSignedRoster = credential.requiresSignedRoster,
-                enrolledAt = nowMs, pendingExchange = exchange?.let {
+                enrolledAt = nowMs, localBinding = localBinding, pendingExchange = exchange?.let {
                     PendingExchange(it.publicPoint, Base64.getEncoder().encodeToString(it.privateDer))
                 })
             put(ROOT, json.encodeToString(Root(credential.clientId, 1, nowMs)))
@@ -110,13 +112,19 @@ internal class AapsV3TargetJournal(
     }
 
     /** Called by the trusted local issuer, never with a token or claimed subject from a settings write. */
-    suspend fun issuePendingClientToken(clientId: String, masterId: String, clientPoint: String, subject: String, nowMs: Long): ByteArray = transaction {
+    suspend fun issuePendingClientToken(clientId: String, masterId: String, clientPoint: String, subject: String, nowMs: Long,
+                                        localOffers: LocalEnrollmentOffers? = null): ByteArray = transaction {
         val pair = pairing()
         check(pair.requiresSignedRoster && pair.pendingExchange != null && pair.phase == AapsV3PairingPhase.WAITING &&
             nowMs in pair.enrolledAt until pair.expiresAt && !pair.secretRotated &&
             pair.clientId == clientId && root().clientId == clientId && pair.masterInstallId == masterId &&
             pair.pendingExchange.publicPoint == clientPoint)
         require(isLocalClientSubject(subject))
+        val local = pair.localBinding?.let { binding ->
+            val offer = checkNotNull(localOffers?.current())
+            check(offer.clientId == clientId && digest(offer.handle) == binding && localOffers.ready(offer))
+            offer
+        }
         val issued = pair.pendingToken
         if (issued != null) {
             check(issued.subject == subject)
@@ -125,6 +133,7 @@ internal class AapsV3TargetJournal(
         val random = ByteArray(32).also(java.security.SecureRandom()::nextBytes)
         val token = try { Base64.getUrlEncoder().withoutPadding().encodeToString(random) } finally { random.fill(0) }
         put(PAIRING, json.encodeToString(pair.copy(pendingToken = PendingToken(subject, token))))
+        if (local != null) check(localOffers?.ready(local) == true)
         token.encodeToByteArray()
     }
 
@@ -137,11 +146,7 @@ internal class AapsV3TargetJournal(
 
     suspend fun rotateFinalSecret(nowMs: Long): Boolean = transaction {
         val pair = pairing()
-        val pending = pair.pendingExchange ?: return@transaction false
-        if (!pair.requiresSignedRoster || pair.secretRotated || pair.phase != AapsV3PairingPhase.WAITING ||
-            nowMs !in pair.enrolledAt until pair.expiresAt) return@transaction false
-        val root = root()
-        check(root.clientId == pair.clientId && root.counter == 1L && root.pending == null)
+        if (pair.localBinding != null || pair.pendingExchange == null) return@transaction false
         val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_key_${pair.clientId}")
         if (row == null || row.deleted || row.source != "local-v3-owner" ||
             row.modifiedRevision <= pair.helloRevision) return@transaction false
@@ -150,6 +155,27 @@ internal class AapsV3TargetJournal(
             require(HistoryJson.long(body.getValue("schemaVersion")) == 1L)
             HistoryJson.obj(body.getValue("key"))
         } catch (_: Exception) { return@transaction false }
+        finishKeyRotation(pair, answer, nowMs)
+    }
+
+    suspend fun acceptLocalKey(offers: LocalEnrollmentOffers, clientId: String, handle: String,
+                               bytes: ByteArray, clock: () -> Long = System::currentTimeMillis): Boolean = transaction {
+        val offer = offers.current() ?: return@transaction false
+        if (offer.clientId != clientId || offer.handle != handle || bytes.size !in 1..2048 || !offers.ready(offer)) return@transaction false
+        val pair = pairingOrNull() ?: return@transaction false
+        if (pair.clientId != clientId || pair.localBinding != digest(handle) || pair.pendingToken == null) return@transaction false
+        val answer = HistoryJson.parse(bytes, 2048)
+        if (!finishKeyRotation(pair, answer, clock())) return@transaction false
+        check(offers.ready(offer) && clock() in pair.enrolledAt until pair.expiresAt)
+        true
+    }
+
+    private suspend fun finishKeyRotation(pair: Pairing, answer: JsonObject, nowMs: Long): Boolean {
+        val pending = pair.pendingExchange ?: return false
+        if (!pair.requiresSignedRoster || pair.secretRotated || pair.phase != AapsV3PairingPhase.WAITING ||
+            nowMs !in pair.enrolledAt until pair.expiresAt) return false
+        val root = root()
+        check(root.clientId == pair.clientId && root.counter == 1L && root.pending == null)
         val privateDer = Base64.getDecoder().decode(pending.privateDer)
         val oldSecret = secretBytes(pair)
         var verifiedSubject: String? = null
@@ -163,9 +189,9 @@ internal class AapsV3TargetJournal(
                     matches
                 } == true
             }
-        } finally { privateDer.fill(0); oldSecret.fill(0) } ?: return@transaction false
-        try {
-            if (pair.pendingToken != null && verifiedSubject == null) return@transaction false
+        } finally { privateDer.fill(0); oldSecret.fill(0) } ?: return false
+        return try {
+            if (pair.pendingToken != null && verifiedSubject == null) return false
             put(PAIRING, json.encodeToString(pair.copy(secretHex = secretHex(rotated),
                 pendingExchange = null, secretRotated = true, pendingToken = null, verifiedSubject = verifiedSubject)))
             true
@@ -220,14 +246,20 @@ internal class AapsV3TargetJournal(
         updated.snapshot()
     }
 
-    suspend fun probe(nowMs: Long, sessionStartedAt: Long = 0): LocalV3Write? = transaction {
+    suspend fun probe(nowMs: Long, sessionStartedAt: Long = 0, localOffers: LocalEnrollmentOffers? = null): LocalV3Write? = transaction {
         val root = root(); val pair = pairing()
         if (pair.requiresSignedRoster && !pair.secretRotated) return@transaction null
         val active = pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled
         // A final master can answer a probe while enrollment waits for its signed roster.
         val bootstrap = pair.requiresSignedRoster && pair.phase == AapsV3PairingPhase.WAITING && nowMs < pair.expiresAt
         if (root.pending != null || (!active && !bootstrap)) return@transaction null
-        if (bootstrap) {
+        val local = if (bootstrap && pair.localBinding != null) {
+            val offer = localOffers?.current() ?: return@transaction null
+            if (offer.clientId != pair.clientId || digest(offer.handle) != pair.localBinding ||
+                pair.verifiedSubject == null || !localOffers.ready(offer)) return@transaction null
+            offer
+        } else null
+        if (bootstrap && local == null) {
             // An early Ping can consume the master's replay counter before it processes Hello.
             val offer = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_offer_${pair.clientId}")
             if (offer == null || !offer.deleted || offer.source != "local-v3-owner" ||
@@ -244,6 +276,7 @@ internal class AapsV3TargetJournal(
             val publication = publish(AapsV3TargetRequest(request))
             put(PROBE, json.encodeToString(Probe(request)))
             put(ROOT, json.encodeToString(root.copy(counter = next(root.counter), lastIssuedAt = nowMs)))
+            if (local != null) check(localOffers?.ready(local) == true)
             publication
         } finally { secret.fill(0) }
     }
@@ -630,6 +663,7 @@ internal class AapsV3TargetJournal(
     private suspend fun root(): Root = checkNotNull(rootOrNull())
     private suspend fun pairingOrNull(): Pairing? = read(PAIRING)?.let { json.decodeFromJsonElement<Pairing>(it).also { pair ->
         check(CLIENT_ID.matches(pair.clientId) && HEX.matches(pair.secretHex) && pair.masterInstallId.length in 1..128)
+        pair.localBinding?.let { check(pair.requiresSignedRoster && HEX.matches(it)) }
         check(pair.helloRevision > 0 && pair.rosterRevision >= 0 && pair.lastPongAt >= 0 && pair.pongCounter >= 0)
         pair.verifiedSubject?.let { check(pair.requiresSignedRoster && pair.secretRotated && isLocalClientSubject(it)) }
         pair.pendingToken?.let { check(pair.requiresSignedRoster && pair.pendingExchange != null && !pair.secretRotated &&
@@ -708,7 +742,7 @@ internal class AapsV3TargetJournal(
         val requiresSignedRoster: Boolean = false, val enrolledAt: Long = 0, val masterPublicPoint: String? = null,
         val rosterSignedAt: Long = 0, val verifiedRole: AapsFinalClientRole? = null,
         val pendingExchange: PendingExchange? = null, val secretRotated: Boolean = false,
-        val pendingToken: PendingToken? = null, val verifiedSubject: String? = null) {
+        val pendingToken: PendingToken? = null, val verifiedSubject: String? = null, val localBinding: String? = null) {
         fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled, lastPongAt, pongCounter, publication)
         override fun toString() = "NativePairing(redacted)"
     }

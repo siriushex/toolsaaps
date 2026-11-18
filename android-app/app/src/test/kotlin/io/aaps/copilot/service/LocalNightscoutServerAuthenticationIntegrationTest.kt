@@ -180,7 +180,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
-    fun samePhoneOfferFromFinalAapsReturnsSignedHelloOnItsOwnPinnedSubscription() = runBlocking {
+    fun samePhoneKeyAnswerFromFinalAapsEnablesOnlyItsOwnSignedProbe() = runBlocking {
         val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
         val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
@@ -212,12 +212,15 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             }.start()
             child = process
             val input = process.inputStream.bufferedReader()
-            val offer = reads.submit<String> { input.readLine() }.get(20, TimeUnit.SECONDS)
+            fun receive(): String = reads.submit<String> { checkNotNull(input.readLine()) }.get(20, TimeUnit.SECONDS)
+            val output = process.outputStream.bufferedWriter()
+            fun send(value: String) { output.appendLine(value); output.flush() }
+            val offer = receive()
             val receipt = checkNotNull(offers.publish(offer.toByteArray()))
             val ticket = checkNotNull(receipt.getBundle("ticket"))
             root.writeBytes(checkNotNull(ticket.getByteArray("root")))
             leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
-            process.outputStream.bufferedWriter().use { it.appendLine(checkNotNull(ticket.getString("bearer"))) }
+            send(checkNotNull(ticket.getString("bearer")))
             val current = checkNotNull(offers.current())
             withTimeout(18_000) {
                 while (!offers.ready(current)) {
@@ -227,9 +230,39 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             }
             channel.start(scope)
             channel.pair("23456789".toCharArray())
-            check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed hello received" }
+            val pair = checkNotNull(journal.pairingSnapshot())
+            val point = receive()
+            val unboundRefused = try {
+                journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", System.currentTimeMillis())
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(unboundRefused).isTrue()
+            val token = journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", System.currentTimeMillis(), offers)
+            try { send(token.decodeToString()) } finally { token.fill(0) }
+            val key = receive().toByteArray()
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, "different-handle", key)).isFalse()
+            val parsed = io.aaps.copilot.data.repository.HistoryJson.parse(key, 2048)
+            val unsigned = kotlinx.serialization.json.JsonObject(parsed + ("signature" to kotlinx.serialization.json.JsonPrimitive("0".repeat(64))))
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, unsigned.toString().toByteArray())).isFalse()
+            var keyClockReads = 0
+            val expiredDuringWrite = try {
+                journal.acceptLocalKey(offers, pair.clientId, current.handle, key) {
+                    if (keyClockReads++ == 0) System.currentTimeMillis() else current.expires
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(expiredDuringWrite).isTrue()
+            assertThat(journal.probe(System.currentTimeMillis(), localOffers = offers)).isNull()
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, key)).isTrue()
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, key)).isFalse()
+            channel.checkConnection()
+            val ping = checkNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_ping_${pair.clientId}"))
+            val body = io.aaps.copilot.data.repository.HistoryJson.parse(ping.payloadJson.toByteArray(), 4096)
+            send(body.getValue("envelope").toString())
+            output.close()
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(input.readLine()).isEqualTo("LOCAL_HELLO_VERIFIED")
+            assertThat(input.readLine()).isEqualTo("LOCAL_KEY_VERIFIED")
             assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
             assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()

@@ -129,7 +129,7 @@ internal class AapsV3TargetChannel(
             }
             currentCoroutineContext().ensureActive()
             check(matches.size == 1 && routeReady())
-            journal.enroll(matches.single(), clock(), routeReady)
+            journal.enroll(matches.single(), clock(), local?.handle, routeReady)
             runtimeScope?.let(::start)
             refresh()
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -185,7 +185,7 @@ internal class AapsV3TargetChannel(
         if (ack != null) journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
         journal.expire(clock())
         if (runtimeAllowed && storageAvailable() && generation.get() == epoch) {
-            journal.probe(clock(), sessionStartedAt)?.let { publication ->
+            journal.probe(clock(), sessionStartedAt, localOffers)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
                 synchronized(this) {
                     if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
