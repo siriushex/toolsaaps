@@ -65,6 +65,10 @@ internal fun NativeAapsConnectionSection(
             AapsV3ConnectionStatus.OFFLINE -> R.string.native_aaps_offline
             AapsV3ConnectionStatus.ERROR -> R.string.native_aaps_error
         }), Modifier.testTag("native_aaps_status"), style = MaterialTheme.typography.bodyMedium)
+        if (state.status == AapsV3ConnectionStatus.UNPAIRED) state.settingsSubscribedAtCheck?.let { subscribed ->
+            Text(stringResource(if (subscribed) R.string.native_storage_seen else R.string.native_storage_not_seen),
+                Modifier.testTag("native_storage_status"), style = MaterialTheme.typography.bodySmall)
+        }
         if (state.observedProfile != AapsV3ObservedProfileStatus.UNCHECKED) {
             Text(stringResource(observedProfileLabel(state.observedProfile)),
                 Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)

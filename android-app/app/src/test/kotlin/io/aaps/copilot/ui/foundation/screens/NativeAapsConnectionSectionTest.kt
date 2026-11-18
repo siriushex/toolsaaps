@@ -96,11 +96,13 @@ class NativeAapsConnectionSectionTest {
 
     @Test fun unpairedScreenCanCheckIncomingDataWithoutContactingTheControlChannel() {
         var checks = 0
-        screen(inbound = AapsV3InboundSummary(1_800_000_000_000L, AapsV3InboundGlucose.FRESH,
+        screen(AapsV3ConnectionState(settingsSubscribedAtCheck = false),
+            inbound = AapsV3InboundSummary(1_800_000_000_000L, AapsV3InboundGlucose.FRESH,
             AapsV3ObservedProfileStatus.OBSERVED, AapsV3ObservedInsulinStatus.OBSERVED, 2),
             onInboundCheck = { checks++ }) {
             compose.onNodeWithTag("native_aaps_inbound_check").performScrollTo().performClick()
             assertEquals(1, checks)
+            compose.onNodeWithTag("native_storage_status").assertTextContains("no active settings subscription", substring = true)
             compose.onNodeWithTag("native_aaps_inbound_cgm").assertTextContains("sample received", substring = true)
             compose.onNodeWithTag("native_aaps_inbound_profile").assertTextContains("Profile received", substring = true)
             compose.onNodeWithTag("native_aaps_inbound_insulin").assertTextContains("Delivery not verified.", substring = true)

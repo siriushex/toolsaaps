@@ -180,6 +180,68 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun androidAapsSocketLibrarySubscribesAndReceivesSettingsOverTls() = runBlocking {
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val socket = io.socket.client.IO.socket("https://127.0.0.1:$port/storage", io.socket.client.IO.Options().apply {
+            callFactory = peer
+            webSocketFactory = peer
+            forceNew = true
+            reconnection = false
+        })
+        val subscribed = CompletableDeferred<Boolean>()
+        val document = CompletableDeferred<String>()
+        try {
+            socket.on(io.socket.client.Socket.EVENT_CONNECT_ERROR) { subscribed.complete(false) }
+            socket.on(io.socket.client.Socket.EVENT_CONNECT) {
+                val names = listOf("devicestatus", "entries", "profile", "treatments", "foods", "settings")
+                val auth = org.json.JSONObject().put("accessToken", localAccessToken)
+                    .put("collections", org.json.JSONArray(names))
+                socket.emit("subscribe", auth, io.socket.client.Ack { args ->
+                    subscribed.complete((args.firstOrNull() as? org.json.JSONObject)?.optBoolean("success") == true)
+                })
+            }
+            socket.on("create") { args ->
+                val event = args.firstOrNull() as? org.json.JSONObject
+                if (event?.optString("colName") == "settings") {
+                    event.optJSONObject("doc")?.let { document.complete(it.optString("identifier")) }
+                }
+            }
+            socket.connect()
+            assertThat(withTimeout(12_000) { subscribed.await() }).isTrue()
+            assertThat(listener.hasNativeStorageSubscription()).isTrue()
+            LocalNightscoutV3Store(db).create(storageInput("socket-settings-test"))
+            assertThat(withTimeout(12_000) { document.await() }).isEqualTo("socket-settings-test")
+        } finally {
+            socket.off()
+            socket.close()
+        }
+    }
+
+    @Test
+    fun idleSettingsSubscriberIsUnavailableAtPongDeadlineWithoutAnotherRequest() {
+        val clock = AtomicLong(1_000)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get)
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        clock.addAndGet(25_000)
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("2")
+        clock.addAndGet(19_999)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+        clock.incrementAndGet()
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
+        assertThat(postSocketCode(peer, port, sid, "3")).isEqualTo(400)
+        openStorage(peer, port)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+    }
+
+    @Test
     fun onlyAnAuthenticatedSettingsSubscriptionMakesNativeCommandsAvailable() = runBlocking {
         val port = freePort()
         val listener = newServer(MutableLocalNightscoutRuntimeState())

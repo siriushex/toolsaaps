@@ -1,3 +1,13 @@
+# Settings subscription readiness (2026-11-18)
+
+- Unpaired connection checks report the observed settings subscription separately
+  from enrollment. They do not reserve an attempt, publish a request, or grant a role.
+- A missed Engine.IO pong expires the readiness snapshot at the same deadline as
+  packet admission, even when no new packet arrives. The read stays lock-free.
+- An integration test uses the AAPS 4.0.0 Java Socket.IO library, the six stock
+  collections and a local test CA; the acknowledged client receives a settings
+  create over TLS. This does not configure NSClientV3 on Android.
+
 # Final local client identity (2026-11-18)
 
 - Full local Android run: 7211 passed, 6 skipped; lint and debug build passed.

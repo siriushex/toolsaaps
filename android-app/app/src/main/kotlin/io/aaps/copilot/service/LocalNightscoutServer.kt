@@ -526,7 +526,11 @@ class LocalNightscoutServer internal constructor(
         fun hasNativeStorageSubscription(): Boolean {
             val now = socketNowMs()
             // Lock-free snapshot: publication guards may already own a Room transaction.
-            return socketSessions.values.any { it.storageSettingsSubscribed && now - it.lastSeenAt in 0..35_000 }
+            return socketSessions.values.any { session ->
+                val pingAt = session.awaitingPongSince
+                session.storageSettingsSubscribed && now - session.lastSeenAt in 0..minOf(35_000L, socketLimits.sessionTtlMs) &&
+                    (pingAt == null || now - pingAt in 0L until SOCKET_PING_TIMEOUT_MS)
+            }
         }
         private val storageGeneration = AtomicLong(0)
         private val storageObserver = object : InvalidationTracker.Observer("local_ns_v3_documents") {
@@ -2690,7 +2694,7 @@ class LocalNightscoutServer internal constructor(
             val monitor: Object = Object(),
             var pollInProgress: Boolean = false,
             var postInProgress: Boolean = false,
-            var awaitingPongSince: Long? = null,
+            @Volatile var awaitingPongSince: Long? = null,
             val initialPackets: MutableList<String> = mutableListOf(),
             val outboundPackets: MutableList<String> = mutableListOf()
         )

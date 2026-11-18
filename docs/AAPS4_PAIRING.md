@@ -165,6 +165,14 @@ or a physical pump. The clinical publication guard remains unchanged.
 
 ## Same-Phone NSClientV3 Admission
 
+Before entering a PIN, use the connection check in the AAPS 4 section. For an
+unpaired device it samples whether a live client is subscribed to `settings`
+on `/storage`. It does not read a PIN offer, create a pairing, identify the
+peer as AAPS, or grant a role. A fresh glucose entry alone is not evidence of
+this subscription. If the heartbeat expires, the sample is negative without
+waiting for an additional packet. The display is a snapshot, not a promise
+that the connection is still present; enrollment rechecks the live state.
+
 The signature-protected AAPS 4 data check is Android IPC; it is not a
 configured NSClientV3 session. The tested AAPS build does not trust a
 user-installed CA for its HTTPS client. In addition, the stock master

@@ -144,6 +144,8 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("org.xerial:sqlite-jdbc:3.50.3.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
+    // Same Java Socket.IO client used in AAPS 4.0.0. Never packaged in Copilot.
+    testImplementation("io.socket:socket.io-client:2.1.2") { exclude(group = "org.json", module = "json") }
     testImplementation("androidx.compose.ui:ui-test-junit4")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

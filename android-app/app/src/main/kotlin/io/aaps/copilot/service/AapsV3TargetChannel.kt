@@ -32,7 +32,8 @@ data class AapsV3ConnectionState(
     val insulinMissingUtcOffsetCount: Int = 0,
     val retainedComboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED,
     val retainedComboHazardKindCount: Int = 0,
-    val comboTransfer: ComboTransferState = ComboTransferState()
+    val comboTransfer: ComboTransferState = ComboTransferState(),
+    val settingsSubscribedAtCheck: Boolean? = null
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -77,7 +78,7 @@ internal class AapsV3TargetChannel(
             try {
                 if (!journal.hasNativeState()) {
                     synchronized(this@AapsV3TargetChannel) {
-                        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState()
+                        if (generation.get() == epoch) mutableState.value = unpairedSnapshot()
                     }
                     return@launch
                 }
@@ -153,13 +154,15 @@ internal class AapsV3TargetChannel(
 
     override suspend fun isConfigured() = journal.hasNativeState()
 
+    private fun unpairedSnapshot() = AapsV3ConnectionState(settingsSubscribedAtCheck = runtimeAllowed && storageAvailable())
+
     private suspend fun refresh() = refreshMutex.withLock {
         val epoch = generation.get()
         if (!journal.hasNativeState()) {
             synchronized(this) {
                 if (generation.get() == epoch) {
                     stopHistory()
-                    mutableState.value = AapsV3ConnectionState()
+                    mutableState.value = unpairedSnapshot()
                 }
             }
             return@withLock

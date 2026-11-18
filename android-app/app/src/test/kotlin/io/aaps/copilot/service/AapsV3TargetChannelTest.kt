@@ -63,6 +63,17 @@ class AapsV3TargetChannelTest {
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
     private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+    @Test fun checkingSubscriptionBeforePairingDoesNotEnrollOrPublish() = runBlocking {
+        channel.start(scope)
+        for (active in listOf(false, true, false)) {
+            storage = active
+            channel.checkConnection()
+            assertEquals(AapsV3ConnectionStatus.UNPAIRED, channel.state.value.status)
+            assertEquals(active, channel.state.value.settingsSubscribedAtCheck)
+        }
+        assertFalse(journal.hasNativeState())
+        assertEquals(0L, db.localNightscoutV3Dao().count().toLong())
+    }
     private fun enableHistory(onOpen: () -> Unit = {}) {
         privateDb = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(),
             ComboJournalDatabase::class.java).allowMainThreadQueries().build()
