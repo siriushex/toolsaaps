@@ -27,6 +27,8 @@ internal data class LocalV3DocumentInput(
 }
 
 internal data class LocalV3Write(val document: LocalNightscoutV3DocumentEntity, val changed: Boolean)
+/** A null member means the caller's index already matches the revision in this transaction. */
+internal data class LocalV3ClinicalChanges(val treatments: LocalV3RetainedSnapshot?, val deviceStatus: LocalV3RetainedSnapshot?)
 internal data class LocalV3Page(
     val documents: List<LocalNightscoutV3DocumentEntity>,
     val nextCursor: Long,
@@ -125,16 +127,31 @@ internal class LocalNightscoutV3Store(
     suspend fun retainedSnapshot(collection: LocalV3Collection, maxRows: Int, maxPayloadBytes: Long): LocalV3RetainedSnapshot {
         require(maxRows in 1..10_000 && maxPayloadBytes in 1..4L * 1024 * 1024)
         return db.withTransaction {
-            val head = dao.head(collection.wireName)
-            val positions = dao.historyPositions(collection.wireName, 0, head, maxRows + 1)
-            if (positions.any { it.payloadBytes !in 1..MAX_PAYLOAD_BYTES }) fail(LocalV3StoreError.STATE)
-            if (positions.size > maxRows || positions.sumOf { it.payloadBytes.toLong() } > maxPayloadBytes) {
-                return@withTransaction LocalV3RetainedSnapshot.OverLimit(head)
-            }
-            val rows = dao.history(collection.wireName, 0, head, positions.size)
-            if (rows.size != positions.size) fail(LocalV3StoreError.STATE)
-            LocalV3RetainedSnapshot.Complete(head, rows)
+            retainedAtHead(collection, dao.head(collection.wireName), maxRows, maxPayloadBytes)
         }
+    }
+
+    suspend fun retainedClinicalChanges(treatmentRevision: Long?, statusRevision: Long?,
+                                       maxRows: Int, maxPayloadBytes: Long): LocalV3ClinicalChanges {
+        require(maxRows in 1..10_000 && maxPayloadBytes in 1..4L * 1024 * 1024)
+        return db.withTransaction {
+            suspend fun changed(collection: LocalV3Collection, cached: Long?): LocalV3RetainedSnapshot? {
+                val head = dao.head(collection.wireName)
+                return if (cached == head) null else retainedAtHead(collection, head, maxRows, maxPayloadBytes)
+            }
+            LocalV3ClinicalChanges(changed(LocalV3Collection.TREATMENTS, treatmentRevision),
+                changed(LocalV3Collection.DEVICE_STATUS, statusRevision))
+        }
+    }
+
+    private suspend fun retainedAtHead(collection: LocalV3Collection, head: Long, maxRows: Int, maxPayloadBytes: Long): LocalV3RetainedSnapshot {
+        val positions = dao.historyPositions(collection.wireName, 0, head, maxRows + 1)
+        if (positions.any { it.payloadBytes !in 1..MAX_PAYLOAD_BYTES }) fail(LocalV3StoreError.STATE)
+        if (positions.size > maxRows || positions.sumOf { it.payloadBytes.toLong() } > maxPayloadBytes)
+            return LocalV3RetainedSnapshot.OverLimit(head)
+        val rows = dao.history(collection.wireName, 0, head, positions.size)
+        if (rows.size != positions.size) fail(LocalV3StoreError.STATE)
+        return LocalV3RetainedSnapshot.Complete(head, rows)
     }
 
     suspend fun history(collection: LocalV3Collection, after: Long, limit: Int): LocalV3Page {

@@ -64,6 +64,12 @@ The source limits are 10,000 latest retained identities and 4 MiB of payload.
 Ordinary treatments count toward these bounds. Limit/error is a visible diagnostic,
 not a missing profile, and does not authorize a fallback or target dispatch.
 
+When both treatments and Combo journal evidence are needed, the reader checks
+both collection revisions and fetches changed rows in one Room transaction.
+Indexes are built outside that transaction. A cache hit on either collection
+refers to that same database snapshot; it does not establish that AAPS has
+finished uploading pump history.
+
 `AapsV3EffectiveProfileSource` caches only typed EPS evidence (not raw meals or
 boluses) by treatment collection revision. Settings/entry revisions and the
 existing 60-second connection refresh do not reparse unchanged treatments.
