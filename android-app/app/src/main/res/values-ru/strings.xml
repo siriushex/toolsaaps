@@ -2192,6 +2192,7 @@
     <string name="native_aaps_disabled">Включите Client Control и WebSocket в AAPS</string>
     <string name="native_aaps_revoked">Сопряжение отозвано</string>
     <string name="native_aaps_offline">Локальное соединение недоступно</string>
+    <string name="native_aaps_local_peer_verified">AAPS на этом телефоне отвечает. Канал команд не подключён.</string>
     <string name="native_aaps_error">Связь не подтверждена. Проверьте AAPS, PIN и локальную синхронизацию.</string>
     <string name="native_aaps_control_unavailable">Управление целями AAPS 4 заблокировано до проверки синхронизации клинической истории.</string>
     <string name="native_aaps_profile_observed">Профиль получен. Полнота истории пока не подтверждена.</string>

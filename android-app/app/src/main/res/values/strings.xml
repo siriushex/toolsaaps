@@ -2184,6 +2184,7 @@
     <string name="native_aaps_disabled">Enable Client Control and WebSocket in AAPS</string>
     <string name="native_aaps_revoked">Pairing revoked</string>
     <string name="native_aaps_offline">Local connection unavailable</string>
+    <string name="native_aaps_local_peer_verified">AAPS responded on this phone. The command channel is not connected.</string>
     <string name="native_aaps_error">Connection not confirmed. Check AAPS, PIN and local sync.</string>
     <string name="native_aaps_control_unavailable">AAPS 4 target control remains blocked until clinical history sync is verified.</string>
     <string name="native_aaps_profile_observed">Profile received. History completeness is not yet confirmed.</string>

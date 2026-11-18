@@ -64,6 +64,7 @@ internal fun NativeAapsConnectionSection(
             AapsV3ConnectionStatus.UNPAIRED -> R.string.native_aaps_unpaired
             AapsV3ConnectionStatus.WAITING -> R.string.native_aaps_waiting
             AapsV3ConnectionStatus.VERIFYING -> R.string.native_aaps_verifying
+            AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED -> R.string.native_aaps_local_peer_verified
             AapsV3ConnectionStatus.CONNECTED -> R.string.native_aaps_connected
             AapsV3ConnectionStatus.CONTROL_DISABLED -> R.string.native_aaps_disabled
             AapsV3ConnectionStatus.REVOKED -> R.string.native_aaps_revoked

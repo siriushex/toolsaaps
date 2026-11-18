@@ -16,7 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 
-enum class AapsV3ConnectionStatus { UNPAIRED, WAITING, VERIFYING, CONNECTED, CONTROL_DISABLED, REVOKED, OFFLINE, ERROR }
+enum class AapsV3ConnectionStatus { UNPAIRED, WAITING, VERIFYING, LOCAL_PEER_VERIFIED, CONNECTED, CONTROL_DISABLED, REVOKED, OFFLINE, ERROR }
 enum class AapsV3PairingRoute { SAME_PHONE, STORAGE }
 enum class AapsV3PairingIssue { LOCAL_INVITATION_MISSING, LOCAL_NOT_READY }
 data class AapsV3ConnectionState(
@@ -156,7 +156,7 @@ internal class AapsV3TargetChannel(
         mutableState.update { it.copy(pairingIssue = null) }
         if (runtimeAllowed) runtimeScope?.let(::start)
         val epoch = generation.get()
-        try { refresh() } catch (cancelled: CancellationException) { throw cancelled }
+        try { refresh(recheckMembership = true) } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { connectionFailed(epoch) }
     }
 
@@ -211,7 +211,7 @@ internal class AapsV3TargetChannel(
         mutableState.update { AapsV3ConnectionState(settingsSubscribedAtCheck = subscribed, busy = it.busy, pairingIssue = it.pairingIssue) }
     }
 
-    private suspend fun refresh() = refreshMutex.withLock {
+    private suspend fun refresh(recheckMembership: Boolean = false) = refreshMutex.withLock {
         val epoch = generation.get()
         if (!journal.hasNativeState()) {
             synchronized(this) {
@@ -252,7 +252,7 @@ internal class AapsV3TargetChannel(
             pair.enrollmentRole != null && pair.phase != AapsV3PairingPhase.REVOKED && localOffers?.current() == null) {
             val now = clock()
             val previous = membershipCheck
-            if (previous != null && previous.epoch == epoch && previous.client == pair.clientId &&
+            if (!recheckMembership && previous != null && previous.epoch == epoch && previous.client == pair.clientId &&
                 now - previous.attempted in 0 until 60_000L) previous.receipt
             else {
                 val result = journal.checkLocalMembership(clock, witnessPeer)
@@ -262,7 +262,9 @@ internal class AapsV3TargetChannel(
         } else { membershipCheck = null; null }
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
-            !runtimeAllowed || !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
+            !runtimeAllowed -> AapsV3ConnectionStatus.OFFLINE
+            witness != null -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
+            !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
             pair.phase == AapsV3PairingPhase.WAITING -> AapsV3ConnectionStatus.WAITING
             !pair.controlEnabled -> AapsV3ConnectionStatus.CONTROL_DISABLED
             sessionProbeCounter <= 0 || pair.pongCounter < sessionProbeCounter || clock() - pair.lastPongAt !in 0..90_000 -> AapsV3ConnectionStatus.VERIFYING

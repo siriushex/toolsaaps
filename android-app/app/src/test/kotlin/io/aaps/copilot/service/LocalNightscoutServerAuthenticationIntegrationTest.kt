@@ -307,13 +307,30 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             })
             val afterPin = current.expires + 60_000L
             lateinit var reply: String
-            val member = reopened.checkLocalMembership({ afterPin }) { master, nonce, bytes ->
-                assertThat(master).isEqualTo(pair.masterInstallId)
-                send(nonce); send(bytes.decodeToString())
-                reply = receive()
-                reply.encodeToByteArray()
+            var peerAvailable = false
+            val resumed = AapsV3TargetChannel(db, reopened, { false }, { "not_armed" },
+                { error("Membership must not submit a command") }, clock = { afterPin }, localWitnessPeer = { master, nonce, bytes ->
+                    if (!peerAvailable) null else {
+                        assertThat(master).isEqualTo(pair.masterInstallId)
+                        send(nonce); send(bytes.decodeToString())
+                        reply = receive()
+                        reply.encodeToByteArray()
+                    }
+                })
+            try {
+                resumed.start(scope)
+                withTimeout(10_000) { resumed.state.first { it.status == AapsV3ConnectionStatus.OFFLINE } }
+                peerAvailable = true
+                resumed.checkConnection()
+                assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED)
+                assertThat(resumed.state.value.localMembershipRole).isEqualTo(AapsFinalClientRole.READ_ONLY)
+                peerAvailable = false
+                resumed.checkConnection()
+                assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
+                assertThat(resumed.state.value.localMembershipRole).isNull()
+            } finally {
+                resumed.stop()
             }
-            assertThat(member?.role).isEqualTo(AapsFinalClientRole.READ_ONLY)
             assertThat(reopened.checkLocalMembership({ afterPin }) { _, _, _ -> reply.encodeToByteArray() }).isNull()
             output.close()
             check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
@@ -415,6 +432,11 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(attempt(connected(), token, listOf("settings"))).isFalse()
             assertThat(listener.openLocalSettingsTicket(client)).isNull()
             val store = LocalNightscoutV3Store(db)
+            val target = AapsV3TargetProtocol(ByteArray(32) { 3 }).use {
+                it.prepare(client, 3, System.currentTimeMillis(), AapsV3TargetSpec(110.0, 110.0, 30, "Eating Soon")).json
+            }
+            store.create(storageInput("aaps_clientcontrol_cmd_batch_prepare_$client").copy(
+                payloadJson = """{"date":946684800001,"utcOffset":0,"app":"AAPS","schemaVersion":1,"envelope":$target}"""))
             val expired = store.create(pingPublication(client, System.currentTimeMillis() - 60_000))
             repeat(6) { store.create(storageInput("owner-only-$it")) }
             getSocket(peer, port, sid).use {

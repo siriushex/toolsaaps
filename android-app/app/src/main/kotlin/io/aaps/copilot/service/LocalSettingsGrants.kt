@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Separate from all REST credentials. At most one same-phone subscriber can be enrolled at a time. */
 internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.os.SystemClock::elapsedRealtime) {
     internal class Lease(val clientId: String, private val digest: ByteArray, private val elapsedMs: () -> Long) {
-        val documentIds = REQUEST_TYPES.map { publicationId(it, clientId) }
+        val documentIds = ENROLLMENT_TYPES.map { publicationId(it, clientId) }
         private val issued = elapsedMs()
         private val retired = AtomicBoolean(false)
         private var claimed = false
@@ -98,12 +98,13 @@ internal fun isLocalClientPublication(row: LocalNightscoutV3DocumentEntity, clie
         require(HistoryJson.string(env.getValue("clientId")) == clientId && HistoryJson.long(env.getValue("counter")) > 0)
         require(now in HistoryJson.long(env.getValue("timestamp"))..HistoryJson.long(env.getValue("validUntil")))
         val type = HistoryJson.string(env.getValue("type"))
-        type in REQUEST_TYPES && row.identifier == publicationId(type, clientId) &&
+        type in ENROLLMENT_TYPES && row.identifier == publicationId(type, clientId) &&
             SIGNATURE.matches(HistoryJson.string(env.getValue("signature")))
     } catch (_: RuntimeException) { false }
 }
 
-private val REQUEST_TYPES = listOf("hello", "ping", AapsV3ComboReadProtocol.TYPE, "batch_prepare", "bolus_commit")
+// An invitation proves reachability only. Post-enrollment commands need a separate authenticated session.
+private val ENROLLMENT_TYPES = setOf("hello", "ping")
 private val SIGNATURE = Regex("[0-9a-f]{64}")
 private fun publicationId(type: String, clientId: String) =
     if (type == "hello") "aaps_clientcontrol_hello_$clientId" else "aaps_clientcontrol_cmd_${type}_$clientId"
