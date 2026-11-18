@@ -1129,8 +1129,10 @@ class LocalNightscoutServer internal constructor(
                                 addProperty("identifier", row.identifier)
                                 addProperty("srvCreated", row.createdRevision)
                                 addProperty("srvModified", row.modifiedRevision)
-                                addProperty("subject", row.source)
-                                addProperty("modifiedBy", row.source)
+                                val storedSubject = if (row.collection == "settings") remove(LOCAL_SUBJECT_FIELD)?.asString else null
+                                val subject = localV3WireSubject(row.collection, row.source, storedSubject)
+                                addProperty("subject", subject)
+                                addProperty("modifiedBy", subject)
                                 addProperty("isReadOnly", row.readOnly)
                                 addProperty("isValid", true)
                             })

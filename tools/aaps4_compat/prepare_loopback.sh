@@ -6,7 +6,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${JAVA_HOME:?Use Java 21 for the upstream build}"
 expected=f77abd9b82b308e8fc330da0d7a31370fb4a0f49
 test "$(git -C "$AAPS_FINAL_DIR" rev-parse HEAD)" = "$expected"
-candidate="$root/android-app/build/aaps-4-loopback"
+candidate="${AAPS_LOOPBACK_BUILD_DIR:-$root/android-app/build/aaps-4-loopback}"
 test ! -e "$candidate"
 git -C "$AAPS_FINAL_DIR" worktree add --detach "$candidate" "$expected"
 cd "$candidate"

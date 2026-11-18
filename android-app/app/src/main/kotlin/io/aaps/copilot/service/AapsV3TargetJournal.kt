@@ -106,10 +106,30 @@ internal class AapsV3TargetJournal(
         pairingOrNull()?.also { check(root().clientId == it.clientId) }?.snapshot()
     }
 
+    /** Called by the trusted local issuer, never with a token or claimed subject from a settings write. */
+    suspend fun issuePendingClientToken(clientId: String, masterId: String, clientPoint: String, subject: String, nowMs: Long): ByteArray = transaction {
+        val pair = pairing()
+        check(pair.requiresSignedRoster && pair.pendingExchange != null && pair.phase == AapsV3PairingPhase.WAITING &&
+            nowMs in pair.enrolledAt until pair.expiresAt && !pair.secretRotated &&
+            pair.clientId == clientId && root().clientId == clientId && pair.masterInstallId == masterId &&
+            pair.pendingExchange.publicPoint == clientPoint)
+        require(isLocalClientSubject(subject))
+        val issued = pair.pendingToken
+        if (issued != null) {
+            check(issued.subject == subject)
+            return@transaction issued.token.encodeToByteArray()
+        }
+        val random = ByteArray(32).also(java.security.SecureRandom()::nextBytes)
+        val token = try { Base64.getUrlEncoder().withoutPadding().encodeToString(random) } finally { random.fill(0) }
+        put(PAIRING, json.encodeToString(pair.copy(pendingToken = PendingToken(subject, token))))
+        token.encodeToByteArray()
+    }
+
     suspend fun revokePairing(): Unit = transaction {
         val pair = pairing()
         if (pair.phase != AapsV3PairingPhase.REVOKED) put(PAIRING, json.encodeToString(pair.copy(
-            phase = AapsV3PairingPhase.REVOKED, controlEnabled = false, pendingExchange = null)))
+            phase = AapsV3PairingPhase.REVOKED, controlEnabled = false, pendingExchange = null,
+            pendingToken = null, verifiedSubject = null)))
     }
 
     suspend fun rotateFinalSecret(nowMs: Long): Boolean = transaction {
@@ -129,13 +149,22 @@ internal class AapsV3TargetJournal(
         } catch (_: Exception) { return@transaction false }
         val privateDer = Base64.getDecoder().decode(pending.privateDer)
         val oldSecret = secretBytes(pair)
+        var verifiedSubject: String? = null
         val rotated = try {
             AapsFinalKeyExchange.finish(answer, pair.clientId, pending.publicPoint, privateDer, oldSecret,
-                pair.enrolledAt, pair.expiresAt, nowMs)
+                pair.enrolledAt, pair.expiresAt, nowMs) { presented ->
+                pair.pendingToken?.let { grant ->
+                    val expected = grant.token.encodeToByteArray()
+                    val matches = try { MessageDigest.isEqual(expected, presented) } finally { expected.fill(0) }
+                    if (matches) verifiedSubject = grant.subject
+                    matches
+                } == true
+            }
         } finally { privateDer.fill(0); oldSecret.fill(0) } ?: return@transaction false
         try {
+            if (pair.pendingToken != null && verifiedSubject == null) return@transaction false
             put(PAIRING, json.encodeToString(pair.copy(secretHex = secretHex(rotated),
-                pendingExchange = null, secretRotated = true)))
+                pendingExchange = null, secretRotated = true, pendingToken = null, verifiedSubject = verifiedSubject)))
             true
         } finally { rotated.fill(0) }
     }
@@ -561,7 +590,7 @@ internal class AapsV3TargetJournal(
             "aaps_clientcontrol_cmd_${AapsV3ComboReadProtocol.TYPE}_${record.clientId}")
         check(row != null && !row.deleted && !row.readOnly && row.source == "local-v3-target" &&
             row.modifiedRevision == record.publicationRevision && row.eventAtMs == DOC_DATE &&
-            HistoryJson.parse(row.payloadJson.toByteArray(), 65_536) == Json.parseToJsonElement(publicationBody(request)))
+            HistoryJson.parse(row.payloadJson.toByteArray(), 65_536) == Json.parseToJsonElement(publicationBody(request, pair.verifiedSubject)))
         val completedAt = clock()
         check(completedAt in now until record.issuedAt + AapsV3ComboReadProtocol.TTL_MS)
         requireLivePairing(completedAt, sessionStartedAt, minimumProbeCounter)
@@ -575,12 +604,16 @@ internal class AapsV3TargetJournal(
         val store = LocalNightscoutV3Store(db)
         val previous = store.get(LocalV3Collection.SETTINGS, id)
         check(previous == null || previous.source == "local-v3-target")
-        val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, id, "local-v3-target", DOC_DATE, publicationBody(request))
+        val subject = if (type == "hello") null else pairingOrNull()?.takeIf {
+            it.clientId == clientId && it.phase != AapsV3PairingPhase.REVOKED
+        }?.verifiedSubject
+        val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, id, "local-v3-target", DOC_DATE, publicationBody(request, subject))
         return if (previous == null) store.create(input) else store.update(input, previous.modifiedRevision)
     }
 
-    private fun publicationBody(request: AapsV3TargetRequest) = buildJsonObject {
+    private fun publicationBody(request: AapsV3TargetRequest, subject: String?) = buildJsonObject {
         put("date", DOC_DATE); put("utcOffset", 0); put("app", "AAPS"); put("schemaVersion", 1)
+        subject?.let { put(LOCAL_SUBJECT_FIELD, it) }
         put("envelope", request.json)
     }.toString()
 
@@ -595,6 +628,9 @@ internal class AapsV3TargetJournal(
     private suspend fun pairingOrNull(): Pairing? = read(PAIRING)?.let { json.decodeFromJsonElement<Pairing>(it).also { pair ->
         check(CLIENT_ID.matches(pair.clientId) && HEX.matches(pair.secretHex) && pair.masterInstallId.length in 1..128)
         check(pair.helloRevision > 0 && pair.rosterRevision >= 0 && pair.lastPongAt >= 0 && pair.pongCounter >= 0)
+        pair.verifiedSubject?.let { check(pair.requiresSignedRoster && pair.secretRotated && isLocalClientSubject(it)) }
+        pair.pendingToken?.let { check(pair.requiresSignedRoster && pair.pendingExchange != null && !pair.secretRotated &&
+            isLocalClientSubject(it.subject) && it.token.matches(Regex("[A-Za-z0-9_-]{43}"))) }
         if (pair.requiresSignedRoster) {
             check(pair.enrolledAt in 1 until pair.expiresAt && pair.rosterSignedAt in 0..HistoryJson.maxTime + 5_000)
             check(pair.masterPublicPoint == null || pair.masterPublicPoint.length == 88)
@@ -668,10 +704,12 @@ internal class AapsV3TargetJournal(
         val rosterRevision: Long = 0, val controlEnabled: Boolean = false, val lastPongAt: Long = 0, val pongCounter: Long = 0,
         val requiresSignedRoster: Boolean = false, val enrolledAt: Long = 0, val masterPublicPoint: String? = null,
         val rosterSignedAt: Long = 0, val verifiedRole: AapsFinalClientRole? = null,
-        val pendingExchange: PendingExchange? = null, val secretRotated: Boolean = false) {
+        val pendingExchange: PendingExchange? = null, val secretRotated: Boolean = false,
+        val pendingToken: PendingToken? = null, val verifiedSubject: String? = null) {
         fun snapshot(publication: LocalV3Write? = null) = AapsV3PairingSnapshot(phase, clientId, masterInstallId, controlEnabled, lastPongAt, pongCounter, publication)
         override fun toString() = "NativePairing(redacted)"
     }
+    @Serializable private class PendingToken(val subject: String, val token: String)
     @Serializable private data class PendingExchange(val publicPoint: String, val privateDer: String) {
         override fun toString() = "PendingExchange(redacted)"
     }

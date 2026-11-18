@@ -9,7 +9,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 fun main() {
-    val request = System.`in`.readNBytes(89).decodeToString()
+    val input = System.`in`.readNBytes(346).decodeToString().split('\n')
+    check(input.size in 1..2)
+    val request = input.first()
+    val token = input.getOrNull(1)?.also { check(it.length in 1..256) }
     check(request.length == 88)
     val client = "11111111-2222-4333-8444-555555555555"
     val initial = ByteArray(32) { it.toByte() }
@@ -19,8 +22,10 @@ fun main() {
             master.privateKey, request, initial, client, request, master.publicKey
         )
         try {
+            val encrypted = token?.let { ClientControlKeyExchangeCrypto.encryptToken(keys.tokenKey, it) }
             val answer = ClientControlCrypto.signKeyExchange(initial, KeyExchangeEnvelope(
-                client, request, master.publicKey, timestamp = 1_800_000_000_001, signature = ""
+                client, request, master.publicKey, tokenIv = encrypted?.first, token = encrypted?.second,
+                timestamp = 1_800_000_000_001, signature = ""
             ))
             println(buildJsonObject {
                 put("answer", Json.encodeToJsonElement(KeyExchangeEnvelope.serializer(), answer))

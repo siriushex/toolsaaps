@@ -103,6 +103,7 @@ internal class LocalNightscoutV3SettingsApi(private val db: CopilotDatabase, now
     }
 
     private fun validated(body: JsonObject): JsonObject {
+        require(LOCAL_SUBJECT_FIELD !in body)
         finiteAndNoPairingSecret(body)
         val result = JsonObject(body.filterKeys { it !in METADATA })
         require(HistoryJson.long(result.getValue("date")) in 946_684_800_001..LocalNightscoutV3Store.MAX_TIME)
@@ -144,10 +145,14 @@ internal class LocalNightscoutV3SettingsApi(private val db: CopilotDatabase, now
         if (HistoryJson.bytes(body).size > 1024 * 1024) throw LocalV3StoreException(LocalV3StoreError.PAGE_CAPACITY)
         return response(200, body, cursor)
     }
-    private fun wire(row: LocalNightscoutV3DocumentEntity) = JsonObject(parse(row.payloadJson.toByteArray()) + buildJsonObject {
-        put("identifier", row.identifier); put("srvCreated", row.createdRevision); put("srvModified", row.modifiedRevision)
-        put("subject", row.source); put("modifiedBy", row.source); put("isReadOnly", row.readOnly); put("isValid", !row.deleted)
-    })
+    private fun wire(row: LocalNightscoutV3DocumentEntity): JsonObject {
+        val body = parse(row.payloadJson.toByteArray())
+        val subject = localV3WireSubject(row.collection, row.source, body[LOCAL_SUBJECT_FIELD]?.let(HistoryJson::string))
+        return JsonObject((body - LOCAL_SUBJECT_FIELD) + buildJsonObject {
+            put("identifier", row.identifier); put("srvCreated", row.createdRevision); put("srvModified", row.modifiedRevision)
+            put("subject", subject); put("modifiedBy", subject); put("isReadOnly", row.readOnly); put("isValid", !row.deleted)
+        })
+    }
     private fun written(write: LocalV3Write, created: Boolean) = response(if (created) 201 else 200, buildJsonObject {
         put("identifier", write.document.identifier); put("lastModified", write.document.modifiedRevision)
         put("isDeduplication", !write.changed)

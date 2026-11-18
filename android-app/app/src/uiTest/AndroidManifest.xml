@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <queries tools:node="remove" />
+    <permission android:name="io.aaps.predictivecopilot.permission.ISSUE_LOCAL_CLIENT_TOKEN"
+        tools:node="remove" />
 
     <uses-permission
         android:name="android.permission.INTERNET"
@@ -72,6 +74,9 @@
             tools:node="remove" />
         <activity
             android:name=".AlertNotificationEntryActivity"
+            tools:node="remove" />
+        <provider
+            android:name=".service.LocalClientTokenProvider"
             tools:node="remove" />
         <provider
             android:name="androidx.startup.InitializationProvider"

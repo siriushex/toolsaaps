@@ -19,6 +19,8 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.CarbsSendThrottle
@@ -792,7 +794,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
-    fun finalStorageRoundTripReadsBothTargetsFromIsolatedAapsDatabaseBeforeAck() = runBlocking {
+    fun finalStorageRoundTripReadsBothTargetsFromIsolatedAapsDatabaseBeforeAck() = finalStorageRoundTrip(false)
+
+    @Test
+    fun finalLocalTokenBindsHttpAndStorageSubjectsForBothTargets() = finalStorageRoundTrip(true)
+
+    private fun finalStorageRoundTrip(useToken: Boolean) = runBlocking {
         val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
         val ready = classpath?.isFile == true && !javaHome.isNullOrBlank()
@@ -827,6 +834,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 .apply {
                     environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
                     environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    environment()["ENTRY_TEST_PAIR_TOKEN"] = if (useToken) "1" else "0"
                     redirectErrorStream(true)
                     redirectOutput(output)
                 }.start()
@@ -840,6 +848,15 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(listener.hasNativeStorageSubscription()).isTrue()
             channel.start(CoroutineScope(runtime + Dispatchers.IO))
             channel.pair("23456789".toCharArray())
+            if (useToken) {
+                val pair = checkNotNull(journal.pairingSnapshot())
+                val hello = checkNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_${pair.clientId}"))
+                val envelope = io.aaps.copilot.data.repository.HistoryJson.parse(hello.payloadJson.toByteArray(), 65_536).getValue("envelope").jsonObject
+                val point = io.aaps.copilot.data.repository.HistoryJson.parse(envelope.getValue("payload").jsonPrimitive.content.toByteArray(), 4096)
+                    .getValue("publicKey").jsonPrimitive.content
+                val issued = journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", now.get())
+                try { process.outputStream.use { it.write(issued) } } finally { issued.fill(0) }
+            }
             withTimeout(12_000) {
                 while (channel.state.value.status != AapsV3ConnectionStatus.CONNECTED) {
                     check(process.isAlive) { "Storage stand could not pair: ${failureCode()}" }

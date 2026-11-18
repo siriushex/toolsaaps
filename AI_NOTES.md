@@ -1,3 +1,23 @@
+# Final local client identity (2026-11-18)
+
+- Full local Android run: 7211 passed, 6 skipped; lint and debug build passed.
+  The UI-test APK must neither export the enrollment provider nor declare its
+  signature permission. Verified the merged manifest and reran the glucose,
+  profile and insulin upload fixture with a fresh pinned SDK worktree.
+  Backend: 1977 passed, 27 skipped. These checks do not establish pump delivery.
+- The stock final key exchange binds a pending enrollment to its local issuer
+  before publishing the verified subject over HTTPS or the storage socket.
+  Private row provenance is not a network identity. A subjectless existing
+  pair is not silently converted.
+- 79 Copilot and 96 AAPS host tests passed without skips. The isolated
+  database test read back both temporary targets, including Eating Soon.
+  Evidence: `artifacts/final-local-client-binding/{end-to-end,aaps}.log`
+  in the parent workspace. AAPS candidate commit: `e5f969da41`.
+- USB readback on the Xiaomi stand still identifies the earlier final AAPS
+  4.0.0 build (SHA-256 prefix `6982065347e7`) and Copilot 0.1.20
+  (`cb4f63cb1c5d`). Neither candidate was installed. No physical target
+  application, raw archive completeness or clinical forecast is asserted.
+
 # Per-Read Combo Continuity - 2026-11-04
 
 - Main973c0917 Verify40920901933 and PR75/fbf210df exact-head checks are successful;

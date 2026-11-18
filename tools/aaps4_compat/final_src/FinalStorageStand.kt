@@ -41,9 +41,19 @@ fun main() {
                 put("date", 946_684_800_001L); put("utcOffset", 0); put("app", "AAPS")
                 put("schemaVersion", schema); put(field, value)
             }
-            fun incoming(type: String, counter: Long, key: ByteArray): SignedEnvelope {
+            val useToken = System.getenv("ENTRY_TEST_PAIR_TOKEN") == "1"
+            suspend fun incoming(type: String, counter: Long, key: ByteArray): SignedEnvelope {
                 val name = if (type == "hello") "aaps_clientcontrol_hello_$id" else "aaps_clientcontrol_cmd_${type}_$id"
-                val cmd = codec.decodeFromJsonElement(SignedEnvelope.serializer(), socket.awaitDocument(name).getValue("envelope"))
+                val pushed = socket.awaitDocument(name)
+                if (useToken) {
+                    val expected = if (type == "hello") "local-v3-target" else "aaps-Stand"
+                    val fetched = checkNotNull(client.getSettings(name).values)
+                    for (wire in listOf(pushed, fetched)) {
+                        check(wire["subject"] == JsonPrimitive(expected) && wire["modifiedBy"] == JsonPrimitive(expected))
+                        check("_localPairSubjectV1" !in wire)
+                    }
+                }
+                val cmd = codec.decodeFromJsonElement(SignedEnvelope.serializer(), pushed.getValue("envelope"))
                 check(cmd.clientId == id && cmd.counter == counter && cmd.type == type && cmd.timestamp <= cmd.validUntil)
                 check(ClientControlCrypto.verifyEnvelope(key, cmd))
                 return cmd
@@ -81,9 +91,17 @@ fun main() {
                 val clientPoint = checkNotNull(message.publicKey)
                 val shared = ClientControlKeyExchangeCrypto.deriveKeys(keys.privateKey, clientPoint, initial, id, clientPoint, keys.publicKey)
                 rotated = shared.secret
+                val encrypted = if (useToken) {
+                    val token = System.`in`.readNBytes(44)
+                    try {
+                        check(token.size == 43)
+                        ClientControlKeyExchangeCrypto.encryptToken(shared.tokenKey, token.decodeToString())
+                    } finally { token.fill(0) }
+                } else null
                 shared.tokenKey.fill(0)
                 val answer = ClientControlCrypto.signKeyExchange(initial, KeyExchangeEnvelope(
-                    id, clientPoint, keys.publicKey, timestamp = hello.timestamp + 1, signature = ""
+                    id, clientPoint, keys.publicKey, tokenIv = encrypted?.first, token = encrypted?.second,
+                    timestamp = hello.timestamp + 1, signature = ""
                 ))
                 check(client.deleteSettingsPermanent(offerId).response == 200)
                 check(client.updateSettings(keyId, doc("key", codec.encodeToJsonElement(KeyExchangeEnvelope.serializer(), answer))).response == 201)

@@ -13,6 +13,8 @@
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <permission android:name="io.aaps.predictivecopilot.permission.ISSUE_LOCAL_CLIENT_TOKEN"
+        android:protectionLevel="signature" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -47,6 +49,11 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AAPSPredictiveCopilot">
+        <provider android:name=".service.LocalClientTokenProvider"
+            android:authorities="io.aaps.predictivecopilot.localclient"
+            android:permission="io.aaps.predictivecopilot.permission.ISSUE_LOCAL_CLIENT_TOKEN"
+            android:exported="true" android:grantUriPermissions="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

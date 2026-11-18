@@ -110,8 +110,23 @@ Existing RC1 journals keep their original decoding path; new enrollments
 never downgrade based on the contents of an offer or a received roster.
 Final-format enrollments from before key rotation must be revoked and
 re-enrolled. Keep the one-use exchange answer out of readable deletion
-history, preserving its non-secret revision. A token-bearing exchange
-is refused; the current route does not provision native client tokens.
+history, preserving its non-secret revision.
+
+For the final same-device build, Copilot can issue one random token for a pending
+PIN enrollment. The Binder call requires the exact AAPS package, its exclusive
+UID, a matching signer and a signature permission. Match the client, master,
+one-use Hello public key and unexpired enrollment; reject a different subject.
+The endpoint is not an HTTP role or token administration API.
+
+The AAPS receiver asks for this token only on its local HTTPS connection and
+returns it in its stock signed key-exchange answer. Verify the MAC first, open
+the AES-GCM token using the second HKDF block, and compare it against the
+locally issued credential. A missing, different or unauthenticated token
+cannot complete a token-bearing enrollment. Discard the issued token on
+successful rotation or local revocation. The verified name travels as the
+settings document's wire subject, on HTTP and WebSocket, without changing the
+stored source. Legacy tokenless enrollment remains supported only when no
+local token was issued. This identifies the client, not a therapy permission.
 Temporary targets require the Caregiver or Admin role from the signed
 roster, not the role shown in the PIN offer.
 

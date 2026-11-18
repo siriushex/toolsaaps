@@ -14,13 +14,15 @@ import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
-/** Final AAPS 4 local key rotation. Token-bearing answers are not admitted on this route. */
+/** Verify the master's reply before opening its optional token. Only a local issuer can attest a token. */
 internal object AapsFinalKeyExchange {
     private val curve = ECGenParameterSpec("secp256r1")
     private val hex = Regex("[0-9a-f]{64}")
@@ -39,7 +41,8 @@ internal object AapsFinalKeyExchange {
     }
 
     fun finish(answer: JsonObject, clientId: String, clientPoint: String, privateDer: ByteArray,
-               oldSecret: ByteArray, startedAt: Long, expiresAt: Long, now: Long): ByteArray? = try {
+               oldSecret: ByteArray, startedAt: Long, expiresAt: Long, now: Long,
+               acceptsIssuedToken: (ByteArray) -> Boolean = { false }): ByteArray? = try {
         require(oldSecret.size == 32 && privateDer.size in 1..512)
         require(now in startedAt until expiresAt)
         HistoryJson.fields(answer, setOf("clientId", "clientPublicKey", "masterPublicKey", "timestamp", "signature"),
@@ -48,14 +51,16 @@ internal object AapsFinalKeyExchange {
         require(HistoryJson.string(answer.getValue("clientPublicKey")) == clientPoint)
         val master = HistoryJson.string(answer.getValue("masterPublicKey"))
         require(master != clientPoint)
-        // Do not ignore a token the master expects the client to use.
-        require(answer["tokenIv"].let { it == null || it == JsonNull } &&
-            answer["token"].let { it == null || it == JsonNull })
+        val ivText = answer["tokenIv"]?.takeUnless { it == JsonNull }?.let(HistoryJson::string)
+        val sealedText = answer["token"]?.takeUnless { it == JsonNull }?.let(HistoryJson::string)
+        require((ivText == null) == (sealedText == null))
+        require(ivText == null || ivText.length == 16)
+        require(sealedText == null || sealedText.length in 24..364)
         val at = HistoryJson.long(answer.getValue("timestamp"))
         require(at in maxOf(1, startedAt - 5_000)..minOf(now + 5_000, expiresAt - 1))
         val signature = HistoryJson.string(answer.getValue("signature"))
         require(hex.matches(signature))
-        val expected = mac(oldSecret, "$clientId|$clientPoint|$master|||$at".encodeToByteArray())
+        val expected = mac(oldSecret, "$clientId|$clientPoint|$master|${ivText.orEmpty()}|${sealedText.orEmpty()}|$at".encodeToByteArray())
         val valid = try {
             MessageDigest.isEqual(expected, ByteArray(32) { signature.substring(it * 2, it * 2 + 2).toInt(16).toByte() })
         } finally { expected.fill(0) }
@@ -68,12 +73,35 @@ internal object AapsFinalKeyExchange {
         try {
             val extracted = mac(oldSecret, secret)
             try {
-                // This is the first 32-byte HKDF expand block; the second is only for the token.
-                mac(extracted, "aaps-clientcontrol-key-v1|$clientId|$clientPoint|$master".encodeToByteArray() + byteArrayOf(1))
+                val info = "aaps-clientcontrol-key-v1|$clientId|$clientPoint|$master".encodeToByteArray()
+                val rotated = mac(extracted, info + byteArrayOf(1))
+                try {
+                    if (ivText != null && sealedText != null) {
+                        val iv = canonicalBase64(ivText, 12..12)
+                        val ciphertext = canonicalBase64(sealedText, 17..272)
+                        val expand = rotated + info + byteArrayOf(2)
+                        val tokenKey = try { mac(extracted, expand) } finally { expand.fill(0) }
+                        val token = try { Cipher.getInstance("AES/GCM/NoPadding").run {
+                            init(Cipher.DECRYPT_MODE, SecretKeySpec(tokenKey, "AES"), GCMParameterSpec(128, iv))
+                            doFinal(ciphertext)
+                        } } finally { tokenKey.fill(0) }
+                        try {
+                            require(token.size in 1..256 && token.all { it.toInt() in 33..126 })
+                            require(acceptsIssuedToken(token))
+                        } finally { token.fill(0) }
+                    }
+                    rotated.copyOf()
+                } finally { rotated.fill(0) }
             } finally { extracted.fill(0) }
         } finally { secret.fill(0) }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
     } catch (_: Exception) {
         null
+    }
+
+    private fun canonicalBase64(text: String, size: IntRange): ByteArray = Base64.getDecoder().decode(text).also {
+        require(it.size in size && Base64.getEncoder().encodeToString(it) == text)
     }
 
     fun decodePoint(encoded: String): PublicKey {
