@@ -3,7 +3,9 @@ package integration.finalenrollment
 import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
 import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
 import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
-import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
+import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+import app.aaps.core.nssdk.utils.MasterDocSigning
+import app.aaps.core.nssdk.utils.LocalFirstPong
 import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import app.aaps.core.nssdk.utils.ClientControlPinOffer
@@ -34,7 +36,7 @@ fun main() {
         runBlocking {
             var saved: ByteArray? = null
             try {
-                check(LocalPinHelloPeer.exchange(System.getenv("SETTINGS_TEST_PORT").toInt(), identity, bearer, pending) { hello ->
+                check(LocalPinHelloPeer.exchange(System.getenv("SETTINGS_TEST_PORT").toInt(), identity, bearer, pending, accept = { hello ->
                     val answer = LocalPinKeyResponder.answer(pending, hello, issue = { point ->
                         println(point)
                         System.out.flush()
@@ -42,13 +44,18 @@ fun main() {
                     }, storePending = { _, key -> saved = key.copyOf(); true }) ?: return@exchange false
                     println(Json.encodeToString(KeyExchangeEnvelope.serializer(), answer))
                     System.out.flush()
-                    val ping = Json.decodeFromString(SignedEnvelope.serializer(), readln())
-                    ping.type == "ping" && ping.clientId == id && ping.counter == 2L &&
-                        ClientControlCrypto.verifyEnvelope(checkNotNull(saved), ping)
-                })
+                    readln() == "KEY_ACCEPTED"
+                }, confirmProbe = { ping ->
+                    val signer = MasterDocSigning.newKeyPair()
+                    val ack = try { LocalFirstPong.sign(checkNotNull(saved), id, ping, pending.expiresAt - 120_000,
+                        pending.expiresAt, System.currentTimeMillis(), signer.publicKey) } finally { signer.privateKey.fill(0) }
+                    println(Json.encodeToString(AckEnvelope.serializer(), checkNotNull(ack)))
+                    System.out.flush()
+                    readln() == "PONG_ACCEPTED"
+                }))
             } finally { saved?.fill(0) }
         }
     }.isSuccess
-    println(if (ok) "LOCAL_KEY_VERIFIED" else "LOCAL_KEY_FAILED")
+    println(if (ok) "LOCAL_PONG_VERIFIED" else "LOCAL_PONG_FAILED")
     exitProcess(if (ok) 0 else 1)
 }

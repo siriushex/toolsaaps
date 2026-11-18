@@ -43,11 +43,18 @@ key only for that live offer and its previously issued subject token. A lost
 lease or deadline during the Room write rolls it back. The local bootstrap
 Ping does not rely on deletion of an unrelated Nightscout offer.
 
-The loopback fixture runs the AAPS Hello receiver and Copilot listener in
-separate processes. It passes synthetic provider calls and the resulting
-Ping over private test pipes; AAPS verifies the Ping with its rotated key.
-This proves key agreement, not live Ping delivery or a connected client.
-The local enrollment UI, signed Pong and roster, ongoing session ownership
+The loopback fixture runs the AAPS enrollment subscriber and Copilot listener
+in separate processes. Only simulated Binder calls use private test pipes.
+After the signed key is recorded, Copilot wakes its running channel immediately
+and sends its first Ping over the already pinned Socket.IO subscription. The
+native master verifies the fresh counter with its staged key; it signs a Pong
+containing its settings-signing public key. Copilot checks the local offer,
+socket, client, signed counter, deadline and signature. A stale transaction or
+replay cannot advance the journal. The enrollment remains pending: a Pong
+does not attest the client's role. Ordinary Nightscout roster documents cannot
+activate a local enrollment.
+
+The local enrollment UI, signed local roster, ongoing session ownership
 and post-disconnect reconciliation must precede phone use.
 Do not reuse upload tickets or overwrite Nightscout settings. The separate
 target round-trip test reads ordinary and Eating Soon targets from an isolated

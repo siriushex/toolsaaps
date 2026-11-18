@@ -180,7 +180,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
-    fun samePhoneKeyAnswerFromFinalAapsEnablesOnlyItsOwnSignedProbe() = runBlocking {
+    fun samePhoneAapsReceivesBootstrapPingOverTlsAndCopilotAcceptsItsPongOnce() = runBlocking {
         val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
         val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
@@ -253,16 +253,30 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             } catch (_: AapsV3TargetJournalFailure) { true }
             assertThat(expiredDuringWrite).isTrue()
             assertThat(journal.probe(System.currentTimeMillis(), localOffers = offers)).isNull()
-            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, key)).isTrue()
+            assertThat(channel.acceptLocalEnrollmentKey(pair.clientId, current.handle, key)).isTrue()
             assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, key)).isFalse()
-            channel.checkConnection()
-            val ping = checkNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_ping_${pair.clientId}"))
-            val body = io.aaps.copilot.data.repository.HistoryJson.parse(ping.payloadJson.toByteArray(), 4096)
-            send(body.getValue("envelope").toString())
+            send("KEY_ACCEPTED")
+            val pong = receive().toByteArray()
+            val ack = io.aaps.copilot.data.repository.HistoryJson.parse(pong, 2048)
+            assertThat(journal.acknowledgeProbe(ack, System.currentTimeMillis())).isFalse()
+            assertThat(journal.acceptLocalPong(offers, pair.clientId, "other", pong)).isFalse()
+            var pongClockReads = 0
+            val stalePongRolledBack = try {
+                journal.acceptLocalPong(offers, pair.clientId, current.handle, pong) {
+                    if (pongClockReads++ == 0) System.currentTimeMillis() else current.expires
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(stalePongRolledBack).isTrue()
+            assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(0)
+            assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isTrue()
+            assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isFalse()
+            assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(2)
+            send("PONG_ACCEPTED")
             output.close()
             check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
             assertThat(process.exitValue()).isEqualTo(0)
-            assertThat(input.readLine()).isEqualTo("LOCAL_KEY_VERIFIED")
+            assertThat(input.readLine()).isEqualTo("LOCAL_PONG_VERIFIED")
             assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
             assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()

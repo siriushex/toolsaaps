@@ -1,3 +1,12 @@
+# Local enrollment liveness (2026-11-18)
+
+- The first Ping now travels on the pinned settings socket immediately after
+  key acceptance. The AAPS master checks its own pending client and signs Pong
+  with the rotated key. Copilot accepts it on the offer-bound return path once.
+- Separate-process test verifies transport, deadline rollback and replay
+  rejection without polling the UI or injecting a Ping outside the socket.
+  Neither a Pong nor an ambient roster grants the local client target rights.
+
 # Same-phone signed key return (2026-11-18)
 
 - Final AAPS stores a pending key for a local-only owner-approved client.

@@ -144,6 +144,16 @@ internal class AapsV3TargetChannel(
         catch (_: Exception) { connectionFailed(epoch) }
     }
 
+    /** The key arrived via IPC, so there is no settings-document revision to wake this runtime. */
+    suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray): Boolean {
+        val offers = localOffers ?: return false
+        if (!runtimeAllowed || !journal.acceptLocalKey(offers, id, handle, bytes, clock)) return false
+        synchronized(this) {
+            if (runtimeAllowed) runtimeScope?.launch(Dispatchers.IO) { checkConnection() }
+        }
+        return true
+    }
+
     @Synchronized private fun connectionFailed(epoch: Long) {
         if (generation.get() != epoch) return
         stopHistory()

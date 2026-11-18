@@ -1154,6 +1154,8 @@ class AppContainer(context: Context) {
         return AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
     }
     suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
+    internal suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentKey(id, handle, bytes)
     suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()
 

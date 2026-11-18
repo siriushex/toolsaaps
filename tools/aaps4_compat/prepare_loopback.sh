@@ -23,6 +23,9 @@ git apply --index "$enrollment"
 reply="$root/tools/aaps4_compat/final-local-key-reply.patch"
 git apply --check "$reply"
 git apply --index "$reply"
+probe="$root/tools/aaps4_compat/final-local-probe.patch"
+git apply --check "$probe"
+git apply --index "$probe"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET

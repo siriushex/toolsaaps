@@ -201,6 +201,8 @@ internal class AapsV3TargetJournal(
     suspend fun observeRoster(row: io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity,
                               nowMs: Long = System.currentTimeMillis()): AapsV3PairingSnapshot = transaction {
         val pair = pairing()
+        // A single-client local enrollment must not become active from an ambient settings document.
+        if (pair.localBinding != null) return@transaction pair.snapshot()
         if (row.collection != "settings" || row.identifier != "aaps" || row.source != "local-v3-owner" ||
             row.modifiedRevision <= maxOf(pair.helloRevision, pair.rosterRevision)) return@transaction pair.snapshot()
         if (pair.requiresSignedRoster) {
@@ -282,13 +284,37 @@ internal class AapsV3TargetJournal(
     }
 
     suspend fun acknowledgeProbe(ack: JsonObject, nowMs: Long): Boolean = transaction {
-        val pair = pairing(); val probe = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) } ?: return@transaction false
-        if (pair.requiresSignedRoster && !pair.secretRotated) return@transaction false
+        val pair = pairing()
+        if (pair.localBinding != null && pair.phase == AapsV3PairingPhase.WAITING) return@transaction false
+        recordProbeAnswer(pair, ack, nowMs)
+    }
+
+    suspend fun acceptLocalPong(offers: LocalEnrollmentOffers, id: String, handle: String, bytes: ByteArray,
+                                clock: () -> Long = System::currentTimeMillis): Boolean = transaction {
+        val offer = offers.current() ?: return@transaction false
+        if (offer.clientId != id || offer.handle != handle || bytes.size !in 1..2048 || !offers.ready(offer)) return@transaction false
+        val pair = pairingOrNull() ?: return@transaction false
+        val at = clock()
+        if (pair.phase != AapsV3PairingPhase.WAITING || pair.clientId != id || pair.localBinding != digest(handle) ||
+            !pair.secretRotated || pair.verifiedSubject == null || pair.pongCounter != 0L || at !in pair.enrolledAt until pair.expiresAt)
+            return@transaction false
+        val ack = HistoryJson.parse(bytes, 2048)
+        val request = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it).request } ?: return@transaction false
+        val deadline = minOf(pair.expiresAt, HistoryJson.long(request.getValue("validUntil")))
+        if (at >= deadline) return@transaction false
+        if (ack["commandCounter"] != JsonPrimitive(2L) || !recordProbeAnswer(pair, ack, at)) return@transaction false
+        check(offers.ready(offer) && clock() in at until deadline)
+        true
+    }
+
+    private suspend fun recordProbeAnswer(pair: Pairing, ack: JsonObject, nowMs: Long): Boolean {
+        val probe = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) } ?: return false
+        if (pair.requiresSignedRoster && !pair.secretRotated) return false
         val at = HistoryJson.long(probe.request.getValue("timestamp"))
         val counter = HistoryJson.long(probe.request.getValue("counter"))
         if (pair.phase == AapsV3PairingPhase.REVOKED || probe.request["clientId"] != JsonPrimitive(pair.clientId) ||
-            root().clientId != pair.clientId) return@transaction false
-        if (counter <= pair.pongCounter || nowMs - at !in 0..13_000) return@transaction false
+            root().clientId != pair.clientId) return false
+        if (counter <= pair.pongCounter || nowMs - at !in 0..13_000) return false
         val secret = secretBytes(pair)
         val updated = try {
             AapsV3SessionProtocol(secret).use { protocol ->
@@ -302,7 +328,7 @@ internal class AapsV3TargetJournal(
             }
         } finally { secret.fill(0) }
         if (updated != null) put(PAIRING, json.encodeToString(updated))
-        updated != null
+        return updated != null
     }
 
     // Read-only assertion used by the guard inside prepare/commit; no state or receipt escapes.
