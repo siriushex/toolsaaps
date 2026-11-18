@@ -14,6 +14,9 @@ patch="$root/tools/aaps4_compat/final-loopback-upload.patch"
 provider="$root/tools/aaps4_compat/final-android-local-upload.patch"
 git apply --check "$patch" "$provider"
 git apply --index "$patch" "$provider"
+polling="$root/tools/aaps4_compat/final-settings-polling.patch"
+git apply --check "$polling"
+git apply --index "$polling"
 # The final AAPS build refuses tracked changes. Commit only in this detached fixture.
 git -c user.name="Local fixture" -c user.email="fixture@example.invalid" \
     -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -m "Apply local upload transport for verification"

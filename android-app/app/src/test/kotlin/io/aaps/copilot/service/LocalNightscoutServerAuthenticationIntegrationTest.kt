@@ -82,6 +82,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private lateinit var db: CopilotDatabase
     private lateinit var storage: MemoryAtomicStorage
     private lateinit var caCertificate: X509Certificate
+    private lateinit var serverCertificate: X509Certificate
     private lateinit var apiSecretSha1: String
     private lateinit var localAccessToken: String
     private var server: LocalNightscoutServer? = null
@@ -96,6 +97,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val loaded = LocalNightscoutTlsIdentityRepository(storage).load()
         try {
             caCertificate = loaded.caCertificate
+            serverCertificate = loaded.serverCertificate
             apiSecretSha1 = sha1Hex(loaded.apiSecretBytes)
             localAccessToken = loaded.apiSecretBytes.toString(Charsets.US_ASCII)
         } finally {
@@ -177,6 +179,51 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun finalAapsPinnedPollingReceivesSettingsFromIndependentCopilotListener() = runBlocking {
+        val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing pinned settings fixture" }
+        Assume.assumeTrue("Requires AAPS 4.0.0 pinned settings fixture", ready)
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val root = File.createTempFile("settings-root-", ".der")
+        val leaf = File.createTempFile("settings-leaf-", ".der")
+        var child: Process? = null
+        try {
+            root.writeBytes(caCertificate.encoded)
+            leaf.writeBytes(serverCertificate.encoded)
+            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(cp).readText(),
+                "integration.finalsettings.PinnedSettingsInteropKt").apply {
+                environment()["SETTINGS_TEST_CA"] = root.absolutePath
+                environment()["SETTINGS_TEST_LEAF"] = leaf.absolutePath
+                environment()["SETTINGS_TEST_PORT"] = port.toString()
+                // Synthetic owner secret only for this isolated peer; never device enrollment.
+                environment()["SETTINGS_TEST_ACCESS"] = localAccessToken
+                redirectErrorStream(true)
+            }.start()
+            child = process
+            withTimeout(20_000) {
+                while (!listener.hasNativeStorageSubscription()) {
+                    check(process.isAlive) { "Pinned settings peer terminated before subscription" }
+                    delay(25)
+                }
+            }
+            LocalNightscoutV3Store(db).create(storageInput("pinned-settings-proof"))
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "Pinned settings peer timed out" }
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(process.inputStream.bufferedReader().use { it.readLines() }).contains("PINNED_SETTINGS_OK")
+        } finally {
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            root.delete()
+            leaf.delete()
+        }
+        Unit
     }
 
     @Test

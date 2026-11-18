@@ -1,3 +1,13 @@
+# Independent AAPS settings polling (2026-11-18)
+
+- The Android/JVM SDK has a separate, closeable same-phone polling transport.
+  Upload-only REST paths are unchanged; no default TLS or NSClient URL changes.
+- The interop test launches the actual AAPS SDK and Socket.IO library in a
+  separate process. It requests only settings and waits for a committed event.
+  Its synthetic owner secret is not a provisioning mechanism for Android.
+- This does not enable pairing or clinical actions. Device enrollment still
+  needs a dedicated scoped credential and a signed response route.
+
 # Settings subscription readiness (2026-11-18)
 
 - Unpaired connection checks report the observed settings subscription separately

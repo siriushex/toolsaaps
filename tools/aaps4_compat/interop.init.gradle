@@ -13,7 +13,15 @@ gradle.projectsEvaluated {
             implementation(sdk.project(':database:impl'))
         }
     }
-    if (querySource) sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(querySource)
+    if (querySource) {
+        sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(querySource)
+        if (new File(querySource).name == 'loopback_src') {
+            sdk.kotlin.sourceSets.getByName('jvmTest').dependencies {
+                implementation(sdk.libs.io.socket.client)
+                implementation(sdk.libs.org.json.android)
+            }
+        }
+    }
     sdk.tasks.register('exportInteropClasspath') {
         dependsOn sdk.tasks.named('jvmTestClasses')
         doLast {

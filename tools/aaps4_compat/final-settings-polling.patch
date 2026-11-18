@@ -1,0 +1,188 @@
+diff --git a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLocalSettingsPolling.kt b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLocalSettingsPolling.kt
+new file mode 100644
+index 0000000000..d1b7cd98f7
+--- /dev/null
++++ b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLocalSettingsPolling.kt
+@@ -0,0 +1,63 @@
++package app.aaps.core.nssdk.networking
++
++import okhttp3.Call
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import java.io.Closeable
++import java.net.ProtocolException
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicBoolean
++
++/** Private HTTP transport for a separate Engine.IO polling manager, not a Nightscout REST client. */
++class NsLocalSettingsPolling(identity: NsLoopbackUploadIdentity, private val port: Int) : Call.Factory, Closeable {
++    init { require(port in 1..65535) }
++
++    private val closed = AtomicBoolean()
++    private val client = OkHttpClient.Builder().also { NsPinnedLoopbackTls(identity).configure(it) }
++        .readTimeout(40, TimeUnit.SECONDS)
++        .callTimeout(45, TimeUnit.SECONDS)
++        .addInterceptor { chain ->
++            if (closed.get() || !permits(chain.request())) throw ProtocolException("Local settings polling unavailable")
++            chain.proceed(chain.request())
++        }.build()
++
++    override fun newCall(request: Request): Call = client.newCall(request)
++
++    override fun close() {
++        if (!closed.compareAndSet(false, true)) return
++        client.dispatcher.cancelAll()
++        client.connectionPool.evictAll()
++    }
++
++    private fun permits(request: Request): Boolean {
++        val url = request.url
++        if (!url.isHttps || url.host != "127.0.0.1" || url.port != port || url.encodedPath != "/socket.io/" ||
++            url.username.isNotEmpty() || url.password.isNotEmpty() || url.fragment != null ||
++            request.headers.names().any { it in FORBIDDEN_HEADERS }) return false
++        val query = url.encodedQuery ?: return false
++        if (query.length > 240 || query.any { it !in QUERY_CHARS } ||
++            url.querySize !in 2..5 || url.queryParameterNames.size != url.querySize) return false
++        for (i in 0 until url.querySize) {
++            val value = url.queryParameterValue(i) ?: return false
++            val allowed = when (url.queryParameterName(i)) {
++                "EIO" -> value == "4"
++                "transport" -> value == "polling"
++                "sid" -> SID.matches(value)
++                "t" -> TIMESTAMP.matches(value)
++                "b64" -> value == "1"
++                else -> false
++            }
++            if (!allowed) return false
++        }
++        return url.queryParameter("EIO") != null && url.queryParameter("transport") != null &&
++            (request.method == "GET" || (request.method == "POST" && url.queryParameter("sid") != null))
++    }
++
++    private companion object {
++        val SID = Regex("[A-Za-z0-9_-]{1,128}")
++        val TIMESTAMP = Regex("[A-Za-z0-9._-]{1,48}")
++        val QUERY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-=&".toSet()
++        val FORBIDDEN_HEADERS = sortedSetOf(String.CASE_INSENSITIVE_ORDER, "Authorization", "Cookie", "Host",
++            "Proxy-Authorization", "api-secret", "Upgrade")
++    }
++}
+diff --git a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt
+index eabfa7f3fb..0b14fd8cae 100644
+--- a/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt
++++ b/core/nssdk/src/jvmMain/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransport.kt
+@@ -13,7 +13,7 @@ import javax.net.ssl.SSLContext
+ import javax.net.ssl.TrustManagerFactory
+ import javax.net.ssl.X509TrustManager
+
+-internal class NsLoopbackUploadTransport(identity: NsLoopbackUploadIdentity, private val port: Int) {
++internal class NsPinnedLoopbackTls(identity: NsLoopbackUploadIdentity) {
+     private val root = readDer(identity.rootCa)
+     private val leaf = readDer(identity.serverCertificate)
+     private val chainTrust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).run {
+@@ -43,12 +43,28 @@ internal class NsLoopbackUploadTransport(identity: NsLoopbackUploadIdentity, pri
+         require(root.basicConstraints >= 0 && leaf.basicConstraints == -1) { "Expected a root CA and a distinct server leaf" }
+     }
+
+-    fun OkHttpClient.Builder.restrictToLoopbackUpload() {
++    fun configure(builder: OkHttpClient.Builder) = with(builder) {
+         sslSocketFactory(ssl.socketFactory, trust)
+         proxy(Proxy.NO_PROXY)
+         followRedirects(false)
+         followSslRedirects(false)
+         retryOnConnectionFailure(false)
++    }
++
++    private fun readDer(bytes: ByteArray): X509Certificate {
++        require(bytes.size in 1..8192) { "Invalid local certificate length" }
++        val certificate = CertificateFactory.getInstance("X.509")
++            .generateCertificate(bytes.inputStream()) as X509Certificate
++        require(MessageDigest.isEqual(bytes, certificate.encoded)) { "Expected a single DER certificate" }
++        return certificate
++    }
++}
++
++internal class NsLoopbackUploadTransport(identity: NsLoopbackUploadIdentity, private val port: Int) {
++    private val tls = NsPinnedLoopbackTls(identity)
++
++    fun OkHttpClient.Builder.restrictToLoopbackUpload() {
++        tls.configure(this)
+         addInterceptor { chain ->
+             val request = chain.request()
+             if (!permits(request)) throw ProtocolException("Request is not allowed for local upload")
+@@ -77,12 +93,5 @@ internal class NsLoopbackUploadTransport(identity: NsLoopbackUploadIdentity, pri
+         )
+         val UPLOAD_PATHS = setOf("/api/v3/entries", "/api/v3/profile", "/api/v3/treatments", "/api/v3/devicestatus")
+
+-        fun readDer(bytes: ByteArray): X509Certificate {
+-            require(bytes.size in 1..8192) { "Invalid local certificate length" }
+-            val certificate = CertificateFactory.getInstance("X.509")
+-                .generateCertificate(bytes.inputStream()) as X509Certificate
+-            require(MessageDigest.isEqual(bytes, certificate.encoded)) { "Expected a single DER certificate" }
+-            return certificate
+-        }
+     }
+ }
+diff --git a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt
+index 793633cb18..5afa707679 100644
+--- a/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt
++++ b/core/nssdk/src/jvmTest/kotlin/app/aaps/core/nssdk/networking/NsLoopbackUploadTransportTest.kt
+@@ -9,6 +9,8 @@ import kotlinx.serialization.json.buildJsonObject
+ import kotlinx.serialization.json.put
+ import mockwebserver3.MockResponse
+ import mockwebserver3.MockWebServer
++import okhttp3.Request
++import okhttp3.RequestBody.Companion.toRequestBody
+ import okhttp3.tls.HandshakeCertificates
+ import okhttp3.tls.HeldCertificate
+ import org.junit.jupiter.api.Test
+@@ -123,6 +125,49 @@ class NsLoopbackUploadTransportTest {
+         }
+     }
+
++    @Test
++    fun `dedicated polling client handles handshake polls and posts but never calls REST`() {
++        withServer(ca, leaf) { server ->
++            val origin = "https://127.0.0.1:${server.port}"
++            val poll = "/socket.io/?EIO=4&transport=polling"
++            NsLocalSettingsPolling(identity, server.port).use { transport ->
++                for ((method, suffix) in listOf("GET" to "&t=a.1&b64=1", "POST" to "&sid=session_1",
++                    "GET" to "&sid=session_1&t=b-2")) {
++                    server.enqueue(response(200))
++                    val request = Request.Builder().url(origin + poll + suffix)
++                        .method(method, if (method == "POST") "2".toRequestBody() else null).build()
++                    transport.newCall(request).execute().use { assertEquals(200, it.code) }
++                }
++                assertEquals(3, server.requestCount)
++                for (url in listOf(origin + "/api/v3/status", origin + poll + "&EIO=4", origin + poll + "&accessToken=x",
++                    origin + poll + "&sid=", origin + poll + "&sid=%61", origin + poll + "&b64=0",
++                    origin + poll + "#x", origin.replace("127.0.0.1", "localhost") + poll,
++                    origin.replace("https:", "http:") + poll, origin + "/socket.io/?EIO=4&transport=websocket")) {
++                    assertThrows<ProtocolException> { transport.newCall(Request.Builder().url(url).build()).execute().close() }
++                }
++                val handshake = Request.Builder().url(origin + poll)
++                assertThrows<ProtocolException> { transport.newCall(handshake.post("".toRequestBody()).build()).execute().close() }
++                assertThrows<ProtocolException> {
++                    transport.newCall(handshake.get().header("Cookie", "fixture=1").build()).execute().close()
++                }
++                assertEquals(3, server.requestCount)
++            }
++        }
++    }
++
++    @Test
++    fun `polling rejects a different leaf and stops issuing requests after close`() {
++        withServer(ca, serverLeaf(ca)) { server ->
++            val request = Request.Builder().url("https://127.0.0.1:${server.port}/socket.io/?transport=polling&EIO=4").build()
++            val transport = NsLocalSettingsPolling(identity, server.port)
++            transport.use {
++                assertThrows<SSLHandshakeException> { it.newCall(request).execute().close() }
++            }
++            assertThrows<ProtocolException> { transport.newCall(request).execute().close() }
++            assertEquals(0, server.requestCount)
++        }
++    }
++
+     private fun client(
+         server: MockWebServer,
+         logger: (String) -> Unit = {},
