@@ -38,7 +38,8 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
         override fun toString() = "LocalSettingsLease(redacted)"
     }
 
-    internal class Ticket(val extras: Bundle, private val revoke: () -> Unit) : Closeable {
+    internal class Ticket(val extras: Bundle, val live: () -> Boolean, val subscribed: () -> Boolean,
+                          private val revoke: () -> Unit) : Closeable {
         override fun close() { revoke(); extras.remove("bearer") }
         override fun toString() = "LocalSettingsTicket(redacted)"
     }
@@ -48,7 +49,7 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
     private var closed = false
 
     @Synchronized fun issue(clientId: String, port: Int, root: ByteArray, leaf: ByteArray,
-                            wake: (Lease) -> Unit): Ticket? {
+                            subscribed: (Lease) -> Boolean = { false }, wake: (Lease) -> Unit): Ticket? {
         if (closed || !CLIENT.matches(clientId) || current?.live() == true) return null
         current?.retire()
         val bytes = ByteArray(32)
@@ -61,7 +62,7 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
         return Ticket(Bundle().apply {
             putString("bearer", token); putInt("port", port)
             putByteArray("root", root.copyOf()); putByteArray("leaf", leaf.copyOf())
-        }) {
+        }, lease::live, { lease.live() && subscribed(lease) }) {
             lease.retire()
             wake(lease)
         }

@@ -41,6 +41,20 @@ internal object AapsV3PairingProtocol {
     private val secretHex = Regex("[0-9a-fA-F]{64}")
     private val fields = setOf("schemaVersion", "clientId", "expiresAt", "kdfSaltB64", "ivB64", "wrappedB64")
 
+    private class Wrapped(val id: String, val expiry: Long, val salt: ByteArray, val iv: ByteArray, val ciphertext: ByteArray)
+
+    fun validateLocalOffer(offer: JsonObject, nowMs: Long): String = readWrapped(offer, nowMs).id
+
+    private fun readWrapped(offer: JsonObject, nowMs: Long): Wrapped {
+        require(offer.keys == fields && HistoryJson.long(offer.getValue("schemaVersion")) == 1L)
+        val id = HistoryJson.string(offer.getValue("clientId"))
+        val expiry = HistoryJson.long(offer.getValue("expiresAt"))
+        require(clientId.matches(id) && nowMs in 1..LocalNightscoutV3Store.MAX_TIME &&
+            expiry in 1..LocalNightscoutV3Store.MAX_TIME && expiry - nowMs in 1..600_000)
+        return Wrapped(id, expiry, bytes(offer, "kdfSaltB64", 16..16), bytes(offer, "ivB64", 12..12),
+            bytes(offer, "wrappedB64", 17..2048))
+    }
+
     fun unwrap(offer: JsonObject, pin: CharArray, nowMs: Long): AapsV3PairingCredential =
         unwrap(offer, pin, nowMs, finalRelease = false)
 
@@ -49,20 +63,15 @@ internal object AapsV3PairingProtocol {
 
     private fun unwrap(offer: JsonObject, pin: CharArray, nowMs: Long, finalRelease: Boolean): AapsV3PairingCredential = try {
         require(pin.size == 8 && pin.all { it in '0'..'9' })
-        require(offer.keys == fields && HistoryJson.long(offer.getValue("schemaVersion")) == 1L)
-        val id = HistoryJson.string(offer.getValue("clientId"))
-        val expiry = HistoryJson.long(offer.getValue("expiresAt"))
-        require(clientId.matches(id) && nowMs in 1..LocalNightscoutV3Store.MAX_TIME)
-        require(expiry in 1..LocalNightscoutV3Store.MAX_TIME && expiry - nowMs in 1..600_000)
-        val salt = bytes(offer, "kdfSaltB64", 16..16)
-        val iv = bytes(offer, "ivB64", 12..12)
-        val wrapped = bytes(offer, "wrappedB64", 17..2048)
-        val spec = PBEKeySpec(pin, salt, 200_000, 256)
+        val wrapped = readWrapped(offer, nowMs)
+        val id = wrapped.id
+        val expiry = wrapped.expiry
+        val spec = PBEKeySpec(pin, wrapped.salt, 200_000, 256)
         val key = try { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded }
             finally { spec.clearPassword() }
         val plain = try { Cipher.getInstance("AES/GCM/NoPadding").run {
-            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            doFinal(wrapped)
+            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, wrapped.iv))
+            doFinal(wrapped.ciphertext)
         } } finally { key.fill(0) }
         try {
             val payload = HistoryJson.parse(plain, 2048)

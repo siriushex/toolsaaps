@@ -1129,10 +1129,12 @@ class AppContainer(context: Context) {
     )
 
     private val retainedComboDatabase by lazy { io.aaps.copilot.data.local.ComboJournalDatabase.create(context) }
+    internal val localEnrollmentOffers = LocalEnrollmentOffers(appScope, localNightscoutServer::openLocalSettingsTicket)
     private val nativeAapsTargetChannel = AapsV3TargetChannel(
         db = db,
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
+        localOffers = localEnrollmentOffers,
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
@@ -2035,6 +2037,7 @@ class AppContainer(context: Context) {
         reason: LocalNightscoutRuntimeReason = LocalNightscoutRuntimeReason.SERVICE_STOPPED
     ) {
         nativeAapsTargetChannel.stop()
+        localEnrollmentOffers.clear()
         localNightscoutServer.stop(reason)
         if (!runtimeControllersActive) return
         runtimeControllersActive = false

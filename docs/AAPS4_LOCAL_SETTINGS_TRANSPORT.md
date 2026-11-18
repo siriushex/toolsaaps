@@ -25,9 +25,19 @@ it closes its socket and discards pending packets. No reusable session ID or
 ticket is written to the socket audit. The interop test uses this ticket, not
 the Nightscout owner secret.
 
-The local issuer is not a public HTTP or Binder endpoint. Before starting it
-on a phone, bind provisioning and renewal to the authenticated local AAPS
-installation and explicit enrollment, implement signed replies and handle
-missed revisions without replaying an ambiguous command. Do not reuse upload
-tickets or overwrite Nightscout settings. A successful test or subscription
-is not proof of device pairing, command application or delivery.
+Enrollment uses the private, signature-permission Android provider. It accepts
+an encrypted native PIN offer only from the installed AAPS package and its
+exclusive UID. The PIN never crosses Binder. AAPS validates the provider
+identity and uses its scoped ticket to subscribe over pinned TLS. Copilot
+decrypts the offer locally, verifies that exact subscription and atomically
+journals the first Hello. Expiry, withdrawal or replacement cannot complete
+the withdrawn offer. AAPS verifies the signature, counter, client ID, time and
+Hello payload. No command handler runs on this route.
+
+The loopback fixture runs the production AAPS Hello receiver and the real
+Copilot listener in separate processes. A verified Hello is not a connected
+client. The local enrollment UI, signed key reply, signed roster, ongoing
+session ownership and post-disconnect reconciliation must precede phone use.
+Do not reuse upload tickets or overwrite Nightscout settings. The separate
+target round-trip test reads ordinary and Eating Soon targets from an isolated
+AAPS database; it does not demonstrate application on the phone.

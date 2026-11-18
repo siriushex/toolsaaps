@@ -62,7 +62,9 @@ internal class AapsV3TargetJournal(
             dao.count() > (if (dao.get(ATTEMPTS) == null) 0 else 1) || db.localNightscoutV3Dao().hasNativeControlOutbox()
     }
 
-    suspend fun enroll(credential: AapsV3PairingCredential, nowMs: Long): AapsV3PairingSnapshot = transaction {
+    suspend fun enroll(credential: AapsV3PairingCredential, nowMs: Long,
+                       routeReady: () -> Boolean = { true }): AapsV3PairingSnapshot = transaction {
+        check(routeReady())
         val oldRoot = rootOrNull()
         val oldPair = pairingOrNull()
         if (oldPair != null && oldPair.clientId == credential.clientId) {
@@ -98,6 +100,7 @@ internal class AapsV3TargetJournal(
                 })
             put(ROOT, json.encodeToString(Root(credential.clientId, 1, nowMs)))
             put(PAIRING, json.encodeToString(pair))
+            check(routeReady())
             pair.snapshot(publication)
         } finally { exchange?.close(); secret.fill(0) }
     }

@@ -63,6 +63,79 @@ class AapsV3TargetChannelTest {
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
     private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+
+    private fun localWrapped(): ByteArray {
+        val expiry = at + 120_000
+        return syntheticPairingOffer(buildJsonObject {
+            put("v", 1); put("clientId", client); put("expiresAt", expiry); put("masterInstallId", "fixture-master")
+            put("secretHex", secret.joinToString("") { "%02x".format(it.toInt() and 255) })
+            put("role", "Meals"); put("name", "Fixture")
+        }, client, expiry).toString().toByteArray()
+    }
+
+    @Test fun localInvitationNeedsItsOwnSubscriptionAndOwnerPinAndDoesNotEnterSettingsHistory() = runBlocking {
+        var subscribed = false
+        val grants = LocalSettingsGrants()
+        val invites = LocalEnrollmentOffers(scope, { id ->
+            grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2), { subscribed }) {}
+        }, now::get)
+        channel = AapsV3TargetChannel(db, journal, { true }, { baseline() }, { it() }, now::get, localOffers = invites)
+        channel.start(scope)
+        val wrapped = localWrapped()
+        val receipt = checkNotNull(invites.publish(wrapped))
+        try {
+            assertNull(invites.publish(wrapped))
+            assertFalse(invites.withdraw(client, "old-handle"))
+            channel.pair("12345678".toCharArray())
+            assertNull(journal.pairingSnapshot())
+            subscribed = true
+            val wrong = "12345679".toCharArray()
+            channel.pair(wrong)
+            assertTrue(wrong.all { it == '\u0000' })
+            assertNull(journal.pairingSnapshot())
+            val correct = "12345678".toCharArray()
+            channel.pair(correct)
+            assertTrue(correct.all { it == '\u0000' })
+            assertEquals(client, journal.pairingSnapshot()?.clientId)
+            assertTrue(db.localNightscoutV3Dao().pairingOffers().isEmpty())
+            assertNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_$client"))
+            assertNotEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        } finally { assertTrue(invites.withdraw(client, checkNotNull(receipt.getString("handle")))) }
+    }
+
+    @Test fun localInviteRejectsPlaintextOrExpiredOffersAndOldReceiptCannotWithdrawNewOffer() {
+        val grants = LocalSettingsGrants()
+        var issued = 0
+        val invites = LocalEnrollmentOffers(scope, { id ->
+            issued++
+            grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2)) {}
+        }, now::get)
+        val bytes = localWrapped()
+        val plain = Json.parseToJsonElement(bytes.decodeToString()).jsonObject + ("pin" to JsonPrimitive("12345678"))
+        assertThrows(IllegalArgumentException::class.java) { invites.publish(JsonObject(plain).toString().toByteArray()) }
+        now.set(at + 120_000)
+        assertThrows(IllegalArgumentException::class.java) { invites.publish(bytes) }
+        assertEquals(0, issued)
+        now.set(at + 201)
+        val first = checkNotNull(invites.publish(bytes)).getString("handle")!!
+        assertTrue(invites.withdraw(client, first))
+        val second = checkNotNull(invites.publish(bytes)).getString("handle")!!
+        assertFalse(invites.withdraw(client, first))
+        assertTrue(invites.withdraw(client, second))
+        assertNull(invites.current())
+    }
+
+    @Test fun losingOfferInsideEnrollmentTransactionRollsBackTheHelloAndBothIdentityRows() = runBlocking {
+        var checks = 0
+        AapsV3PairingCredential(client, "fixture-master", at + 120_000, secret).use {
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { journal.enroll(it, now.get()) { ++checks == 1 } }
+            }
+        }
+        assertEquals(2, checks)
+        assertFalse(journal.hasNativeState())
+        assertEquals(0L, db.localNightscoutV3Dao().count().toLong())
+    }
     @Test fun checkingSubscriptionBeforePairingDoesNotEnrollOrPublish() = runBlocking {
         channel.start(scope)
         for (active in listOf(false, true, false)) {

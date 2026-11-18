@@ -528,16 +528,19 @@ class LocalNightscoutServer internal constructor(
         }
 
         fun openLocalSettingsTicket(clientId: String, port: Int) =
-            settingsGrants.issue(clientId, port, uploadCaDer, uploadLeafDer) { grant ->
+            settingsGrants.issue(clientId, port, uploadCaDer, uploadLeafDer, ::hasSettingsSubscription) { grant ->
                 socketSessions.values.filter { it.settingsGrant === grant }.forEach(::closeSocketSession)
             }
 
-        fun hasNativeStorageSubscription(): Boolean {
+        fun hasNativeStorageSubscription() = hasSettingsSubscription(null)
+
+        private fun hasSettingsSubscription(grant: LocalSettingsGrants.Lease?): Boolean {
             val now = socketNowMs()
             // Lock-free snapshot: publication guards may already own a Room transaction.
             return socketSessions.values.any { session ->
                 val pingAt = session.awaitingPongSince
-                session.storageSettingsSubscribed && session.settingsGrant?.live() != false &&
+                (grant == null || session.settingsGrant === grant) &&
+                    session.storageSettingsSubscribed && session.settingsGrant?.live() != false &&
                     now - session.lastSeenAt in 0..minOf(35_000L, socketLimits.sessionTtlMs) &&
                     (pingAt == null || now - pingAt in 0L until SOCKET_PING_TIMEOUT_MS)
             }

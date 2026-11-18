@@ -16,6 +16,8 @@ gradle.projectsEvaluated {
     if (querySource) {
         sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(querySource)
         if (new File(querySource).name == 'loopback_src') {
+            sdk.kotlin.sourceSets.getByName('jvmTest').kotlin.srcDir(new File(gradle.rootProject.projectDir,
+                'plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin'))
             sdk.kotlin.sourceSets.getByName('jvmTest').dependencies {
                 implementation(sdk.libs.io.socket.client)
                 implementation(sdk.libs.org.json.android)

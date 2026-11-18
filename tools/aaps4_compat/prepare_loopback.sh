@@ -17,6 +17,19 @@ git apply --index "$patch" "$provider"
 polling="$root/tools/aaps4_compat/final-settings-polling.patch"
 git apply --check "$polling"
 git apply --index "$polling"
+enrollment="$root/tools/aaps4_compat/final-pin-enrollment.patch"
+git apply --check "$enrollment"
+git apply --index "$enrollment"
+# A JVM peer can pass even if Android cannot discover the provider or call it.
+"${PYTHON:-python3}" - <<'PY'
+import xml.etree.ElementTree as ET
+manifest = ET.parse("app/src/main/AndroidManifest.xml")
+name = "{http://schemas.android.com/apk/res/android}name"
+peer = "io.aaps.predictivecopilot"
+assert any(p.get(name) == peer for p in manifest.findall("./queries/package")), "Missing local app visibility"
+assert any(p.get(name) == peer + ".permission.ISSUE_LOCAL_CLIENT_TOKEN"
+           for p in manifest.findall("./uses-permission")), "Missing local enrollment permission"
+PY
 # The final AAPS build refuses tracked changes. Commit only in this detached fixture.
 git -c user.name="Local fixture" -c user.email="fixture@example.invalid" \
     -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -m "Apply local upload transport for verification"

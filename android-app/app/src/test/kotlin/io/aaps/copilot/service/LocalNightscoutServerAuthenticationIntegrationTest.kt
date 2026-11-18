@@ -180,6 +180,71 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun samePhoneOfferFromFinalAapsReturnsSignedHelloOnItsOwnPinnedSubscription() = runBlocking {
+        val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing AAPS enrollment fixture" }
+        Assume.assumeTrue("Requires final AAPS enrollment fixture", ready)
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val runtime = SupervisorJob()
+        val scope = CoroutineScope(runtime + Dispatchers.IO)
+        val offers = LocalEnrollmentOffers(scope, listener::openLocalSettingsTicket)
+        val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+            SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+        })
+        val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
+            { "not_armed" }, { error("Unexpected command") }, localOffers = offers)
+        val root = File.createTempFile("pair-root-", ".der")
+        val leaf = File.createTempFile("pair-leaf-", ".der")
+        var child: Process? = null
+        val reads = Executors.newSingleThreadExecutor()
+        try {
+            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(cp).readText(),
+                "integration.finalenrollment.PinnedEnrollmentInteropKt").apply {
+                environment()["SETTINGS_TEST_CA"] = root.absolutePath
+                environment()["SETTINGS_TEST_LEAF"] = leaf.absolutePath
+                environment()["SETTINGS_TEST_PORT"] = port.toString()
+                redirectError(File("/dev/null"))
+            }.start()
+            child = process
+            val input = process.inputStream.bufferedReader()
+            val offer = reads.submit<String> { input.readLine() }.get(20, TimeUnit.SECONDS)
+            val receipt = checkNotNull(offers.publish(offer.toByteArray()))
+            val ticket = checkNotNull(receipt.getBundle("ticket"))
+            root.writeBytes(checkNotNull(ticket.getByteArray("root")))
+            leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
+            process.outputStream.bufferedWriter().use { it.appendLine(checkNotNull(ticket.getString("bearer"))) }
+            val current = checkNotNull(offers.current())
+            withTimeout(18_000) {
+                while (!offers.ready(current)) {
+                    check(process.isAlive) { "Peer exited before subscribing" }
+                    delay(25)
+                }
+            }
+            channel.start(scope)
+            channel.pair("23456789".toCharArray())
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed hello received" }
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(input.readLine()).isEqualTo("LOCAL_HELLO_VERIFIED")
+            assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
+            assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+        } finally {
+            channel.stop()
+            offers.clear()
+            runtime.cancelAndJoin()
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            reads.shutdownNow()
+            root.delete()
+            leaf.delete()
+        }
+    }
+
+    @Test
     fun finalAapsPinnedPollingReceivesSettingsFromIndependentCopilotListener() = runBlocking {
         val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
         val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")

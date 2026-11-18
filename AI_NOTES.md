@@ -1,3 +1,13 @@
+# Same-phone encrypted offer and signed Hello (2026-11-18)
+
+- A final AAPS PIN offer can cross same-signer Android IPC as ciphertext. Its
+  ephemeral ticket reads only the pending client's settings stream. Enrollment
+  checks the same live ticket inside the journal transaction.
+- Two-process test: final AAPS creates the offer and verifies the first signed
+  Copilot Hello over pinned TLS. The journal still reports WAITING after Hello.
+- This is not a live target activation. Signed key exchange, roster, ongoing
+  transport and admission must work on the selected phone first.
+
 # Scoped settings subscriber (2026-11-18)
 
 - Switched the pinned AAPS interoperability peer from the synthetic owner

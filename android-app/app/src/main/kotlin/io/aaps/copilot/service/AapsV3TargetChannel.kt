@@ -44,7 +44,8 @@ internal class AapsV3TargetChannel(
     private val baselineGuard: suspend () -> String?,
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val historyStore: (() -> AapsV3ComboJournalStore)? = null
+    private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
+    private val localOffers: LocalEnrollmentOffers? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -103,9 +104,15 @@ internal class AapsV3TargetChannel(
         mutableState.value = mutableState.value.copy(busy = true)
         val matches = mutableListOf<AapsV3PairingCredential>()
         try {
-            check(runtimeAllowed && storageAvailable())
+            val local = localOffers?.current()
+            val routeReady = {
+                runtimeAllowed && if (local != null) localOffers?.ready(local) == true
+                else localOffers?.current() == null && storageAvailable()
+            }
+            check(routeReady())
             journal.reservePairingAttempt(clock())
-            val offers = db.localNightscoutV3Dao().pairingOffers()
+            if (local != null) matches += AapsV3PairingProtocol.unwrapFinal(local.wrapped, pin.copyOf(), clock())
+            val offers = if (local == null) db.localNightscoutV3Dao().pairingOffers() else emptyList()
             check(offers.size <= 8)
             for (row in offers) {
                 currentCoroutineContext().ensureActive()
@@ -121,8 +128,8 @@ internal class AapsV3TargetChannel(
                 } catch (_: AapsV3PairingFailure) { }
             }
             currentCoroutineContext().ensureActive()
-            check(matches.size == 1 && runtimeAllowed && storageAvailable())
-            journal.enroll(matches.single(), clock())
+            check(matches.size == 1 && routeReady())
+            journal.enroll(matches.single(), clock(), routeReady)
             runtimeScope?.let(::start)
             refresh()
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -146,6 +153,7 @@ internal class AapsV3TargetChannel(
 
     suspend fun revoke() = try {
         stopHistory()
+        localOffers?.clear()
         journal.revokePairing()
         sessionProbeCounter = 0
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.REVOKED)
