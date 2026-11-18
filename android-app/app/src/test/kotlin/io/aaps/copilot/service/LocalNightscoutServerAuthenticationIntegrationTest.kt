@@ -82,7 +82,6 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private lateinit var db: CopilotDatabase
     private lateinit var storage: MemoryAtomicStorage
     private lateinit var caCertificate: X509Certificate
-    private lateinit var serverCertificate: X509Certificate
     private lateinit var apiSecretSha1: String
     private lateinit var localAccessToken: String
     private var server: LocalNightscoutServer? = null
@@ -97,7 +96,6 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val loaded = LocalNightscoutTlsIdentityRepository(storage).load()
         try {
             caCertificate = loaded.caCertificate
-            serverCertificate = loaded.serverCertificate
             apiSecretSha1 = sha1Hex(loaded.apiSecretBytes)
             localAccessToken = loaded.apiSecretBytes.toString(Charsets.US_ASCII)
         } finally {
@@ -194,17 +192,19 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         assertThat(listener.update(true, port)).isEqualTo(port)
         val root = File.createTempFile("settings-root-", ".der")
         val leaf = File.createTempFile("settings-leaf-", ".der")
+        val clientId = "01234567-0000-4000-8000-abcdef123456"
+        val ticket = checkNotNull(listener.openLocalSettingsTicket(clientId))
         var child: Process? = null
         try {
-            root.writeBytes(caCertificate.encoded)
-            leaf.writeBytes(serverCertificate.encoded)
+            root.writeBytes(checkNotNull(ticket.extras.getByteArray("root")))
+            leaf.writeBytes(checkNotNull(ticket.extras.getByteArray("leaf")))
             val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(cp).readText(),
                 "integration.finalsettings.PinnedSettingsInteropKt").apply {
                 environment()["SETTINGS_TEST_CA"] = root.absolutePath
                 environment()["SETTINGS_TEST_LEAF"] = leaf.absolutePath
                 environment()["SETTINGS_TEST_PORT"] = port.toString()
-                // Synthetic owner secret only for this isolated peer; never device enrollment.
-                environment()["SETTINGS_TEST_ACCESS"] = localAccessToken
+                environment()["SETTINGS_TEST_ACCESS"] = checkNotNull(ticket.extras.getString("bearer"))
+                environment()["SETTINGS_TEST_CLIENT"] = clientId
                 redirectErrorStream(true)
             }.start()
             child = process
@@ -214,16 +214,114 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                     delay(25)
                 }
             }
-            LocalNightscoutV3Store(db).create(storageInput("pinned-settings-proof"))
+            val store = LocalNightscoutV3Store(db)
+            store.create(storageInput("private-configuration"))
+            store.create(pingPublication("01234567-0000-4000-8000-abcdef123457"))
+            store.create(pingPublication(clientId))
             check(process.waitFor(18, TimeUnit.SECONDS)) { "Pinned settings peer timed out" }
             assertThat(process.exitValue()).isEqualTo(0)
             assertThat(process.inputStream.bufferedReader().use { it.readLines() }).contains("PINNED_SETTINGS_OK")
         } finally {
+            ticket.close()
             child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
             root.delete()
             leaf.delete()
         }
         Unit
+    }
+
+    @Test
+    fun localSettingsTicketCannotReadRestOrSubscribeTwiceAndRevocationDropsPendingChanges() = runBlocking {
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundPackets = 2, pollWaitMs = 20))
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val client = "01234567-0000-4000-8000-abcdef123456"
+        val ticket = checkNotNull(listener.openLocalSettingsTicket(client))
+        fun attempt(sid: String, token: String, names: List<String>): Boolean {
+            postSocket(peer, port, sid, storageSubscribe(token, names))
+            return getSocket(peer, port, sid).use { it.body!!.string().contains("\"success\":true") }
+        }
+        fun connected(): String = openSocket(peer, port).also {
+            postSocket(peer, port, it, "40/storage,")
+            getSocket(peer, port, it).close()
+        }
+        try {
+            val token = checkNotNull(ticket.extras.getString("bearer"))
+            val sid = connected()
+            assertThat(getCode(peer, port, "/api/v3/status", headers = mapOf("Authorization" to "Bearer $token"))).isEqualTo(401)
+            assertThat(attempt(sid, token, listOf("settings", "entries"))).isFalse()
+            assertThat(attempt(sid, token, listOf("settings"))).isTrue()
+            assertThat(attempt(connected(), token, listOf("settings"))).isFalse()
+            assertThat(listener.openLocalSettingsTicket(client)).isNull()
+            val store = LocalNightscoutV3Store(db)
+            val expired = store.create(pingPublication(client, System.currentTimeMillis() - 60_000))
+            repeat(6) { store.create(storageInput("owner-only-$it")) }
+            getSocket(peer, port, sid).use {
+                assertThat(it.code).isEqualTo(200)
+                assertThat(it.body!!.string()).doesNotContain("42/storage,")
+            }
+            postSocket(peer, port, sid, "40")
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).doesNotContain("40{")
+            store.update(pingPublication(client), expired.document.modifiedRevision)
+            ticket.close()
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+            assertThat(attempt(connected(), token, listOf("settings"))).isFalse()
+            checkNotNull(listener.openLocalSettingsTicket(client)).close()
+            val audit = Gson().toJson(db.auditLogDao().observeLatest(100).first())
+            assertThat(audit).doesNotContain(token)
+            assertThat(audit).doesNotContain(sid)
+        } finally { ticket.close() }
+    }
+
+    @Test
+    fun expiredSettingsSocketCannotDrainUnreadPublicationEvenWithFreshHeartbeat() = runBlocking {
+        val now = System.currentTimeMillis()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = { now })
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val clientId = "01234567-0000-4000-8000-abcdef123456"
+        checkNotNull(listener.openLocalSettingsTicket(clientId)).use { ticket ->
+            val peer = trustedClient(caCertificate)
+            val sid = openSocket(peer, port)
+            postSocket(peer, port, sid, "40/storage,")
+            getSocket(peer, port, sid).close()
+            postSocket(peer, port, sid, storageSubscribe(checkNotNull(ticket.extras.getString("bearer"))))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+            LocalNightscoutV3Store(db).create(pingPublication(clientId, now))
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(LocalSettingsGrants.LIFETIME_MS))
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            getSocket(peer, port, sid).use {
+                assertThat(it.code).isEqualTo(400)
+                assertThat(it.body!!.string()).doesNotContain(clientId)
+            }
+        }
+    }
+
+    @Test
+    fun settingsTicketExpiresOnMonotonicDeadlineAndOldHandleCannotRevokeReplacement() {
+        val clock = AtomicLong(500)
+        val grants = LocalSettingsGrants(clock::get)
+        val client = "01234567-0000-4000-8000-abcdef123456"
+        fun issue() = grants.issue(client, 12345, byteArrayOf(1), byteArrayOf(2)) {}
+        val first = checkNotNull(issue())
+        val token = checkNotNull(first.extras.getString("bearer"))
+        val lease = checkNotNull(grants.claim(token))
+        assertThat(grants.claim(token)).isNull()
+        clock.addAndGet(LocalSettingsGrants.LIFETIME_MS - 1)
+        assertThat(lease.live()).isTrue()
+        clock.incrementAndGet()
+        assertThat(lease.live()).isFalse()
+        val second = checkNotNull(issue())
+        first.close()
+        assertThat(grants.claim(token)).isNull()
+        assertThat(grants.claim(checkNotNull(second.extras.getString("bearer")))).isNotNull()
+        grants.close()
+        assertThat(issue()).isNull()
+        second.close()
     }
 
     @Test
@@ -2658,6 +2756,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private fun storageInput(id: String, collection: LocalV3Collection = LocalV3Collection.SETTINGS) =
         LocalV3DocumentInput(collection, id, "local-v3-target", 946_684_800_001,
             """{"date":946684800001,"utcOffset":0,"app":"test","kind":"synthetic"}""")
+
+    private fun pingPublication(clientId: String, at: Long = System.currentTimeMillis()): LocalV3DocumentInput {
+        val envelope = AapsV3SessionProtocol(ByteArray(32) { 3 }).use { it.ping(clientId, 2, at) }
+        return storageInput("aaps_clientcontrol_cmd_ping_$clientId").copy(
+            payloadJson = """{"date":946684800001,"utcOffset":0,"app":"AAPS","schemaVersion":1,"envelope":$envelope}""")
+    }
 
     private fun pollStorageEvents(peer: OkHttpClient, port: Int, sid: String, count: Int): List<com.google.gson.JsonObject> {
         val result = mutableListOf<com.google.gson.JsonObject>()

@@ -316,6 +316,10 @@ class LocalNightscoutServer internal constructor(
 
     internal fun hasNativeStorageSubscription(): Boolean = server?.hasNativeStorageSubscription() == true
 
+    internal fun openLocalSettingsTicket(clientId: String): LocalSettingsGrants.Ticket? = synchronized(this) {
+        server?.openLocalSettingsTicket(clientId, currentPort ?: return null)
+    }
+
     internal fun withLocalUploadTicket(block: (android.os.Bundle) -> Boolean): Boolean {
         val (active, port) = synchronized(this) {
             (server ?: return false) to (currentPort ?: return false)
@@ -497,7 +501,6 @@ class LocalNightscoutServer internal constructor(
 
         private val socketSessions = ConcurrentHashMap<String, SocketSession>()
         private val responseCache = ConcurrentHashMap<String, CachedJsonResponse>()
-        private val socketSessionCounter = AtomicLong(1L)
         private val dataRevision = AtomicLong(0L)
         private val lastHotPathStatsLogTimestamp = AtomicLong(0L)
         private val hotPathHttpCacheHits = AtomicLong(0L)
@@ -506,6 +509,7 @@ class LocalNightscoutServer internal constructor(
         private val hotPathSocketAuthorizations = AtomicLong(0L)
         private val invalidationPolicy = LocalNightscoutInvalidationPolicy()
         private val v3Authentication = LocalNightscoutV3Authentication(authenticator)
+        private val settingsGrants = LocalSettingsGrants()
         private val v3Entries = LocalNightscoutV3EntriesApi(db)
         private val v3Store = LocalNightscoutV3Store(db)
 
@@ -523,12 +527,18 @@ class LocalNightscoutServer internal constructor(
             }
         }
 
+        fun openLocalSettingsTicket(clientId: String, port: Int) =
+            settingsGrants.issue(clientId, port, uploadCaDer, uploadLeafDer) { grant ->
+                socketSessions.values.filter { it.settingsGrant === grant }.forEach(::closeSocketSession)
+            }
+
         fun hasNativeStorageSubscription(): Boolean {
             val now = socketNowMs()
             // Lock-free snapshot: publication guards may already own a Room transaction.
             return socketSessions.values.any { session ->
                 val pingAt = session.awaitingPongSince
-                session.storageSettingsSubscribed && now - session.lastSeenAt in 0..minOf(35_000L, socketLimits.sessionTtlMs) &&
+                session.storageSettingsSubscribed && session.settingsGrant?.live() != false &&
+                    now - session.lastSeenAt in 0..minOf(35_000L, socketLimits.sessionTtlMs) &&
                     (pingAt == null || now - pingAt in 0L until SOCKET_PING_TIMEOUT_MS)
             }
         }
@@ -547,6 +557,7 @@ class LocalNightscoutServer internal constructor(
         }
 
         fun stopAndClear() {
+            settingsGrants.close()
             v3Authentication.close()
             try {
                 db.invalidationTracker.removeObserver(storageObserver)
@@ -816,7 +827,8 @@ class LocalNightscoutServer internal constructor(
                         } else {
                             SOCKET_PING_TIMEOUT_MS - (now - pendingPong)
                         }
-                        active.monitor.wait(minOf(remainingMs, heartbeatMs.coerceAtLeast(1L)))
+                        active.monitor.wait(minOf(remainingMs, heartbeatMs, active.settingsGrant?.remainingMs() ?: Long.MAX_VALUE)
+                            .coerceAtLeast(1L))
                     }
                     @Suppress("UNREACHABLE_CODE")
                     emptyList<String>()
@@ -889,7 +901,7 @@ class LocalNightscoutServer internal constructor(
                                         throttleKey = "local_nightscout_socket_packet_parse_failed",
                                         intervalMs = SOCKET_EVENT_AUDIT_INTERVAL_MS,
                                         message = "local_nightscout_socket_packet_parse_failed",
-                                        metadata = mapOf("sid" to sid, "errorType" to error::class.java.simpleName)
+                                        metadata = mapOf("errorType" to error::class.java.simpleName)
                                     )
                                 }
                             }
@@ -913,6 +925,10 @@ class LocalNightscoutServer internal constructor(
         // Called under the session monitor on GET, POST and each packet reservation.
         private fun socketUsableLocked(session: SocketSession): Boolean {
             if (session.closedStatus != null || socketSessions[session.sid] !== session) return false
+            if (session.settingsGrant?.live() == false) {
+                closeSocketSession(session)
+                return false
+            }
             val pingAt = session.awaitingPongSince
             if (pingAt != null && socketNowMs() - pingAt >= SOCKET_PING_TIMEOUT_MS) {
                 closeSocketSession(session)
@@ -944,9 +960,8 @@ class LocalNightscoutServer internal constructor(
 
         private fun createSocketSession(httpSession: IHTTPSession): SocketSession? {
             val now = socketNowMs()
-            val nextId = socketSessionCounter.getAndIncrement()
-            val sid = "copilot-eio-$nextId-${UUID.randomUUID().toString().take(8)}"
-            val socketSid = "copilot-sio-$nextId-${UUID.randomUUID().toString().take(8)}"
+            val sid = UUID.randomUUID().toString()
+            val socketSid = UUID.randomUUID().toString()
             val userAgent = httpSession.headers["user-agent"]?.trim()?.take(MAX_USER_AGENT_LENGTH).orEmpty()
             val source = classifyExternalSource(userAgent)
             val created = SocketSession(
@@ -968,8 +983,6 @@ class LocalNightscoutServer internal constructor(
                     intervalMs = SOCKET_EVENT_AUDIT_INTERVAL_MS,
                     message = "local_nightscout_socket_session_created",
                     metadata = mapOf(
-                        "sid" to sid,
-                        "socketSid" to socketSid,
                         "source" to source,
                         "remote" to httpSession.remoteIpAddress.orEmpty()
                     )
@@ -1037,6 +1050,7 @@ class LocalNightscoutServer internal constructor(
                 handleStoragePacket(session, packet)
                 return
             }
+            if (session.settingsGrant != null) return
             if (packet.namespace != "/" && packet.namespace.isNotBlank()) return
 
             when (packet.type) {
@@ -1062,6 +1076,12 @@ class LocalNightscoutServer internal constructor(
         private fun handleStoragePacket(session: SocketSession, packet: ParsedSocketPacket) {
             synchronized(session.monitor) {
                 if (!socketUsableLocked(session)) return
+                // A local grant owns one subscription on one Engine.IO session. Never
+                // downgrade, reauthorize or reuse that session after disconnect.
+                if (session.settingsGrant != null) {
+                    closeSocketSession(session)
+                    return
+                }
                 when (packet.type) {
                     SOCKET_PACKET_CONNECT -> {
                         clearStorageLocked(session)
@@ -1085,9 +1105,14 @@ class LocalNightscoutServer internal constructor(
                             value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
                         }.orEmpty()
                         val allowed = LocalV3Collection.entries.associateBy { storageCollectionName(it) }
-                        val valid = session.storageConnected && body?.keySet() == setOf("accessToken", "collections") &&
+                        val shapeOk = session.storageConnected && body?.keySet() == setOf("accessToken", "collections") &&
                             names.isNotEmpty() && names.size <= allowed.size && names.size == requested?.size() &&
-                            names.distinct().size == names.size && names.all { it in allowed } && authenticator.acceptsRawSecret(token)
+                            names.distinct().size == names.size && names.all { it in allowed }
+                        val owner = shapeOk && authenticator.acceptsRawSecret(token)
+                        val grant = if (shapeOk && !owner && names == listOf("settings") && !session.connected &&
+                            !session.authorized && !session.initializing) settingsGrants.claim(token) else null
+                        if (grant != null) session.settingsGrant = grant
+                        val valid = owner || grant != null
                         val heads = if (valid) runCatching { runBlocking { v3Store.lastModified() } }.getOrNull() else null
                         if (heads != null) {
                             session.storageCursors.putAll(names.associate { allowed.getValue(it) to heads.getValue(allowed.getValue(it)) })
@@ -1123,9 +1148,15 @@ class LocalNightscoutServer internal constructor(
             if (session.storageSeenGeneration == generation) return
             try {
                 session.storageCursors.toMap().forEach { (collection, after) ->
-                    val page = runBlocking { v3Store.history(collection, after, minOf(socketLimits.maxOutboundPackets, 1000)) }
+                    val limit = minOf(socketLimits.maxOutboundPackets, 1000)
+                    val grant = session.settingsGrant
+                    val page = runBlocking {
+                        if (grant == null) v3Store.history(collection, after, limit)
+                        else v3Store.localSettingsOutbox(grant.documentIds, after, limit)
+                    }
                     if (page.hasMore) throw IllegalStateException("storage_backlog")
-                    page.documents.forEach { row ->
+                    page.documents.forEach rowLoop@{ row ->
+                        if (grant != null && !isLocalClientPublication(row, grant.clientId, socketNowMs())) return@rowLoop
                         val payload = JsonObject().apply {
                             addProperty("colName", storageCollectionName(collection))
                             if (row.deleted) addProperty("identifier", row.identifier)
@@ -1308,8 +1339,6 @@ class LocalNightscoutServer internal constructor(
                     intervalMs = SOCKET_EVENT_AUDIT_INTERVAL_MS,
                     message = "local_nightscout_socket_authorize",
                     metadata = mapOf(
-                        "sid" to session.sid,
-                        "socketSid" to session.socketSid,
                         "source" to session.source,
                         "fromTs" to authorization.fromTs,
                         "authenticated" to true
@@ -1342,8 +1371,6 @@ class LocalNightscoutServer internal constructor(
                     intervalMs = SOCKET_EVENT_AUDIT_INTERVAL_MS,
                     message = "local_nightscout_socket_dbadd",
                     metadata = mapOf(
-                        "sid" to session.sid,
-                        "socketSid" to session.socketSid,
                         "source" to session.source,
                         "collection" to collection,
                         "id" to generatedId
@@ -1380,8 +1407,6 @@ class LocalNightscoutServer internal constructor(
                     intervalMs = SOCKET_EVENT_AUDIT_INTERVAL_MS,
                     message = "local_nightscout_socket_dbupdate",
                     metadata = mapOf(
-                        "sid" to session.sid,
-                        "socketSid" to session.socketSid,
                         "source" to session.source,
                         "collection" to collection,
                         "id" to id.orEmpty()
@@ -1734,6 +1759,7 @@ class LocalNightscoutServer internal constructor(
                 session.storageConnected = false
                 session.storageSettingsSubscribed = false
                 session.storageSubscribed = false
+                session.settingsGrant?.retire()
                 session.storageCursors.clear()
                 session.initializing = false
                 session.monitor.notifyAll()
@@ -2684,6 +2710,7 @@ class LocalNightscoutServer internal constructor(
             var storageConnected: Boolean = false,
             @Volatile var storageSubscribed: Boolean = false,
             @Volatile var storageSettingsSubscribed: Boolean = false,
+            @Volatile var settingsGrant: LocalSettingsGrants.Lease? = null,
             val storageCursors: MutableMap<LocalV3Collection, Long> = linkedMapOf(),
             var storageSeenGeneration: Long = -1,
             @Volatile var fromTs: Long = 0L,

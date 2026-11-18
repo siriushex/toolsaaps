@@ -43,7 +43,8 @@ fun main() {
                 socket.on("create") { args ->
                     val event = args.singleOrNull() as? JSONObject
                     result.complete(event?.optString("colName") == "settings" &&
-                        event.optJSONObject("doc")?.optString("identifier") == "pinned-settings-proof")
+                        event.optJSONObject("doc")?.optString("identifier") ==
+                        "aaps_clientcontrol_cmd_ping_" + System.getenv("SETTINGS_TEST_CLIENT"))
                 }
                 socket.connect()
                 check(acked.get(12, TimeUnit.SECONDS) && result.get(12, TimeUnit.SECONDS))

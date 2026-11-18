@@ -1,3 +1,12 @@
+# Scoped settings subscriber (2026-11-18)
+
+- Switched the pinned AAPS interoperability peer from the synthetic owner
+  secret to the actual short-lived, single-session Copilot settings ticket.
+- Scoped polls select only current local outbox identities for their client.
+  Expiry and revocation apply to readiness, held polls and later requests;
+  restarting or closing a session does not make its ticket reusable.
+- Enrollment on Android and the signed return channel are not enabled here.
+
 # Independent AAPS settings polling (2026-11-18)
 
 - The Android/JVM SDK has a separate, closeable same-phone polling transport.

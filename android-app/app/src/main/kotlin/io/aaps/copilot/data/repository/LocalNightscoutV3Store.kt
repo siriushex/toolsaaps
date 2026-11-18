@@ -150,6 +150,18 @@ internal class LocalNightscoutV3Store(
         }
     }
 
+    suspend fun localSettingsOutbox(ids: List<String>, after: Long, limit: Int): LocalV3Page {
+        pageArguments(after, limit)
+        require(ids.size in 1..5 && ids.distinct().size == ids.size)
+        return db.withTransaction {
+            val head = dao.head("settings")
+            val matches = dao.localSettingsOutbox(ids, after, head)
+            val rows = matches.take(limit)
+            checkPageBytes(rows.map { LocalV3DocumentPosition(it.eventAtMs, it.modifiedRevision, it.payloadBytes) })
+            LocalV3Page(rows, rows.lastOrNull()?.modifiedRevision ?: head, head, matches.size > limit)
+        }
+    }
+
     suspend fun chronological(collection: LocalV3Collection, after: Long, limit: Int): LocalV3Page {
         pageArguments(after, limit)
         return db.withTransaction {

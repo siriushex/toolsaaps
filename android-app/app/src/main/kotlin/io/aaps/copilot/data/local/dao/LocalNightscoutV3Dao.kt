@@ -45,6 +45,11 @@ interface LocalNightscoutV3Dao {
         ORDER BY modifiedRevision ASC LIMIT :limit""")
     suspend fun history(collection: String, after: Long, through: Long, limit: Int): List<LocalNightscoutV3DocumentEntity>
 
+    @Query("""SELECT * FROM local_ns_v3_documents WHERE collection = 'settings'
+        AND source = 'local-v3-target' AND deleted = 0 AND readOnly = 0 AND identifier IN (:ids)
+        AND modifiedRevision > :after AND modifiedRevision <= :through ORDER BY modifiedRevision ASC""")
+    suspend fun localSettingsOutbox(ids: List<String>, after: Long, through: Long): List<LocalNightscoutV3DocumentEntity>
+
     @Query("""SELECT eventAtMs, modifiedRevision, payloadBytes FROM local_ns_v3_documents
         WHERE collection = :collection AND modifiedRevision > :after AND modifiedRevision <= :through
         ORDER BY modifiedRevision ASC LIMIT :limit""")

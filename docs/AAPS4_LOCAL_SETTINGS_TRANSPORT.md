@@ -11,13 +11,23 @@ trust or the main NSClient address, token, cursors or preferences.
 The integration test runs that SDK and the AAPS Socket.IO library in a separate
 JVM against the Copilot listener. It disables transport upgrades, reconnection
 and manager reuse, subscribes to exactly `settings`, checks the acknowledgement
-and receives one synthetic committed document. The SDK tests separately check
+and receives a synthetic journal publication for its own client ID. The SDK tests separately check
 HTTP method/path limits, non-canonical query values, a changed leaf and closure.
 
 TLS authenticates the listener, **not** the command author or a therapy role.
-The test's synthetic owner credential is not suitable for a phone integration.
-Before starting the channel on Android, provision a revocable settings-only
-credential over the authenticated local boundary, enforce its scope on the
-server, integrate the signed reply path and recover missed revisions. Do not
-reuse upload tickets or overwrite Nightscout settings. A successful test or
-subscription is not proof of device pairing, command application or delivery.
+Copilot can now issue a separate, two-minute same-phone ticket scoped to one
+client ID. It is claimed only once by one Engine.IO session subscribing to
+exactly `settings`. It cannot authenticate to REST or upgrade that session
+to another namespace. The listener queries only the client's known outgoing
+journal identifiers and checks the envelope identity and validity interval.
+The ticket's deadline uses elapsed time, not the phone's wall clock. Revoking
+it closes its socket and discards pending packets. No reusable session ID or
+ticket is written to the socket audit. The interop test uses this ticket, not
+the Nightscout owner secret.
+
+The local issuer is not a public HTTP or Binder endpoint. Before starting it
+on a phone, bind provisioning and renewal to the authenticated local AAPS
+installation and explicit enrollment, implement signed replies and handle
+missed revisions without replaying an ambiguous command. Do not reuse upload
+tickets or overwrite Nightscout settings. A successful test or subscription
+is not proof of device pairing, command application or delivery.
