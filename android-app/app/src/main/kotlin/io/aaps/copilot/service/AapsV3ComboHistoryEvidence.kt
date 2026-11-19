@@ -9,6 +9,14 @@ import kotlinx.serialization.json.*
 
 enum class AapsV3ComboHistoryStatus { UNCHECKED, NOT_OBSERVED, RETAINED_UNVERIFIED, ADVERSE, INVALID, LATE_EVIDENCE, LIMIT_REACHED, ERROR }
 
+internal fun AapsV3ComboHistoryStatus.withLocalJournal(local: AapsV3ComboHistoryStatus): AapsV3ComboHistoryStatus =
+    when {
+        this == AapsV3ComboHistoryStatus.ADVERSE || local == AapsV3ComboHistoryStatus.ADVERSE -> AapsV3ComboHistoryStatus.ADVERSE
+        this == AapsV3ComboHistoryStatus.UNCHECKED || this == AapsV3ComboHistoryStatus.NOT_OBSERVED -> local
+        this == AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED && local == AapsV3ComboHistoryStatus.INVALID -> local
+        else -> this
+    }
+
 internal enum class AapsV3ComboHistoryHazard {
     STORAGE_FAILED, UNCLOSED_READ, CORRUPT_READ, UNSCOPED_CORRUPTION, ADVERSE_READ, FAILED_READ,
     FIFO_GAP, CLOCK_CHANGE, UNMAPPED_EVENT, INTERRUPTED_READ, MALFORMED_BLOCK, UNCONFIRMED_BLOCK,

@@ -1192,9 +1192,7 @@ class AppContainer(context: Context) {
             AapsLocalObservation.recordedTarget(appContext, master, query)
         })
         val local = AapsLocalObservation.readComboJournal(appContext) ?: return checked
-        return if (local == AapsV3ComboHistoryStatus.ADVERSE ||
-            inbound.comboHistory in setOf(AapsV3ComboHistoryStatus.UNCHECKED, AapsV3ComboHistoryStatus.NOT_OBSERVED))
-            checked.copy(comboHistory = local) else checked
+        return checked.copy(comboHistory = checked.comboHistory.withLocalJournal(local))
     }
     suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
     internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =
