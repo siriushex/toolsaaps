@@ -278,7 +278,8 @@ internal class AapsV3TargetChannel(
         fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING)
             localOffers?.current()?.let { it.clientId == pair.clientId && localOffers.ready(it) } == true
         else storageAvailable()
-        if (runtimeAllowed && probeRouteReady(pair) && generation.get() == epoch) {
+        suspend fun probeIfReady(pair: AapsV3PairingSnapshot) {
+            if (!runtimeAllowed || !probeRouteReady(pair) || generation.get() != epoch) return
             journal.probe(clock(), sessionStartedAt, localOffers)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
                 synchronized(this) {
@@ -290,6 +291,7 @@ internal class AapsV3TargetChannel(
                 }
             }
         }
+        probeIfReady(pair)
         val observedAt = clock()
         val evidence = if (runtimeAllowed && storageAvailable())
             profileSource.readEvidence(maxOf(1, observedAt - 86_400_000L), observedAt, clock()) else null
@@ -314,6 +316,12 @@ internal class AapsV3TargetChannel(
                 result
             }
         } else { membershipCheck = null; null }
+        if (witness != null && pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING) {
+            val refreshed = journal.pairingSnapshot() ?: return
+            if (refreshed.clientId != pair.clientId) return
+            pair = refreshed
+            if (pair.phase == AapsV3PairingPhase.ACTIVE) probeIfReady(pair)
+        }
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
             !runtimeAllowed -> AapsV3ConnectionStatus.OFFLINE
