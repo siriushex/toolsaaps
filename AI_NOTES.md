@@ -1,3 +1,29 @@
+# Native loop IOB, COB and sensitivity inputs (2026-11-19)
+
+- Signed local loop_inputs_v1 reads only the first IOB point from a recent,
+  non-early-stopped loop result (signed net units), and the independently
+  dated calculated autosens COB bucket in grams. Not the display COB with
+  later meals, future carbs, a delivery receipt, or a component estimate.
+- In a configured AAPS insulin setup, observation and armed runtimes both
+  read inputs and native carb history every five minutes. Manual mode, disabled
+  integration and power save do not start this reader. No command surface.
+- A nonce, strict schema and per-metric clocks protect the Room import; keep
+  stable source-specific rows for corrections. A complete reply can withdraw
+  either selection without deleting history. A failed read cannot refresh it;
+  the resolver checks the original sample time and current integration mode.
+  Changed data and selection durably request ordinary clinical invalidation.
+- Native net IOB enters the existing total-only path, not the component
+  path. A fresh complete broadcast component packet retains precedence. COB
+  enters the same external COB selection and meal-aware blend as before.
+  No inference of bolus units, basal units, physical delivery or meal timing.
+- For a recognized, non-early-stopped AMA/SMB/AutoISF result, read the
+  actual algorithm profile input pair sens and carb_ratio. These come from
+  the profile getters used by the old validated relay, but do not invoke a
+  new dynamic ISF calculation or its notification side effects. Convert
+  mg/dL/U to mmol/L/U once with the relay's factor of 18. Keep the original
+  result date and dedicated AAPS keys, separate from learned ISF/CR and
+  from the variable sensitivity returned in the algorithm output.
+
 # Exact AAPS effective-profile boundaries (2026-11-19)
 
 - The local AAPS EPS serializer uses the original effective block durations,

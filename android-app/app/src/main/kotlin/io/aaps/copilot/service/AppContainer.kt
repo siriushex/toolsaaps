@@ -28,6 +28,7 @@ import io.aaps.copilot.data.repository.AapsCarbHistorySyncResult
 import io.aaps.copilot.config.SetupProgress
 import io.aaps.copilot.config.SetupGlucoseSource
 import io.aaps.copilot.data.repository.LocalAapsCgmSync
+import io.aaps.copilot.data.repository.LocalAapsLoopInputSync
 import io.aaps.copilot.config.SetupInsulinSource
 import kotlinx.coroutines.withContext
 import io.aaps.copilot.data.repository.AapsCarbHistorySource
@@ -125,6 +126,7 @@ import io.aaps.copilot.data.repository.UamExportCoordinator
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.SensitivityCandidate
+import io.aaps.copilot.domain.predict.SensitivityMetricKind
 import io.aaps.copilot.domain.predict.SensitivityCandidates
 import io.aaps.copilot.domain.predict.SensitivityRuntimeContract
 import io.aaps.copilot.domain.predict.PatternAnalyzer
@@ -597,9 +599,13 @@ class AppContainer(context: Context) {
     )
 
     private fun nativeCarbHistoryEnabled(settings: AppSettings, setup: SetupProgress) =
-        settings.localAapsV3Upload && settings.localNightscoutEnabled && settings.localObservationEnabled &&
-            settings.localBroadcastIngestEnabled && !PowerSaveController.isActive(settings) &&
-            setup.insulinSource == SetupInsulinSource.AAPS
+        settings.nativeInsulinInputEnabled(setup.insulinSource)
+
+    private val localAapsLoopInputs by lazy { LocalAapsLoopInputSync(
+        db, { nonce -> AapsLocalObservation.readLoopInputs(appContext, nonce) },
+        { nativeCarbHistoryEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+    ) }
 
     private fun localCgmEnabled(settings: AppSettings, setup: SetupProgress) =
         settings.localAapsV3Upload && settings.localNightscoutEnabled && settings.localObservationRuntimeAllowed() &&
@@ -927,47 +933,8 @@ class AppContainer(context: Context) {
                     "cr_value", "raw_cr", "aaps_cr", "cr"
                 ).toList()
             )
-            val acceptedTelemetryQualities = setOf("TRUSTED", "GOOD", "OK")
-            fun latestMetric(
-                source: String,
-                keys: Set<String>,
-                minimum: Double,
-                maximum: Double
-            ) = telemetry
-                .asSequence()
-                .filter {
-                        it.source.equals(source, ignoreCase = true) &&
-                        it.key in keys &&
-                        it.quality.trim().uppercase() in acceptedTelemetryQualities
-                }
-                .mapNotNull { row ->
-                    val value = row.valueDouble?.takeIf { it.isFinite() && it in minimum..maximum }
-                        ?: return@mapNotNull null
-                    row to value
-                }
-                .maxWithOrNull(
-                    compareBy<Pair<io.aaps.copilot.data.local.entity.TelemetrySampleEntity, Double>> { it.first.timestamp }
-                        .thenBy { it.first.id }
-                )
-
-            fun telemetryCandidate(
-                source: String,
-                keys: Set<String>,
-                minimum: Double,
-                maximum: Double,
-                missingReason: String
-            ): SensitivityCandidate {
-                val selected = latestMetric(source, keys, minimum, maximum)
-                return SensitivityCandidate(
-                    value = selected?.second,
-                    timestamp = selected?.first?.timestamp ?: 0L,
-                    confidence = if (selected == null) 0.0 else 1.0,
-                    qualityPassed = selected != null,
-                    sampleCount = if (selected == null) 0 else 1,
-                    coverage = if (selected == null) 0.0 else 1.0,
-                    unavailableReason = if (selected == null) missingReason else null
-                )
-            }
+            val nativeFactors = if (settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource))
+                LocalAapsLoopInputSync.activeSamples(db, now) else emptyList()
 
             val candidateInput = db.withTransaction {
                 val activeProfile = db.profileEstimateDao().active()
@@ -1024,23 +991,11 @@ class AppContainer(context: Context) {
                     profileRevision = currentInputGeneration.profileRevision
                 )
             } ?: SensitivityCandidate(null, 0L, 0.0, false, 0, 0.0, "evidence_snapshot_missing")
-            val aapsIsf = telemetryCandidate(
-                "aaps_broadcast",
-                setOf("isf_value", "raw_isf", "aaps_isf", "isf"),
-                SensitivityRuntimeContract.isf.diagnosticMin,
-                SensitivityRuntimeContract.isf.maximum,
-                "aaps_candidate_missing"
-            ).copy(
+            val aapsIsf = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.ISF).copy(
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
-            val aapsCr = telemetryCandidate(
-                "aaps_broadcast",
-                setOf("cr_value", "raw_cr", "aaps_cr", "cr"),
-                SensitivityRuntimeContract.cr.diagnosticMin,
-                SensitivityRuntimeContract.cr.maximum,
-                "aaps_candidate_missing"
-            ).copy(
+            val aapsCr = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.CR).copy(
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
@@ -2079,6 +2034,13 @@ class AppContainer(context: Context) {
                     .distinctUntilChanged().collectLatest { enabled ->
                         if (!enabled) return@collectLatest
                         while (isActive) {
+                            try {
+                                localAapsLoopInputs.sync()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                auditLogger.warn("aaps_local_loop_input_sync_failed")
+                            }
                             syncNativeCarbHistory()
                             delay(5 * 60_000L)
                         }

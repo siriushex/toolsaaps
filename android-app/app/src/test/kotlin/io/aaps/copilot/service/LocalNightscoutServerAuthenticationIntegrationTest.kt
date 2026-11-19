@@ -2929,7 +2929,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val release = CountDownLatch(1)
         val blockNext = AtomicBoolean(false)
         val port = freePort()
-        server = newServer(MutableLocalNightscoutRuntimeState(),
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime,
             socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20L),
             socketSnapshotCheckpoint = { checkpoint ->
                 if (checkpoint == phase && blockNext.compareAndSet(true, false)) {
@@ -2937,7 +2938,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                     check(release.await(10, TimeUnit.SECONDS))
                 }
             })
-        assertThat(server?.update(true, port)).isEqualTo(port)
+        val bound = server?.update(true, port)
+        com.google.common.truth.Truth.assertWithMessage("Loopback startup: %s", runtime.value.reason).that(bound).isEqualTo(port)
         val client = trustedClient(caCertificate)
         val donor = openSocket(client, port)
         postSocket(client, port, donor, authorizePacket())

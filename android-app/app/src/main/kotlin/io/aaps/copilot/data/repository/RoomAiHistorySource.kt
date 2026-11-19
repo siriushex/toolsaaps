@@ -128,7 +128,8 @@ internal class RoomAiHistorySource(private val db: CopilotDatabase) {
         }
 
     private fun origin(value: String) = when {
-        value == "aaps_broadcast" || value.startsWith(LocalAapsCgmSync.PREFIX) -> ServerAiHistorySource.AAPS
+        value == "aaps_broadcast" || value == LocalAapsLoopInputSync.SOURCE ||
+            value.startsWith(LocalAapsCgmSync.PREFIX) -> ServerAiHistorySource.AAPS
         value == "xdrip_broadcast" -> ServerAiHistorySource.CGM
         else -> ServerAiHistorySource.COPILOT
     }

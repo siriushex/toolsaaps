@@ -7,6 +7,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.aaps.copilot.config.AppSettings
 import io.aaps.copilot.config.AppSettingsStore
+import io.aaps.copilot.service.nativeInsulinInputEnabled
 import io.aaps.copilot.config.SensitivitySettingsMutation
 import io.aaps.copilot.config.SensorLagCorrectionMode
 import io.aaps.copilot.config.UamExportUiMode
@@ -4619,7 +4620,10 @@ class AutomationRepository(
             baseRows = baseRows,
             reportRows = reportRows
         )
-        val rows = (baseRows + reportRows)
+        val includeLocalInputs = baseRows.any { it.source == LocalAapsLoopInputSync.SOURCE } &&
+            settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)
+        val localInputs = if (includeLocalInputs) LocalAapsLoopInputSync.activeSamples(db, readCompletedAt) else emptyList()
+        val rows = ((baseRows + reportRows).filterNot { it.source == LocalAapsLoopInputSync.SOURCE } + localInputs)
             .distinctBy { row -> "${row.source}:${row.key}:${row.timestamp}" }
         if (rows.isEmpty()) return ResolvedLatestTelemetry(emptyMap(), emptyList())
         val usableRows = rows
@@ -4718,21 +4722,10 @@ class AutomationRepository(
                 latestTimestampByKey[key] = snapshot.timestamp
             }
         }
-        alias(
-            targetKey = "cob_grams",
-            preferredKeys = listOf(
-                "cob_grams",
-                "cob_effective_grams",
-                "cob_external_raw_grams",
-                "raw_cob"
-            ),
-            tokenAliases = listOf("carbsonboard")
-        )
-        val selectedAuthoritativeCob = selectStrictAapsCob(rows)
-        selectedAuthoritativeCob?.let { selected ->
-            latestByKey["cob_grams"] = selected.valueDouble
-            latestTimestampByKey["cob_grams"] = selected.timestamp
-        }
+        val externalCob = selectExternalCobInput(rows, readCompletedAt)
+        latestByKey["cob_grams"] = externalCob?.valueDouble
+        if (externalCob != null) latestTimestampByKey["cob_grams"] = externalCob.timestamp
+        else latestTimestampByKey.remove("cob_grams")
         val selectedAuthoritativeIsf = selectStrictAapsIsf(rows)
         val selectedAuthoritativeCr = selectStrictAapsCr(rows)
         alias(
@@ -5413,10 +5406,6 @@ class AutomationRepository(
     private fun selectStrictAapsIob(
         rows: List<TelemetrySampleEntity>
     ): TelemetrySampleEntity? = selectStrictAapsIobStatic(rows)
-
-    private fun selectStrictAapsCob(
-        rows: List<TelemetrySampleEntity>
-    ): TelemetrySampleEntity? = selectStrictAapsCobStatic(rows)
 
     private fun selectStrictAapsIsf(
         rows: List<TelemetrySampleEntity>
@@ -9623,7 +9612,8 @@ class AutomationRepository(
             val candidates = rows.filter { row ->
                 row.valueDouble?.isFinite() == true &&
                     row.valueDouble in -30.0..30.0 &&
-                    row.source in IOB_STRICT_ALLOWED_SOURCES &&
+                    (row.source in IOB_STRICT_ALLOWED_SOURCES ||
+                        row.source == LocalAapsLoopInputSync.SOURCE && row.key == "iob_net_units") &&
                     isStrictIobKeyStatic(row.key)
             }
             val selected = selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
@@ -9635,6 +9625,17 @@ class AutomationRepository(
             } ?: selected
         }
 
+        internal fun selectExternalCobInput(rows: List<TelemetrySampleEntity>, now: Long): TelemetrySampleEntity? {
+            val inputs = rows.filter {
+                it.source != "copilot_runtime_cob_iob" && it.timestamp in 1..now &&
+                    it.valueDouble?.let { g -> g in 0.0..400.0 } == true
+            }
+            return selectStrictAapsCobStatic(inputs) ?: inputs.asSequence().filter {
+                val key = normalizeStrictTherapyKeyStatic(it.key)
+                key in COB_STRICT_ALLOWED_KEYS || key == "carbsonboard" || key.endsWith("_carbsonboard")
+            }.maxByOrNull { it.timestamp }
+        }
+
         internal fun selectStrictAapsCobStatic(
             rows: List<TelemetrySampleEntity>,
             directPreferenceWindowMs: Long = DIRECT_AAPS_THERAPY_PREFERENCE_WINDOW_MS
@@ -9643,7 +9644,8 @@ class AutomationRepository(
             val candidates = rows.filter { row ->
                 row.valueDouble?.isFinite() == true &&
                     row.valueDouble in 0.0..400.0 &&
-                    row.source in IOB_STRICT_ALLOWED_SOURCES &&
+                    (row.source in IOB_STRICT_ALLOWED_SOURCES ||
+                        row.source == LocalAapsLoopInputSync.SOURCE && row.key == "cob_grams") &&
                     normalizeStrictTherapyKeyStatic(row.key) in COB_STRICT_ALLOWED_KEYS
             }
             val selected = selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
@@ -9664,7 +9666,8 @@ class AutomationRepository(
             val candidates = rows.filter { row ->
                 row.valueDouble?.isFinite() == true &&
                     row.valueDouble in 0.8..18.0 &&
-                    row.source in ISF_AAPS_ALLOWED_SOURCES &&
+                    (row.source in ISF_AAPS_ALLOWED_SOURCES ||
+                        row.source == LocalAapsLoopInputSync.SOURCE && row.key == "aaps_isf") &&
                     normalizeStrictTherapyKeyStatic(row.key) in ISF_AAPS_ALLOWED_KEYS
             }
             return selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
@@ -9678,7 +9681,8 @@ class AutomationRepository(
             val candidates = rows.filter { row ->
                 row.valueDouble?.isFinite() == true &&
                     row.valueDouble in 2.0..60.0 &&
-                    row.source in CR_AAPS_ALLOWED_SOURCES &&
+                    (row.source in CR_AAPS_ALLOWED_SOURCES ||
+                        row.source == LocalAapsLoopInputSync.SOURCE && row.key == "aaps_cr") &&
                     normalizeStrictTherapyKeyStatic(row.key) in CR_AAPS_ALLOWED_KEYS
             }
             return selectPreferredDirectAapsSampleStatic(candidates, directPreferenceWindowMs)
@@ -9776,11 +9780,12 @@ class AutomationRepository(
             return candidates
                 .asSequence()
                 .filter { row ->
-                    row.source == "aaps_broadcast" &&
+                    (row.source == "aaps_broadcast" || row.source == LocalAapsLoopInputSync.SOURCE) &&
                         row.timestamp <= newest.timestamp &&
                         newest.timestamp - row.timestamp <= boundedWindowMs
                 }
-                .maxWithOrNull(compareBy<TelemetrySampleEntity> { it.timestamp }.thenBy { it.id })
+                .maxWithOrNull(compareBy<TelemetrySampleEntity> { it.timestamp }
+                    .thenBy { it.source == "aaps_broadcast" }.thenBy { it.id })
                 ?: newest
         }
 
@@ -12407,7 +12412,7 @@ class AutomationRepository(
                 ?.let { TimedInsulinValue(requireNotNull(it.valueDouble), it.timestamp) }
 
             val packetIdentities = packetRowsByIdentity.keys
-            val legacy = when {
+            val broadcastLegacy = when {
                 aapsPacket == null -> latestCandidate(
                     sourcePredicate = { source -> source == "aaps_broadcast" }
                 )
@@ -12415,6 +12420,12 @@ class AutomationRepository(
                     aapsPacket.authoritativeTimestamp != null -> aapsPacket.totalIob()
                 else -> null
             }
+            val nativeNet = rows.asSequence().filter { it.source == LocalAapsLoopInputSync.SOURCE &&
+                it.key == "iob_net_units" && it.timestamp in 1..nowTs &&
+                nowTs - it.timestamp <= minOf(300_000L, boundedFreshnessMs) &&
+                it.valueDouble?.let { value -> value in -30.0..30.0 } == true
+            }.maxByOrNull { it.timestamp }?.let { TimedInsulinValue(checkNotNull(it.valueDouble), it.timestamp) }
+            val legacy = listOfNotNull(broadcastLegacy, nativeNet).maxByOrNull { it.timestamp }
             val packetExternal = newestPackets.values.asSequence()
                 .filterNotNull()
                 .filter {

@@ -81,6 +81,12 @@ internal object AapsLocalObservation {
         return callVerified(context, provider, "cgm_window_v1", args)?.getByteArray("snapshot")
     }
 
+    fun readLoopInputs(context: Context, nonce: String): ByteArray? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        return callVerified(context, provider, "loop_inputs_v1", Bundle().apply { putString("nonce", nonce) })
+            ?.getByteArray("snapshot")
+    }
+
     internal fun decodeCarbReply(request: AapsCarbHistoryRequest, reply: Bundle): AapsCarbHistoryResult {
         if (reply.isEmpty) return AapsCarbHistoryResult.Busy
         val fields = reply.keySet().associateWith { reply[it] }
