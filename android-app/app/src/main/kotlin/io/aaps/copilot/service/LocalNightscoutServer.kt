@@ -2,8 +2,6 @@ package io.aaps.copilot.service
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
 import androidx.room.InvalidationTracker
 import androidx.room.withTransaction
@@ -2188,7 +2186,7 @@ class LocalNightscoutServer internal constructor(
         }
 
         private fun relayTreatmentsToAapsWithLease(treatments: List<NightscoutTreatment>): Boolean {
-            val targetPackage = resolveInstalledAapsPackage() ?: run {
+            val targetPackage = AapsTreatmentBroadcastCapability.localRelayPackage(context) ?: run {
                 runBlocking {
                     auditLogger.warn(
                         "local_nightscout_relay_skipped",
@@ -2249,23 +2247,6 @@ class LocalNightscoutServer internal constructor(
                 "mmol/l", "mmol\\l", "mmol l", "mmol" -> "mmol"
                 "mgdl", "mg dl", "mg/dl" -> "mg/dl"
                 else -> units
-            }
-        }
-
-        private fun resolveInstalledAapsPackage(): String? {
-            val candidates = listOf(AAPS_PACKAGE_LEGACY, AAPS_PACKAGE_MODERN)
-            return candidates.firstOrNull { packageName ->
-                runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        context.packageManager.getPackageInfo(
-                            packageName,
-                            PackageManager.PackageInfoFlags.of(0)
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        context.packageManager.getPackageInfo(packageName, 0)
-                    }
-                }.isSuccess
             }
         }
 
@@ -2837,8 +2818,6 @@ class LocalNightscoutServer internal constructor(
         private const val DEVICESTATUS_RECENT_LIMIT = 256
         private const val DEVICESTATUS_SUPPORT_LOOKBACK_MS = 72L * 60L * 60L * 1000L
         private const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
-        private const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
-        private const val AAPS_PACKAGE_MODERN = "app.aaps"
         private const val SOCKET_ENGINE_PROTOCOL_VERSION = 4
         private const val SOCKET_PING_INTERVAL_MS = 25_000
         private const val SOCKET_PING_TIMEOUT_MS = 20_000

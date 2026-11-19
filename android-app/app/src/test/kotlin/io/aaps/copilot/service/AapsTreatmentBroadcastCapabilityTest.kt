@@ -27,6 +27,27 @@ class AapsTreatmentBroadcastCapabilityTest {
     }
 
     @Test
+    fun localRelayChecksTheSamePackageItWouldActuallySendTo() {
+        fun install(pkg: String, vararg actions: String) {
+            val component = android.content.ComponentName(pkg, "$pkg.TestReceiver")
+            shadowOf(context.packageManager).apply {
+                installPackage(android.content.pm.PackageInfo().apply { packageName = pkg })
+                addOrUpdateReceiver(addReceiverIfNotPresent(component).apply {
+                    exported = true
+                    enabled = true
+                })
+                actions.forEach { addIntentFilterForReceiver(component, android.content.IntentFilter(it)) }
+            }
+        }
+        install("app.aaps", glucoseAction, treatmentAction)
+        assertThat(AapsTreatmentBroadcastCapability.localRelayPackage(context)).isEqualTo("app.aaps")
+        assertThat(AapsTreatmentBroadcastCapability.canSendLocalRelay(context)).isTrue()
+        install(destination, glucoseAction)
+        assertThat(AapsTreatmentBroadcastCapability.localRelayPackage(context)).isEqualTo(destination)
+        assertThat(AapsTreatmentBroadcastCapability.canSendLocalRelay(context)).isFalse()
+    }
+
+    @Test
     fun sameReceiverDeclaringLegacyExtensionRemainsUsable() {
         register(glucoseAction)
         register(treatmentAction)

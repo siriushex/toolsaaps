@@ -16,6 +16,7 @@ internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, r
             MealDeliveryStatus.BLOCKED -> context.getString(when (result.carbBlockReason) {
                 "carbs_rate_limit_30m" -> R.string.meal_carbs_rate_limited
                 "therapy_actions_not_armed" -> R.string.meal_carbs_disarmed
+                "local_carb_relay_unavailable" -> R.string.meal_carbs_local_relay_unavailable
                 else -> R.string.meal_carbs_blocked
             })
             MealDeliveryStatus.NOT_REQUESTED -> context.getString(R.string.meal_carbs_not_attempted)

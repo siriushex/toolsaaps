@@ -57,6 +57,18 @@ class ManualEatingSoonMessageTest {
         return base.createConfigurationContext(config)
     }
 
+    @Test fun unsupportedLocalReceiverIsNotAnAmbiguousDelivery() {
+        for (language in listOf("en", "ru")) {
+            val ctx = context(language)
+            val result = ManualMealResult(MealDeliveryStatus.BLOCKED,
+                EatingSoonResult(MealDeliveryStatus.NOT_REQUESTED), false, "local_carb_relay_unavailable")
+            assertThat(manualMealSubmissionMessage(ctx, 12.0, result))
+                .isEqualTo(ctx.getString(R.string.meal_carbs_local_relay_unavailable))
+            assertThat(manualMealSubmissionMessage(ctx, 12.0, result.copy(carbs = MealDeliveryStatus.UNKNOWN)))
+                .isEqualTo(ctx.getString(R.string.overview_meal_unconfirmed))
+        }
+    }
+
     @Test fun blockedForecastIncludesItsActualHorizonInsteadOfGenericFailure() {
         val context = context("en")
         val message = manualEatingSoonBlockedMessage(context, "forecast_60m_ci_low")

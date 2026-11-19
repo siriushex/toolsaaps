@@ -214,6 +214,21 @@ class EatingSoonDeliveryRoomTest {
         }
     }
 
+    @Test fun unsupportedLocalRelayBlocksManualMealBeforeAnyPostAndKeepsItsReason() = runBlocking {
+        MockWebServer().use { server ->
+            val repository = repository(server)
+            settings.update { it.copy(nightscoutUrl = "", localNightscoutEnabled = true,
+                localNightscoutPort = server.port) }
+            val meal = command("local-meal").copy(type = "carbs", params = mapOf("carbsGrams" to "12"))
+            repeat(2) {
+                assertThat(repository.submitCarbs(meal)).isFalse()
+                assertThat(repository.manualCarbBlockReason(meal)).isEqualTo("local_carb_relay_unavailable")
+            }
+            assertThat(db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)?.status).isEqualTo("BLOCKED")
+            assertThat(server.requestCount).isEqualTo(0)
+        }
+    }
+
     @Test fun manualCarbRateLimitRetainsReasonAndDoesNotPost() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))

@@ -1,3 +1,10 @@
+# Manual meal local relay preflight (2026-11-19)
+
+- The manual carb writer checks the same package and receiver as the owned v1
+  relay. With no treatment receiver it records a localized rejection before POST;
+  ambiguous deliveries remain pending. External Nightscout and the independent
+  Eating Soon request are unchanged. This is not native carb command support.
+
 # Local enrollment liveness (2026-11-18)
 
 - The first Ping now travels on the pinned settings socket immediately after

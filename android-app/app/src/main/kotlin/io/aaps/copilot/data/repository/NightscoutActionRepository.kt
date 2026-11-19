@@ -613,7 +613,7 @@ class NightscoutActionRepository(
         return runCatching {
             gson.fromJson(record.payloadJson, com.google.gson.JsonObject::class.java)
                 .get("carbBlockReason")?.asString
-        }.getOrNull()?.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+        }.getOrNull()?.takeIf { it in MANUAL_CARB_BLOCK_REASONS }
             ?: "carbs_blocked"
     }
 
@@ -687,6 +687,11 @@ class NightscoutActionRepository(
         for (targetUrl in nightscoutTargets) {
             deliverySettings = settingsStore.settings.first()
             if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
+            if (guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) &&
+                !AapsTreatmentBroadcastCapability.canSendLocalRelay(context)) {
+                markBlocked(command, "local_carb_relay_unavailable")
+                return false
+            }
             val nsSuccess = runCatching {
                 val nsApi = apiFactory.nightscoutApi(targetUrl, deliverySettings)
                 if (isLocalNightscoutTarget(targetUrl, deliverySettings)) {
@@ -986,7 +991,7 @@ class NightscoutActionRepository(
 
     private fun failurePayloadJson(command: ActionCommand, reason: String): String {
         if (command.type == "carbs" && command.idempotencyKey.startsWith("manual:meal:")) {
-            val code = reason.takeIf { it in setOf("carbs_rate_limit_30m", "therapy_actions_not_armed") }
+            val code = reason.takeIf { it in MANUAL_CARB_BLOCK_REASONS }
                 ?: "carbs_blocked"
             return gson.toJson(command.params + ("carbBlockReason" to code))
         }
@@ -1208,6 +1213,8 @@ class NightscoutActionRepository(
         const val ACTION_LOCAL_TREATMENTS = "info.nightscout.androidaps.action.LOCAL_TREATMENTS"
         const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
         const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
+        private val MANUAL_CARB_BLOCK_REASONS =
+            setOf("carbs_rate_limit_30m", "therapy_actions_not_armed", "local_carb_relay_unavailable")
         const val AAPS_PACKAGE_MODERN = "app.aaps"
 
         internal fun automaticTargetOwnershipBlockReasonStatic(

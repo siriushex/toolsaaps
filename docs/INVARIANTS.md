@@ -583,6 +583,9 @@
   treatment extension. Package-manager failure cannot become permission to send.
 - A rejected local relay cannot create a treatment row, claim application by
   AAPS or clear uncertain command ownership. Existing reconciliation remains.
+- For a manual meal addressed to the app-owned v1 endpoint, check the selected
+  relay receiver before the first POST. If unavailable, record a definite block.
+  A lost response after dispatch stays uncertain; neither case is automatically resent.
 - API v3 compatibility requires authentication, durable modification history,
   exact filters and stock-client verification, not merely matching route names.
 - Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.
