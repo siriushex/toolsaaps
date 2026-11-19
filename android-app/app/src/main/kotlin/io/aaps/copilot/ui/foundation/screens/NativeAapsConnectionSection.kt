@@ -30,6 +30,7 @@ import io.aaps.copilot.service.AapsV3PairingRoute
 import io.aaps.copilot.service.AapsFinalClientRole
 import io.aaps.copilot.service.AapsV3InboundGlucose
 import io.aaps.copilot.service.AapsV3InboundSummary
+import io.aaps.copilot.service.AapsV3ComboHistoryStatus
 import io.aaps.copilot.service.AapsV3ObservedInsulinStatus
 import io.aaps.copilot.service.AapsV3ObservedProfileStatus
 import java.text.DateFormat
@@ -219,6 +220,16 @@ private fun NativeAapsInboundSection(inbound: AapsV3InboundSummary) {
         else -> stringResource(R.string.native_aaps_inbound_insulin_unavailable)
     }
     Text(insulin, Modifier.testTag("native_aaps_inbound_insulin"), style = style)
+    val combo = when (inbound.comboHistory) {
+        AapsV3ComboHistoryStatus.UNCHECKED -> null
+        AapsV3ComboHistoryStatus.NOT_OBSERVED -> R.string.native_aaps_inbound_combo_missing
+        AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED -> R.string.native_aaps_inbound_combo_retained
+        AapsV3ComboHistoryStatus.ADVERSE -> R.string.native_aaps_inbound_combo_adverse
+        else -> R.string.native_aaps_inbound_combo_unavailable
+    }
+    combo?.let {
+        Text(stringResource(it), Modifier.testTag("native_aaps_inbound_combo"), style = style)
+    }
 }
 
 private fun observedProfileLabel(status: AapsV3ObservedProfileStatus) = when (status) {

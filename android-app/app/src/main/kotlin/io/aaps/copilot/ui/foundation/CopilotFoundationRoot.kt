@@ -837,7 +837,12 @@ fun CopilotFoundationRoot(
                 CompositionLocalProvider(LocalIssueNavigator provides issueNavigator) { scaffoldContent() }
                 if (showPowerSaveDialog) {
                     RootPowerSaveDialog(
+                        active = overview.powerSaveActive,
                         onDismiss = { showPowerSaveDialog = false },
+                        onResume = {
+                            showPowerSaveDialog = false
+                            viewModel.disablePowerSave()
+                        },
                         onEnablePowerSave = { durationMs ->
                             showPowerSaveDialog = false
                             viewModel.enablePowerSave(durationMs)
@@ -848,7 +853,7 @@ fun CopilotFoundationRoot(
                     visible = drawerOpen,
                     currentRoute = currentRoute,
                     uiStyle = selectedUiStyle,
-                    showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                    showPowerSaveAction = currentRoute == Destinations.Overview.route || overview.powerSaveActive,
                     onPowerSaveClick = { drawerOpen = false; showPowerSaveDialog = true },
                     onDismiss = { drawerOpen = false },
                     onNavigate = { destination ->
@@ -1089,8 +1094,10 @@ internal fun alertBellPressAction(alertsMuted: Boolean): AlertBellPressAction =
 internal fun overviewClinicalActionOrder(): List<String> = listOf("events", "alerts")
 
 @Composable
-private fun RootPowerSaveDialog(
+internal fun RootPowerSaveDialog(
+    active: Boolean,
     onDismiss: () -> Unit,
+    onResume: () -> Unit,
     onEnablePowerSave: (Long?) -> Unit
 ) {
     AlertDialog(
@@ -1098,6 +1105,9 @@ private fun RootPowerSaveDialog(
         title = { Text(text = stringResource(id = R.string.overview_power_save_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                if (active) {
+                    Text(stringResource(R.string.overview_power_save_status_on))
+                }
                 PowerSaveDialogOption(
                     text = stringResource(id = R.string.overview_power_save_1h),
                     onClick = { onEnablePowerSave(60L * 60_000L) }
@@ -1117,8 +1127,17 @@ private fun RootPowerSaveDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(id = R.string.action_cancel))
+            if (active) {
+                TextButton(onClick = onResume, modifier = Modifier.testTag("powerSaveResumeAction")) {
+                    Text(stringResource(R.string.overview_power_save_turn_on))
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+            }
+        },
+        dismissButton = {
+            if (active) {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
             }
         }
     )

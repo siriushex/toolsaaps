@@ -586,8 +586,13 @@ fun OverviewScreen(
                 )
             }
             item {
+                if (state.aapsLocalTargetMode) {
+                    Text(stringResource(R.string.clarity_aaps_observed_target, observedAapsTargetRange(state.aapsLocalTarget)))
+                    Text(observedAapsTargetSource(state.aapsLocalTarget), style = MaterialTheme.typography.bodySmall)
+                }
                 TargetManagerLiveStatusSection(
-                    status = state.targetManagerLiveStatus,
+                    status = if (state.aapsLocalTargetMode) state.targetManagerLiveStatus.copy(currentTargetMmol = null)
+                    else state.targetManagerLiveStatus,
                     midnightGlass = midnightGlass
                 )
             }
@@ -1231,6 +1236,8 @@ private fun OverviewClinicalMatrix(
         displayHighMmol = state.chart.displayRangeHighMmol
     )
     val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
+    val observing = state.aapsV3Observation
+    val observed = state.aapsLocalMetrics
     val metrics = listOf(
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_iob),
@@ -1243,11 +1250,11 @@ private fun OverviewClinicalMatrix(
             iobPair = iob
         ),
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_cob_copilot),
-            value = UiFormatters.formatGrams(state.currentCobGrams, 1),
+            label = stringResource(if (observing) R.string.clarity_aaps_cob else R.string.metric_cob_copilot),
+            value = UiFormatters.formatGrams(if (observing) observed?.cobGrams else state.currentCobGrams, 1),
             unit = stringResource(id = R.string.unit_g),
-            onClick = onCob,
-            contentDescription = stringResource(R.string.overview_edit_cob)
+            onClick = onCob.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_cob)
         ),
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_base_target),
@@ -1265,20 +1272,22 @@ private fun OverviewClinicalMatrix(
             testTag = "overviewSampleAgeMetric"
         ),
         OverviewClinicalMetric(
-            label = "${stringResource(id = R.string.overview_model_isf_now)} · " +
+            label = if (observing) stringResource(R.string.clarity_aaps_profile_metric, "ISF")
+            else "${stringResource(id = R.string.overview_model_isf_now)} · " +
                 metricActualSourceLabel(state.isfRuntime),
-            value = UiFormatters.formatMmol(state.currentIsfMmolPerUnit, 1),
+            value = UiFormatters.formatMmol(if (observing) observed?.profileIsfMmol else state.currentIsfMmolPerUnit, 1),
             unit = stringResource(id = R.string.unit_mmol_u),
-            onClick = onIsf,
-            contentDescription = stringResource(R.string.overview_edit_isf)
+            onClick = onIsf.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_isf)
         ),
         OverviewClinicalMetric(
-            label = "${stringResource(id = R.string.overview_model_cr_now)} · " +
+            label = if (observing) stringResource(R.string.clarity_aaps_profile_metric, "CR")
+            else "${stringResource(id = R.string.overview_model_cr_now)} · " +
                 metricActualSourceLabel(state.crRuntime),
-            value = UiFormatters.formatGrams(state.currentCrGramsPerUnit, 1),
+            value = UiFormatters.formatGrams(if (observing) observed?.profileCr else state.currentCrGramsPerUnit, 1),
             unit = stringResource(id = R.string.unit_g_u),
-            onClick = onCr,
-            contentDescription = stringResource(R.string.overview_edit_cr)
+            onClick = onCr.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_cr)
         ),
         OverviewClinicalMetric(
             label = stringResource(id = R.string.overview_model_uam),

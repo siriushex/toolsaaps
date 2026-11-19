@@ -2159,6 +2159,10 @@
     <string name="native_aaps_inbound_insulin_partial">Insulin records in 24 h: %1$d. Insulin settings incomplete; delivery not verified.</string>
     <string name="native_aaps_inbound_insulin_missing">No insulin records received for the last 24 h.</string>
     <string name="native_aaps_inbound_insulin_unavailable">Insulin records could not be verified.</string>
+    <string name="native_aaps_inbound_combo_missing">Pump history coverage: no journal evidence received.</string>
+    <string name="native_aaps_inbound_combo_retained">Combo journal received. Delivery coverage is not confirmed.</string>
+    <string name="native_aaps_inbound_combo_adverse">Combo journal has gaps or inconsistencies. Delivery coverage is not confirmed.</string>
+    <string name="native_aaps_inbound_combo_unavailable">Combo journal could not be checked.</string>
 <string name="native_combo_title">Combo history</string>
 <string name="native_combo_expand">Show history checks</string>
 <string name="native_combo_collapse">Hide history checks</string>

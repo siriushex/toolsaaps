@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
@@ -70,6 +71,19 @@ class LocalNightscoutV3EntriesApiTest {
         assertEquals(1, db.localNightscoutV3Dao().count())
         assertEquals(first.revision, db.localNightscoutV3Dao().clock()!!.revision)
         assertEquals(201, call("POST", body = sample(device = "sensor-b")).status)
+    }
+
+    @Test fun onlyNewLocalUploadReportsACommitWithAgeAndNoPayload() = runBlocking {
+        val tag = "AapsLocalCgm"
+        val data = sample(now - 23_000, value = 123.4).dropLast(1) + ""","app":"AAPS-local"}"""
+        suspend fun upload(body: String) =
+            api.handle("POST", "/api/v3/entries", emptyMap(), uploadOnly = true) { body.encodeToByteArray() }
+
+        assertEquals(201, upload(data).status)
+        assertEquals(200, upload(data).status)
+        assertEquals(400, upload("{}").status)
+        assertEquals(201, call("POST", body = sample(device = "sensor-b")).status)
+        assertEquals(listOf("committed age_sec=23"), ShadowLog.getLogsForTag(tag).map { it.msg })
     }
 
     @Test fun patchMergesOmittedTimeAndPreservesStableIdentity() = runBlocking {

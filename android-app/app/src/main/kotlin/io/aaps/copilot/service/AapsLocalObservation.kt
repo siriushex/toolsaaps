@@ -2,10 +2,13 @@ package io.aaps.copilot.service
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.pm.ProviderInfo
 import android.net.Uri
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
 import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalV3RetainedSnapshot
+import io.aaps.copilot.domain.model.GlucosePoint
+import io.aaps.copilot.util.UnitConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
@@ -17,23 +20,76 @@ internal object AapsLocalObservation {
     private const val DAY_MS = 86_400_000L
 
     fun read(context: Context): AapsV3InboundSummary? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val snapshot = readVerifiedSnapshot(context, provider)
+        val now = System.currentTimeMillis()
+        return if (snapshot == null) unavailable(now) else decode(snapshot, now)
+    }
+
+    fun readDisplayGlucose(context: Context): List<GlucosePoint>? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val snapshot = readVerifiedSnapshot(context, provider) ?: return null
+        return decodeDisplayGlucose(snapshot, System.currentTimeMillis())
+    }
+
+    fun readTarget(context: Context): AapsObservedTarget? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val snapshot = readVerifiedSnapshot(context, provider, "target_v1") ?: return null
+        return AapsObservedTarget.decode(snapshot, System.currentTimeMillis())
+    }
+
+    fun readMetrics(context: Context): AapsObservedMetrics? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val snapshot = readVerifiedSnapshot(context, provider, "metrics_v1") ?: return null
+        return AapsObservedMetrics.decode(snapshot, System.currentTimeMillis())
+    }
+
+    fun readComboJournal(context: Context): AapsV3ComboHistoryStatus? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val snapshot = readVerifiedSnapshot(context, provider, "journal_v1") ?: return null
+        return readLocalComboJournalSummary(snapshot, System.currentTimeMillis())
+    }
+
+    private fun readVerifiedSnapshot(context: Context, provider: ProviderInfo, method: String = "snapshot_v1"): ByteArray? {
         val pm = context.packageManager
-        val provider = pm.resolveContentProvider(AUTHORITY, 0) ?: return null
         if (provider.packageName != AAPS || provider.readPermission != PERMISSION ||
             provider.writePermission != PERMISSION || provider.grantUriPermissions ||
             pm.checkSignatures(context.packageName, AAPS) != PackageManager.SIGNATURE_MATCH) {
-            return unavailable(System.currentTimeMillis())
+            return null
         }
         return try {
-            val snapshot = context.contentResolver.call(Uri.parse("content://$AUTHORITY"), "snapshot_v1", null, null)
+            context.contentResolver.call(Uri.parse("content://$AUTHORITY"), method, null, null)
                 ?.getByteArray("snapshot")
-            val now = System.currentTimeMillis()
-            if (snapshot == null) unavailable(now) else decode(snapshot, now)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
-            unavailable(System.currentTimeMillis())
+            null
         }
+    }
+
+    /** Reads only the glucose fields from a signed local snapshot for display. */
+    internal fun decodeDisplayGlucose(bytes: ByteArray, now: Long): List<GlucosePoint>? = try {
+        val body = HistoryJson.parse(bytes, 196_608)
+        HistoryJson.fields(body, setOf("version", "at", "glucose", "insulin"), setOf("profile"))
+        require(HistoryJson.long(body.getValue("version")) == 1L)
+        val at = HistoryJson.long(body.getValue("at"))
+        require(now in 1..HistoryJson.maxTime && at in maxOf(1, now - 10_000L)..now)
+        HistoryJson.array(body.getValue("glucose")).also { require(it.size in 1..AapsV3ForecastPreview.MAX_ROWS) }
+            .map {
+                val item = HistoryJson.obj(it)
+                HistoryJson.fields(item, setOf("date", "sgv", "sensor"))
+                val time = HistoryJson.long(item.getValue("date"))
+                require(time in maxOf(1, at - AapsV3ForecastPreview.WINDOW_MS)..at)
+                val sensor = HistoryJson.string(item.getValue("sensor"))
+                require(HistoryJson.code.matches(sensor))
+                val value = UnitConverter.mgdlToMmol(HistoryJson.double(item.getValue("sgv")))
+                require(value.isFinite() && value in 1.0..33.0)
+                GlucosePoint(time, value, sensor)
+            }
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        null
     }
 
     fun decode(bytes: ByteArray, now: Long): AapsV3InboundSummary = try {

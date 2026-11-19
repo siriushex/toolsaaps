@@ -91,12 +91,21 @@ internal fun ClarityOverviewContent(
         confirmEating = true
     }
     val displayedManager = state.targetManagerLiveStatus.copy(
-        currentTargetMmol = state.observedAapsTargetMmol ?: state.targetManagerLiveStatus.currentTargetMmol
+        currentTargetMmol = if (state.aapsLocalTargetMode) null
+        else state.observedAapsTargetMmol ?: state.targetManagerLiveStatus.currentTargetMmol
     )
+    val targetText = if (state.aapsLocalTargetMode) observedAapsTargetRange(state.aapsLocalTarget)
+    else UiFormatters.formatMmol(displayedManager.currentTargetMmol, 1)
+    val observedTargetSource = if (state.aapsLocalTargetMode)
+        observedAapsTargetSource(state.aapsLocalTarget, showExpiry = false) else null
 
     if (targetDetails) ClarityDetailsDialog(
         stringResource(R.string.clarity_target_details), "clarityTargetDetails", { targetDetails = false }
     ) {
+        if (observedTargetSource != null) {
+            Text(stringResource(R.string.clarity_aaps_observed_target, targetText), style = MaterialTheme.typography.titleMedium)
+            Text(observedAapsTargetSource(state.aapsLocalTarget), style = MaterialTheme.typography.bodySmall)
+        }
         Text(clarityManagerModeLabel(state.targetManagerLiveStatus.mode), style = MaterialTheme.typography.labelLarge)
         TargetManagerLiveStatusSection(displayedManager, false, framed = false)
         state.targetManagerLiveStatus.timestamp?.let {
@@ -159,7 +168,7 @@ internal fun ClarityOverviewContent(
             Text(io.aaps.copilot.ui.manualEatingSoonBlockedMessage(LocalContext.current, it),
                 style = MaterialTheme.typography.bodySmall)
         }
-        Text("${stringResource(R.string.clarity_aaps_target)} · ${UiFormatters.formatMmol(displayedManager.currentTargetMmol, 1)} ${stringResource(R.string.unit_mmol_l)}",
+        Text(stringResource(R.string.clarity_aaps_observed_target, targetText),
             style = MaterialTheme.typography.bodyMedium)
         TextButton(onClick = { eatingDetails = false; targetDetails = true }) {
             Text(stringResource(R.string.clarity_target_details))
@@ -188,13 +197,13 @@ internal fun ClarityOverviewContent(
                                 .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_details),
                                     onClick = onOpenClinicalReport)) { ClarityGlucose(state) }
                             HorizontalDivider()
-                            ClarityTarget(displayedManager, { targetDetails = true }, Modifier.fillMaxWidth())
+                            ClarityTarget(displayedManager, targetText, observedTargetSource, { targetDetails = true }, Modifier.fillMaxWidth())
                         }
                     } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1.45f).testTag("clarityClinicalReport")
                             .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_details),
                                 onClick = onOpenClinicalReport)) { ClarityGlucose(state) }
-                        ClarityTarget(displayedManager, { targetDetails = true }, Modifier.weight(1f))
+                        ClarityTarget(displayedManager, targetText, observedTargetSource, { targetDetails = true }, Modifier.weight(1f))
                     }
                 }
             }
@@ -240,12 +249,22 @@ internal fun ClarityOverviewContent(
 private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () -> Unit,
     onIsf: () -> Unit, onCr: () -> Unit, onUam: () -> Unit, onBase: () -> Unit) {
     val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
+    val observing = state.aapsV3Observation
+    val observed = state.aapsLocalMetrics
     val metrics = listOf(
         ClarityMetricSpec("clarityIob", stringResource(R.string.metric_iob), iob.value, stringResource(R.string.unit_u), onIob,
             stringResource(R.string.overview_iob_pair_description, iob.current, iob.signedNet, stringResource(R.string.unit_u)), iob),
-        ClarityMetricSpec("clarityCob", stringResource(R.string.metric_cob_copilot), UiFormatters.formatGrams(state.currentCobGrams, 1), stringResource(R.string.unit_g), onCob),
-        ClarityMetricSpec("clarityIsf", "ISF · ${metricActualSourceLabel(state.isfRuntime)}", UiFormatters.formatMmol(state.currentIsfMmolPerUnit, 1), stringResource(R.string.unit_mmol_u), onIsf),
-        ClarityMetricSpec("clarityCr", "CR · ${metricActualSourceLabel(state.crRuntime)}", UiFormatters.formatGrams(state.currentCrGramsPerUnit, 1), stringResource(R.string.unit_g_u), onCr),
+        ClarityMetricSpec("clarityCob", stringResource(if (observing) R.string.clarity_aaps_cob else R.string.metric_cob_copilot),
+            UiFormatters.formatGrams(if (observing) observed?.cobGrams else state.currentCobGrams, 1),
+            stringResource(R.string.unit_g), onCob.takeUnless { observing }),
+        ClarityMetricSpec("clarityIsf", if (observing) stringResource(R.string.clarity_aaps_profile_metric, "ISF")
+            else "ISF · ${metricActualSourceLabel(state.isfRuntime)}",
+            UiFormatters.formatMmol(if (observing) observed?.profileIsfMmol else state.currentIsfMmolPerUnit, 1),
+            stringResource(R.string.unit_mmol_u), onIsf.takeUnless { observing }),
+        ClarityMetricSpec("clarityCr", if (observing) stringResource(R.string.clarity_aaps_profile_metric, "CR")
+            else "CR · ${metricActualSourceLabel(state.crRuntime)}",
+            UiFormatters.formatGrams(if (observing) observed?.profileCr else state.currentCrGramsPerUnit, 1),
+            stringResource(R.string.unit_g_u), onCr.takeUnless { observing }),
         ClarityMetricSpec("clarityUam", stringResource(R.string.overview_model_uam), UiFormatters.formatGrams(state.calculatedUamCarbsGrams, 1), stringResource(R.string.unit_g), onUam),
         ClarityMetricSpec("clarityBaseTarget", stringResource(R.string.metric_base_target), UiFormatters.formatMmol(state.effectiveBaseTargetMmol, 1), stringResource(R.string.unit_mmol_l), onBase)
     )
@@ -269,7 +288,7 @@ private fun ClarityMetrics(state: OverviewUiState, onIob: () -> Unit, onCob: () 
 }
 
 private data class ClarityMetricSpec(val tag: String, val label: String, val value: String,
-    val unit: String, val onClick: () -> Unit, val description: String? = null, val iobPair: OverviewIobPresentation? = null)
+    val unit: String, val onClick: (() -> Unit)?, val description: String? = null, val iobPair: OverviewIobPresentation? = null)
 
 @Composable
 private fun ClarityGlucose(state: OverviewUiState) {
@@ -292,21 +311,24 @@ private fun ClarityGlucose(state: OverviewUiState) {
 }
 
 @Composable
-private fun ClarityTarget(status: TargetManagerLiveStatusUi, onClick: () -> Unit, modifier: Modifier) {
+private fun ClarityTarget(
+    status: TargetManagerLiveStatusUi, targetText: String, observedSource: String?,
+    onClick: () -> Unit, modifier: Modifier
+) {
     Column(modifier.heightIn(min = 68.dp).testTag("clarityTargetSummary")
         .clickable(role = Role.Button, onClickLabel = stringResource(R.string.clarity_target_details), onClick = onClick)
         .padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(stringResource(R.string.clarity_aaps_target), style = MaterialTheme.typography.labelMedium)
-        Text(UiFormatters.formatMmol(status.currentTargetMmol, 1), modifier = Modifier.testTag("clarityObservedTarget"),
+        Text(targetText, modifier = Modifier.testTag("clarityObservedTarget"),
             style = MaterialTheme.typography.headlineMedium.copy(fontSize = 24.sp, lineHeight = 28.sp), fontWeight = FontWeight.SemiBold)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(clarityManagerModeLabel(status.mode), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(observedSource ?: clarityManagerModeLabel(status.mode), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
             Icon(Icons.Default.ChevronRight, null, Modifier.size(16.dp))
         }
-        if (status.availability == TargetManagerLiveStatusAvailabilityUi.CURRENT && status.proposedTargetMmol != null) {
+        if (observedSource == null && status.availability == TargetManagerLiveStatusAvailabilityUi.CURRENT && status.proposedTargetMmol != null) {
             Text(stringResource(R.string.clarity_target_proposal, UiFormatters.formatMmol(status.proposedTargetMmol, 1)),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else if (status.availability == TargetManagerLiveStatusAvailabilityUi.STALE) {
+        } else if (observedSource == null && status.availability == TargetManagerLiveStatusAvailabilityUi.STALE) {
             Text(stringResource(R.string.overview_target_manager_status_stale), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error)
         }
@@ -314,9 +336,10 @@ private fun ClarityTarget(status: TargetManagerLiveStatusUi, onClick: () -> Unit
 }
 
 @Composable
-private fun ClarityMetric(label: String, value: String, unit: String, tag: String, onClick: () -> Unit, modifier: Modifier,
+private fun ClarityMetric(label: String, value: String, unit: String, tag: String, onClick: (() -> Unit)?, modifier: Modifier,
     description: String? = null, iobPair: OverviewIobPresentation? = null) {
-    Column(modifier.heightIn(min = 48.dp).testTag(tag).clickable(role = Role.Button, onClick = onClick)
+    val click = if (onClick == null) Modifier else Modifier.clickable(role = Role.Button, onClick = onClick)
+    Column(modifier.heightIn(min = 48.dp).testTag(tag).then(click)
         .semantics { description?.let { contentDescription = it } }.padding(vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (iobPair != null) OverviewIobValue(iobPair, unit,

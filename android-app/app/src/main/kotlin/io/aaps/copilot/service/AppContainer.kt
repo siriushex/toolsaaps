@@ -1156,8 +1156,12 @@ class AppContainer(context: Context) {
     val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
     suspend fun checkNativeAapsInbound(): AapsV3InboundSummary {
         val settings = settingsStore.settings.first()
-        if (settings.localAapsV3Upload) return nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
-        return AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        val inbound = if (settings.localAapsV3Upload) nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        else AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        val local = AapsLocalObservation.readComboJournal(appContext) ?: return inbound
+        return if (local == AapsV3ComboHistoryStatus.ADVERSE ||
+            inbound.comboHistory in setOf(AapsV3ComboHistoryStatus.UNCHECKED, AapsV3ComboHistoryStatus.NOT_OBSERVED))
+            inbound.copy(comboHistory = local) else inbound
     }
     suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
     internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =

@@ -1,5 +1,6 @@
 package io.aaps.copilot.service
 
+import android.util.Log
 import androidx.room.withTransaction
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
@@ -73,7 +74,7 @@ internal class LocalNightscoutV3EntriesApi(
             }
             path == "/api/v3/entries" -> when (method) {
                 "GET" -> list(query)
-                "POST" -> { require(query.isEmpty()); create(parse(readBody())) }
+                "POST" -> { require(query.isEmpty()); create(parse(readBody()), uploadOnly) }
                 else -> errorResponse(405)
             }
             path.startsWith("/api/v3/entries/history/") -> {
@@ -161,17 +162,22 @@ internal class LocalNightscoutV3EntriesApi(
         }
     }
 
-    private suspend fun create(body: JsonObject): LocalV3HttpResult {
+    private suspend fun create(body: JsonObject, uploadOnly: Boolean): LocalV3HttpResult {
         val payload = format { validatedPayload(body) }
         val at = HistoryJson.long(payload.getValue("date"))
         val id = optionalString(body, "identifier") ?: stableIdentifier(payload)
         require(ID.matches(id))
-        return db.withTransaction {
+        val result = db.withTransaction {
             val previous = store.get(entries, id)
             format { checkMetadata(body, previous) }
             val write = store.create(LocalV3DocumentInput(entries, id, SOURCE, at, payload.toString(), readOnly(body)))
             written(write, wrapped = false, created = write.changed)
         }
+        if (uploadOnly && result.status == 201 &&
+            payload["app"] == JsonPrimitive("AAPS-local") && payload["type"] == JsonPrimitive("sgv")) {
+            Log.i("AapsLocalCgm", "committed age_sec=${Math.floorDiv(now() - at, 1_000L)}")
+        }
+        return result
     }
 
     private suspend fun patch(id: String, body: JsonObject): LocalV3HttpResult = db.withTransaction {

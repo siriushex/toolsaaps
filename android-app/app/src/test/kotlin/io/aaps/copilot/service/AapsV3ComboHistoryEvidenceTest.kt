@@ -21,6 +21,19 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3ComboHistoryEvidenceTest {
+    @Test fun signedSamePhoneSummaryCannotClaimCompleteCoverage() {
+        val now = 1_800_000_000_000L
+        fun decode(at: Long, status: JsonObject) =
+            readLocalComboJournalSummary("""{"at":$at,"journal":$status}""".encodeToByteArray(), now)
+
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED,
+            decode(now, journal("retainedReads" to JsonPrimitive(1))))
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE,
+            decode(now, journal("retainedReads" to JsonPrimitive(1), "unclosedReads" to JsonPrimitive(1))))
+        assertEquals(AapsV3ComboHistoryStatus.INVALID, decode(now, journal("coverage" to JsonPrimitive("verified"))))
+        assertEquals(AapsV3ComboHistoryStatus.INVALID, decode(now - 10_001L, journal()))
+    }
+
     private lateinit var context: Context
     private lateinit var db: CopilotDatabase
     private lateinit var name: String
@@ -71,6 +84,17 @@ class AapsV3ComboHistoryEvidenceTest {
         assertFalse(result.pumpBindingVerified)
         assertTrue(result.hazards.isEmpty())
         assertFalse(result.toString().contains("fixture-device"))
+    }
+
+    @Test fun inboundDiagnosticDistinguishesMissingRetainedAndAdverseJournal() = runBlocking {
+        val diagnostic = AapsV3InboundDiagnostics(store())
+        assertEquals(AapsV3ComboHistoryStatus.NOT_OBSERVED, diagnostic.check(now).comboHistory)
+        upload()
+        assertEquals(AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED, diagnostic.check(now).comboHistory)
+        upload(at + 1, observation("gapObserved" to JsonPrimitive(true)), "ComboHistoryRead")
+        assertEquals(AapsV3ComboHistoryStatus.ADVERSE, diagnostic.check(now).comboHistory)
+        assertTrue(db.glucoseDao().since(0).isEmpty())
+        assertTrue(db.therapyDao().since(0).isEmpty())
     }
 
     @Test fun adverseHistorySurvivesCleanSnapshotsAndReopenWithoutSummingCumulativeCounts() = runBlocking {

@@ -20,6 +20,15 @@ internal class AapsV3ForecastPreview(
         const val FRESH_MS = 5 * 60_000L
         const val MAX_ROWS = 96
 
+        fun displayFromSignedSnapshot(points: List<GlucosePoint>?, now: Long): AapsV3ForecastPreview? {
+            if (now <= WINDOW_MS || points == null || points.size !in 1..MAX_ROWS) return null
+            val sorted = points.sortedBy { it.ts }
+            if (sorted.any { it.ts !in (now - WINDOW_MS)..now || it.valueMmol !in 1.0..33.0 } ||
+                now - sorted.last().ts > FRESH_MS ||
+                sorted.zipWithNext().any { (a, b) -> a.ts == b.ts || a.source != b.source }) return null
+            return AapsV3ForecastPreview(sorted, emptyList())
+        }
+
         suspend fun from(rows: List<LocalNightscoutV3DocumentEntity>, now: Long): AapsV3ForecastPreview? {
             if (now <= WINDOW_MS || rows.isEmpty() || rows.size > MAX_ROWS) return null
             val points = rows.map { row -> decode(row, now) ?: return null }.sortedBy { it.ts }

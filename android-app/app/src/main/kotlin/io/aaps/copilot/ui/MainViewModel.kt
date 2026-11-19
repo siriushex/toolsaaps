@@ -173,6 +173,9 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.service.LocalNightscoutServiceController
+import io.aaps.copilot.service.AapsLocalObservation
+import io.aaps.copilot.service.AapsObservedMetrics
+import io.aaps.copilot.service.AapsObservedTarget
 import io.aaps.copilot.service.AapsV3ForecastPreview
 import io.aaps.copilot.service.ClinicalAiProviderCredentialState
 import io.aaps.copilot.service.LocalNightscoutIdentityResetResult
@@ -4155,10 +4158,17 @@ class MainViewModel(application: Application) :
     private val standaloneEatingSoonState = MutableStateFlow<io.aaps.copilot.ui.foundation.screens.EatingSoonUiState?>(null)
     private var acceptedFoodDisplayForOverview: io.aaps.copilot.ui.foundation.screens.AcceptedFoodDisplaySnapshot? = null
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val aapsV3ForecastPreview = localAapsV3Upload.flatMapLatest { enabled ->
+    private val aapsV3ForecastPreview = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload to
+            (settings.localObservationEnabled && settings.localNightscoutEnabled &&
+                !PowerSaveController.isActive(settings))
+    }.distinctUntilChanged().flatMapLatest { (enabled, allowSignedSnapshot) ->
         flow<AapsV3ForecastPreview?> {
             emit(null)
             if (!enabled) return@flow
+            var signedFallback: AapsV3ForecastPreview? = null
+            var lastSnapshotAt: Long? = null
+            var lastStatus: String? = null
             while (currentCoroutineContext().isActive) {
                 val now = System.currentTimeMillis()
                 val preview = try {
@@ -4170,11 +4180,64 @@ class MainViewModel(application: Application) :
                 } catch (_: Exception) {
                     null
                 }
-                emit(preview)
+                val v3Fresh = preview?.takeIf { now - it.lastSampleAt in 0..AapsV3ForecastPreview.FRESH_MS }
+                if (v3Fresh == null && allowSignedSnapshot) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime()
+                    if (lastSnapshotAt?.let { elapsed - it >= 60_000L } != false) {
+                        lastSnapshotAt = elapsed
+                        val points = AapsLocalObservation.readDisplayGlucose(getApplication())
+                        signedFallback = AapsV3ForecastPreview.displayFromSignedSnapshot(points, System.currentTimeMillis())
+                    }
+                }
+                val fallback = signedFallback?.takeIf {
+                    System.currentTimeMillis() - it.lastSampleAt in 0..AapsV3ForecastPreview.FRESH_MS
+                }
+                val status = when {
+                    v3Fresh != null -> "local_v3_fresh"
+                    fallback != null -> "signed_snapshot_fresh"
+                    else -> "no_fresh_observation"
+                }
+                if (status != lastStatus) {
+                    android.util.Log.i("AapsObservation", status)
+                    lastStatus = status
+                }
+                emit(v3Fresh ?: fallback ?: preview)
                 delay(15_000L)
             }
         }
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, 0), null)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsLocalTarget = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload to (settings.localObservationEnabled && settings.localNightscoutEnabled &&
+            !PowerSaveController.isActive(settings))
+    }.distinctUntilChanged().flatMapLatest { (local, allowed) ->
+        flow<Pair<Boolean, AapsObservedTarget?>> {
+            emit(local to null)
+            if (local && allowed) {
+                while (currentCoroutineContext().isActive) {
+                    val observed = AapsLocalObservation.readTarget(getApplication())
+                    emit(true to observed)
+                    val remaining = observed?.expiresAt?.minus(System.currentTimeMillis())
+                    delay(remaining?.coerceIn(1L, 15_000L) ?: 15_000L)
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsLocalMetrics = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload && settings.localObservationEnabled && settings.localNightscoutEnabled &&
+            !PowerSaveController.isActive(settings)
+    }.distinctUntilChanged().flatMapLatest { allowed ->
+        flow<AapsObservedMetrics?> {
+            emit(null)
+            if (allowed) while (currentCoroutineContext().isActive) {
+                emit(AapsLocalObservation.readMetrics(getApplication()))
+                delay(30_000L)
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     val overviewUiState: StateFlow<OverviewUiState> = combine(
         timedOverviewRuntime,
@@ -4244,6 +4307,12 @@ class MainViewModel(application: Application) :
         .combine(container.deliveryDiagnosticDisplay) { state, delivery -> state.copy(deliveryDiagnosticEvidence = delivery) }
         .combine(aapsV3ForecastPreview) { state, preview ->
             withAapsV3ObservedGlucose(state, preview, System.currentTimeMillis())
+        }
+        .combine(aapsLocalTarget) { state, (local, observed) ->
+            state.copy(aapsLocalTargetMode = local, aapsLocalTarget = observed)
+        }
+        .combine(aapsLocalMetrics) { state, observed ->
+            state.copy(aapsLocalMetrics = observed.takeIf { state.aapsV3Observation })
         }
         .stateIn(
             scope = viewModelScope,

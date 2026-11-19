@@ -109,7 +109,7 @@ class AapsV3EffectiveProfileSourceTest {
             """{"type":"sgv","date":$at,"sgv":112}""")).document
         val received = check.check(now)
         assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
-            AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, 1), received)
+            AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, 1, comboHistory = AapsV3ComboHistoryStatus.NOT_OBSERVED), received)
         assertEquals(AapsV3InboundGlucose.STALE, check.check(at + 300_001L).glucose)
         store.delete(LocalV3Collection.ENTRIES, "sample", sample.modifiedRevision)
         store.delete(LocalV3Collection.TREATMENTS, "dose", dose.modifiedRevision)

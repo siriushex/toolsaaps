@@ -2,6 +2,8 @@ package io.aaps.copilot.service
 
 import com.google.common.truth.Truth.assertThat
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
+import io.aaps.copilot.domain.model.TherapyEvent
+import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.ui.foundation.screens.ChartPointUi
 import io.aaps.copilot.ui.foundation.screens.ClinicalForecastChartUiState
 import io.aaps.copilot.ui.foundation.screens.ForecastUiState
@@ -46,6 +48,27 @@ class AapsV3ForecastPreviewTest {
             row(-1, 124), row(5, 118, units = "mmol/l"))) {
             assertThat(AapsV3ForecastPreview.from(listOf(first, bad), now)).isNull()
         }
+    }
+
+    @Test
+    fun syntheticMealAndInsulinAffectTheEngineWithoutPromotingTheWirePreview() = runBlocking {
+        val preview = checkNotNull(AapsV3ForecastPreview.from((0L..25L step 5).map { row(it, 145) }, now))
+        val insulin = TherapyEvent(now - 20 * 60_000L, "bolus", mapOf("units" to "1.0"))
+        val food = TherapyEvent(now - 5 * 60_000L, "carbs", mapOf("grams" to "20"))
+        suspend fun forecast(vararg events: TherapyEvent) =
+            HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = false)
+                .predict(preview.glucose, events.toList()).single { it.horizonMinutes == 60 }.valueMmol
+
+        val baseline = forecast()
+        val combined = forecast(insulin, food)
+        assertThat(forecast(insulin)).isLessThan(baseline)
+        assertThat(forecast(food)).isGreaterThan(baseline)
+        assertThat(combined).isGreaterThan(forecast(insulin))
+        assertThat(combined).isLessThan(forecast(food))
+
+        val state = withAapsV3ForecastPreview(ForecastUiState(ScreenLoadState.ERROR, true, forecastError), preview, now)
+        assertThat(state.aapsV3Observation).isTrue()
+        assertThat(state.horizons).isEmpty()
     }
 
     @Test

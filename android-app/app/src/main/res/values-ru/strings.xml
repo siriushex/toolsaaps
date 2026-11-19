@@ -2167,6 +2167,10 @@
     <string name="native_aaps_inbound_insulin_partial">Записей инсулина за 24 ч: %1$d. Не хватает настроек инсулина. Доставка не подтверждена.</string>
     <string name="native_aaps_inbound_insulin_missing">Записи инсулина за последние 24 ч не получены.</string>
     <string name="native_aaps_inbound_insulin_unavailable">Не удалось проверить полученные записи инсулина.</string>
+    <string name="native_aaps_inbound_combo_missing">Полнота истории помпы: журнал для проверки не получен.</string>
+    <string name="native_aaps_inbound_combo_retained">Журнал Combo получен. Полнота истории доставки не подтверждена.</string>
+    <string name="native_aaps_inbound_combo_adverse">В журнале Combo есть пропуски или несогласованные данные. Полнота истории доставки не подтверждена.</string>
+    <string name="native_aaps_inbound_combo_unavailable">Не удалось проверить журнал Combo.</string>
 <string name="native_combo_title">История Combo</string>
 <string name="native_combo_expand">Показать проверку истории</string>
 <string name="native_combo_collapse">Скрыть проверку истории</string>

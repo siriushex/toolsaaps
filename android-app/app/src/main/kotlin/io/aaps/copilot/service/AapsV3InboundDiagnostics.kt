@@ -15,7 +15,8 @@ data class AapsV3InboundSummary(
     val profile: AapsV3ObservedProfileStatus,
     val insulin: AapsV3ObservedInsulinStatus,
     val insulinRecordCount: Int,
-    val samePhone: Boolean = false
+    val samePhone: Boolean = false,
+    val comboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED
 )
 
 /** Checks locally retained uploads, without starting a session or projecting clinical inputs. */
@@ -30,7 +31,10 @@ internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Stor
                 if (count == 0) AapsV3ObservedInsulinStatus.NOT_OBSERVED else evidence.insulin.status
             else -> evidence.insulin.status
         }
-        return AapsV3InboundSummary(now, readGlucose(now), evidence.profile.status, insulin, count)
+        return AapsV3InboundSummary(
+            now, readGlucose(now), evidence.profile.status, insulin, count,
+            comboHistory = evidence.comboHistory.status
+        )
     }
 
     private suspend fun readGlucose(now: Long): AapsV3InboundGlucose {
