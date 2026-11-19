@@ -329,7 +329,7 @@ fun AppHealthBanner(
                     color = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFF8FAFC) else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = stringResource(R.string.app_health_last_sync, lastSyncText),
+                    text = lastSyncText,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (midnightGlass) androidx.compose.ui.graphics.Color(0xFFD8E2F4) else MaterialTheme.colorScheme.onSurfaceVariant
                 )

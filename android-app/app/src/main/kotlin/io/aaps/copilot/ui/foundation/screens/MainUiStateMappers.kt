@@ -542,7 +542,9 @@ internal fun MainUiState.toAppHealthUiState(): AppHealthUiState {
     return AppHealthUiState(
         staleData = isDataStale(),
         killSwitchEnabled = killSwitch,
-        lastSyncText = syncLine
+        lastSyncText = syncLine,
+        localAapsInputMode = localAapsInputMode,
+        clinicalGlucoseAgeMinutes = latestDataAgeMinutes
     )
 }
 
@@ -800,7 +802,8 @@ internal fun MainUiState.toOverviewUiState(
         correctedGlucose = correctedGlucoseMmol,
         delta = glucoseDelta,
         sampleAgeMinutes = latestDataAgeMinutes,
-        syncAgeMinutes = nightscoutSyncAgeMinutes,
+        syncAgeMinutes = if (localAapsInputMode) latestDataAgeMinutes else nightscoutSyncAgeMinutes,
+        localAapsInputMode = localAapsInputMode,
         forecastsCurrent = forecastAtLatestCgm,
         foodDisplayScope = foodScope,
         acceptedFoodDisplay = foodSnapshot,

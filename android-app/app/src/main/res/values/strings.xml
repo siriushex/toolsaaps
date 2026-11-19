@@ -126,6 +126,9 @@
 
     <string name="app_health_title">App Health</string>
     <string name="app_health_last_sync">Last sync: %1$s</string>
+    <string name="app_health_clinical_glucose_age">Glucose in the calculation database: %1$d min ago.</string>
+    <string name="app_health_no_clinical_glucose">No glucose available for calculations. Readings may still appear on the AAPS chart.</string>
+    <string name="clarity_input_age_compact">Model BG\n%1$s</string>
     <string name="status_live_data">Live data</string>
     <string name="status_kill_switch">Kill switch</string>
 

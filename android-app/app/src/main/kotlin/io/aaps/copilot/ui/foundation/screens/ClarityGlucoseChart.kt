@@ -89,7 +89,7 @@ internal fun ClarityGlucoseChart(state: OverviewUiState, expanded: Boolean, onEx
             if (expanded) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) else {
                 Text(stringResource(R.string.clarity_cgm_age_compact, clarityAge(state.sampleAgeMinutes)),
                     Modifier.widthIn(min = 44.dp * LocalDensity.current.fontScale).weight(1f).align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall)
-                Text(stringResource(R.string.clarity_sync_age_compact, clarityAge(state.syncAgeMinutes)),
+                Text(stringResource(if (state.localAapsInputMode) R.string.clarity_input_age_compact else R.string.clarity_sync_age_compact, clarityAge(state.syncAgeMinutes)),
                     Modifier.widthIn(min = 44.dp * LocalDensity.current.fontScale).weight(1f).align(Alignment.CenterVertically), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

@@ -77,6 +77,20 @@ import io.aaps.copilot.service.PowerSaveController
 import org.junit.Test
 
 class MainUiStateMappersTest {
+
+    @Test fun localInputAgeDoesNotBorrowTheRemoteSyncCursorOrClearMissingGlucose() {
+        val state = MainUiState().apply {
+            localAapsInputMode = true
+            nightscoutSyncAgeMinutes = 1440L
+        }
+        assertThat(state.toOverviewUiState(false).syncAgeMinutes).isNull()
+        assertThat(state.toAppHealthUiState().staleData).isTrue()
+        state.latestDataAgeMinutes = 1
+        assertThat(state.toOverviewUiState(false).syncAgeMinutes).isEqualTo(1L)
+        assertThat(state.toAppHealthUiState().clinicalGlucoseAgeMinutes).isEqualTo(1L)
+        state.localAapsInputMode = false
+        assertThat(state.toOverviewUiState(false).syncAgeMinutes).isEqualTo(1440L)
+    }
     @Test
     fun overviewChartUsesPersistedEventVisibilitySetting() {
         val hidden = MainUiState().toOverviewUiState(

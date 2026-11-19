@@ -126,6 +126,9 @@
 
     <string name="app_health_title">Состояние приложения</string>
     <string name="app_health_last_sync">Последняя синхронизация: %1$s</string>
+    <string name="app_health_clinical_glucose_age">Глюкоза в базе для расчёта: %1$d мин назад.</string>
+    <string name="app_health_no_clinical_glucose">В базе для расчёта нет глюкозы. На графике при этом могут быть видны показания AAPS.</string>
+    <string name="clarity_input_age_compact">Для расчёта\n%1$s</string>
     <string name="status_live_data">Актуальные данные</string>
     <string name="status_kill_switch">Kill switch</string>
 

@@ -54,7 +54,9 @@ enum class AuditWindowUi(val label: String, val durationMs: Long) {
 data class AppHealthUiState(
     val staleData: Boolean,
     val killSwitchEnabled: Boolean,
-    val lastSyncText: String
+    val lastSyncText: String,
+    val localAapsInputMode: Boolean = false,
+    val clinicalGlucoseAgeMinutes: Long? = null
 )
 
 data class BaseTargetBannerUiState(
@@ -283,6 +285,7 @@ data class OverviewUiState(
     val delta: Double? = null,
     val sampleAgeMinutes: Long? = null,
     val syncAgeMinutes: Long? = null,
+    val localAapsInputMode: Boolean = false,
     val forecastsCurrent: Boolean = false,
     val aapsV3Observation: Boolean = false,
     val foodDisplayScope: FoodDisplayScope? = null,
