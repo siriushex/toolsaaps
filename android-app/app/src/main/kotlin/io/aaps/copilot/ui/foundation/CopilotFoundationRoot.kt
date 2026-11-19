@@ -90,6 +90,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.SetupInsulinSource
 import io.aaps.copilot.config.SetupStatus
 import io.aaps.copilot.config.SetupStep
 import io.aaps.copilot.config.shouldAutoOpenSetup
@@ -644,6 +645,13 @@ fun CopilotFoundationRoot(
                                     viewModel.loadServerAiConnection()
                                 }
                                 SettingsScreen(
+                                    commandsArmed = setupState.therapyArmed.takeIf {
+                                        setupState.progress != null && !setupState.failed
+                                    },
+                                    onReviewCommandPermission = onReviewTherapy.takeIf {
+                                        !setupState.saving && !setupState.failed &&
+                                            setupState.progress?.insulinSource == SetupInsulinSource.AAPS
+                                    },
                                     onOpenSetup = {
                                         if (!navController.popBackStack(Destinations.Setup.route, false)) {
                                             navController.navigate(Destinations.Setup.route) { launchSingleTop = true }
@@ -710,6 +718,10 @@ fun CopilotFoundationRoot(
                                     onLocalNightscoutIdentityReset =
                                         viewModel::resetLocalNightscoutIdentity,
                                     nativeAapsConnectionState = viewModel.nativeAapsConnectionState.collectAsStateWithLifecycle().value,
+                                    nativeAapsInbound = viewModel.nativeAapsInbound.collectAsStateWithLifecycle().value,
+                                    onNativeAapsInboundCheck = viewModel::checkNativeAapsInbound,
+                                    localAapsV3Upload = viewModel.localAapsV3Upload.collectAsStateWithLifecycle(false).value,
+                                    onLocalAapsV3Upload = viewModel::setLocalAapsV3Upload,
                                     onNativeAapsPair = viewModel::pairNativeAaps,
                                     onNativeAapsCheck = viewModel::checkNativeAapsConnection,
                                     onNativeAapsRevoke = viewModel::revokeNativeAapsPairing,
@@ -833,7 +845,12 @@ fun CopilotFoundationRoot(
                 CompositionLocalProvider(LocalIssueNavigator provides issueNavigator) { scaffoldContent() }
                 if (showPowerSaveDialog) {
                     RootPowerSaveDialog(
+                        active = overview.powerSaveActive,
                         onDismiss = { showPowerSaveDialog = false },
+                        onResume = {
+                            showPowerSaveDialog = false
+                            viewModel.disablePowerSave()
+                        },
                         onEnablePowerSave = { durationMs ->
                             showPowerSaveDialog = false
                             viewModel.enablePowerSave(durationMs)
@@ -844,7 +861,7 @@ fun CopilotFoundationRoot(
                     visible = drawerOpen,
                     currentRoute = currentRoute,
                     uiStyle = selectedUiStyle,
-                    showPowerSaveAction = currentRoute == Destinations.Overview.route,
+                    showPowerSaveAction = currentRoute == Destinations.Overview.route || overview.powerSaveActive,
                     onPowerSaveClick = { drawerOpen = false; showPowerSaveDialog = true },
                     onDismiss = { drawerOpen = false },
                     onNavigate = { destination ->
@@ -1085,8 +1102,10 @@ internal fun alertBellPressAction(alertsMuted: Boolean): AlertBellPressAction =
 internal fun overviewClinicalActionOrder(): List<String> = listOf("events", "alerts")
 
 @Composable
-private fun RootPowerSaveDialog(
+internal fun RootPowerSaveDialog(
+    active: Boolean,
     onDismiss: () -> Unit,
+    onResume: () -> Unit,
     onEnablePowerSave: (Long?) -> Unit
 ) {
     AlertDialog(
@@ -1094,6 +1113,9 @@ private fun RootPowerSaveDialog(
         title = { Text(text = stringResource(id = R.string.overview_power_save_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                if (active) {
+                    Text(stringResource(R.string.overview_power_save_status_on))
+                }
                 PowerSaveDialogOption(
                     text = stringResource(id = R.string.overview_power_save_1h),
                     onClick = { onEnablePowerSave(60L * 60_000L) }
@@ -1113,8 +1135,17 @@ private fun RootPowerSaveDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(id = R.string.action_cancel))
+            if (active) {
+                TextButton(onClick = onResume, modifier = Modifier.testTag("powerSaveResumeAction")) {
+                    Text(stringResource(R.string.overview_power_save_turn_on))
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+            }
+        },
+        dismissButton = {
+            if (active) {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
             }
         }
     )

@@ -19,9 +19,11 @@ internal class AapsV3TargetRequest internal constructor(val json: JsonObject) {
     override fun toString() = "AapsV3TargetRequest(redacted)"
 }
 
+internal class AapsV3MealPrepare(val envelope: AapsV3TargetRequest, val mealKey: String, val grams: Int)
+
 internal enum class AapsV3TargetAck { UNCONFIRMED, EXECUTING, PREVIEW, APPLIED, REJECTED, EXPIRED }
 
-/** Native target-only wire codec. Counter allocation, durable ownership and dispatch are separate. */
+/** Target wire codec and manual meal preview. Counter allocation, ownership and dispatch are separate. */
 internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
     private val key = secret.copyOf().also { require(it.size == 32) }
     private var closed = false
@@ -54,10 +56,59 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
         })
     }
 
+    fun prepareMeal(clientId: String, counter: Long, at: Long, mealKey: String, grams: Double): AapsV3MealPrepare {
+        require(MEAL_KEY.matches(mealKey) && grams in 1.0..120.0 && grams == grams.toInt().toDouble())
+        val action = buildJsonObject {
+            put("type", "bolus"); put("carbs", grams.toInt()); put("notes", "copilot:$mealKey")
+        }
+        val envelope = signed(clientId, counter, at, "batch_prepare", buildJsonObject {
+            put("type", "batch_prepare"); put("actions", JsonArray(listOf(action)))
+        })
+        return AapsV3MealPrepare(envelope, mealKey, grams.toInt())
+    }
+
+    fun recordMeal(prepared: AapsV3MealPrepare, ack: JsonObject, counter: Long, now: Long): AapsV3TargetRequest {
+        require(verifiedMealPreview(prepared, ack, now))
+        val original = prepared.envelope.json
+        val before = number(original, "counter")
+        require(counter > 0 && counter - 1 == before)
+        val typed = preview(string(ack, "payload"), meal = true)
+        return signed(string(original, "clientId"), counter, now, "local_meal_record_v1", buildJsonObject {
+            put("type", "local_meal_record_v1"); put("prepareCounter", before)
+            put("previewId", number(typed, "bolusId")); put("marker", "copilot:${prepared.mealKey}")
+            put("carbsGrams", prepared.grams)
+        })
+    }
+
+    /** A valid preview is not a saved meal. The target commit API cannot consume a meal request. */
+    fun verifiedMealPreview(request: AapsV3MealPrepare, response: JsonObject, nowMs: Long): Boolean {
+        check(!closed)
+        return try {
+            val original = request.envelope.json
+            val at = number(original, "timestamp")
+            require(nowMs in at until number(original, "validUntil"))
+            require(number(response, "timestamp") in at..nowMs)
+            val expected = prepareMeal(string(original, "clientId"), number(original, "counter"), at, request.mealKey, request.grams.toDouble())
+            require(expected.envelope.json == original)
+            classifyOwned(original, response, nowMs) { raw ->
+                val meal = HistoryJson.obj(preview(raw, meal = true).getValue("manualMeal"))
+                require(meal.keys == setOf("marker", "carbsGrams", "insulinUnits") &&
+                    string(meal, "marker") == "copilot:${request.mealKey}" &&
+                    number(meal, "carbsGrams") == request.grams.toLong() &&
+                    HistoryJson.double(meal.getValue("insulinUnits")) == 0.0)
+            } == AapsV3TargetAck.PREVIEW
+        } catch (_: RuntimeException) { false }
+    }
+
     fun classify(request: AapsV3TargetRequest, response: JsonObject, nowMs: Long): AapsV3TargetAck {
         check(!closed)
         return try {
-            val original = ownRequest(request)
+            classifyOwned(ownRequest(request), response, nowMs) { preview(it) }
+        } catch (_: RuntimeException) { AapsV3TargetAck.UNCONFIRMED }
+    }
+
+    private fun classifyOwned(original: JsonObject, response: JsonObject, nowMs: Long, checkPreview: (String) -> Unit): AapsV3TargetAck {
+        return try {
             require(nowMs in 1..LocalNightscoutV3Store.MAX_TIME)
             require(response.keys.all { it in ACK_FIELDS } && response.keys.containsAll(REQUIRED_ACK_FIELDS))
             val clientId = string(response, "clientId")
@@ -75,7 +126,10 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
             require(verify("$clientId|$counter|$phase|$status|${reason ?: ""}|${payload ?: ""}|$timestamp",
                 string(response, "signature")))
             when {
-                phase == "Done" && status == "Failed" -> AapsV3TargetAck.REJECTED
+                phase == "Done" && status == "Failed" ->
+                    if (string(original, "type") == "batch_prepare" ||
+                        (payload == null && reason in DEFINITE_COMMIT_REFUSALS)) AapsV3TargetAck.REJECTED
+                    else AapsV3TargetAck.UNCONFIRMED
                 phase == "Done" && status == "Expired" -> AapsV3TargetAck.EXPIRED
                 else -> {
                     require(timestamp <= number(original, "validUntil") + ACK_CLOCK_TOLERANCE_MS)
@@ -84,7 +138,7 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
                             AapsV3TargetAck.EXECUTING
                         phase == "Done" && status == "Ok" && reason == null -> {
                             if (string(original, "type") == "batch_prepare") {
-                                preview(requireNotNull(payload))
+                                checkPreview(requireNotNull(payload))
                                 AapsV3TargetAck.PREVIEW
                             } else {
                                 require(payload == null)
@@ -164,9 +218,9 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
         }
     }
 
-    private fun preview(raw: String): JsonObject {
+    private fun preview(raw: String, meal: Boolean = false): JsonObject {
         val body = parse(raw)
-        require(body.keys.all { it in PREVIEW_FIELDS } && number(body, "bolusId") > 0)
+        require(body.keys.all { it in PREVIEW_FIELDS || (meal && it == "manualMeal") } && number(body, "bolusId") > 0)
         require(body["advisorApplies"]?.let(HistoryJson::bool) != true)
         require(body["advisorLines"]?.let(HistoryJson::array).orEmpty().isEmpty())
         require(body["wizardDetail"] == null || body["wizardDetail"] == JsonNull)
@@ -202,10 +256,13 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
 
     companion object {
         const val TTL_MS = 8000L
+        // These signed refusals precede execution. A handler error after commit is not proof of absence.
+        private val DEFINITE_COMMIT_REFUSALS = setOf("NotPaired", "ControlDisabled", "OtherToken", "NotAllowedForRole")
         private const val ACK_CLOCK_TOLERANCE_MS = 5000L
         private const val MAX_PREVIEW_BYTES = 16 * 1024
         private val CLIENT_ID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         private val HEX = Regex("[0-9a-f]{64}")
+        private val MEAL_KEY = Regex("manual:meal:[A-Za-z0-9_-]{1,80}")
         private val REASONS = setOf("Custom", "Hypo", "Activity", "Eating Soon", "Automation")
         private val ENVELOPE_FIELDS = setOf("clientId", "counter", "timestamp", "validUntil", "type", "payload", "signature", "wantsAck")
         private val REQUIRED_ACK_FIELDS = setOf("clientId", "commandCounter", "phase", "status", "timestamp", "signature")

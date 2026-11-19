@@ -39,6 +39,35 @@ class LocalNightscoutV3StoreTest {
     }
     @After fun tearDown() { db.close(); context.deleteDatabase(name) }
 
+    @Test fun clinicalReadDoesNotMixTreatmentAndPumpJournalGenerations() = runBlocking {
+        val storage = store()
+        val status = LocalV3Collection.DEVICE_STATUS
+        suspend fun appendPair(n: Int) = db.withTransaction {
+            storage.create(input("t-$n"))
+            yield()
+            storage.create(input("s-$n").copy(collection = status))
+        }
+        appendPair(0)
+        val writer = launch(Dispatchers.IO) { for (n in 1..12) appendPair(n) }
+        repeat(24) {
+            val both = storage.retainedClinicalChanges(null, null, 100, 8192)
+            fun ids(s: LocalV3RetainedSnapshot?) = (s as LocalV3RetainedSnapshot.Complete).documents.map { it.identifier.substringAfter('-') }.toSet()
+            assertEquals(ids(both.treatments), ids(both.deviceStatus))
+        }
+        writer.join()
+        val heads = storage.lastModified()
+        val unchanged = storage.retainedClinicalChanges(heads.getValue(meals), heads.getValue(status), 100, 8192)
+        assertNull(unchanged.treatments)
+        assertNull(unchanged.deviceStatus)
+        storage.delete(status, "s-12", storage.get(status, "s-12")!!.modifiedRevision)
+        val changed = storage.retainedClinicalChanges(heads.getValue(meals), heads.getValue(status), 100, 8192)
+        assertNull(changed.treatments)
+        assertTrue((changed.deviceStatus as LocalV3RetainedSnapshot.Complete).documents.single { it.identifier == "s-12" }.deleted)
+        val limited = storage.retainedClinicalChanges(null, null, 1, 8192)
+        assertTrue(limited.treatments is LocalV3RetainedSnapshot.OverLimit)
+        assertTrue(limited.deviceStatus is LocalV3RetainedSnapshot.OverLimit)
+    }
+
     @Test fun normalizedCreateRetryDoesNotChangeRevisionOrClinicalData() = runBlocking {
         val storage = store()
         val first = storage.create(input(body = "{\"note\":\"test\",\"carbs\":20}"))

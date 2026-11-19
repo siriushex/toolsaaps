@@ -5,6 +5,7 @@ import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.NativeTargetOutcome
+import io.aaps.copilot.data.repository.NativeMealSubmission
 import io.aaps.copilot.data.repository.NativeTargetTransport
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.target.EatingSoonPolicy
@@ -16,7 +17,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 
-enum class AapsV3ConnectionStatus { UNPAIRED, WAITING, VERIFYING, CONNECTED, CONTROL_DISABLED, REVOKED, OFFLINE, ERROR }
+enum class AapsV3ConnectionStatus { UNPAIRED, WAITING, VERIFYING, LOCAL_PEER_VERIFIED, CONNECTED, CONTROL_DISABLED, REVOKED, OFFLINE, ERROR }
+enum class AapsV3PairingRoute { SAME_PHONE, STORAGE }
+enum class AapsV3PairingIssue { LOCAL_INVITATION_MISSING, LOCAL_NOT_READY }
 data class AapsV3ConnectionState(
     val status: AapsV3ConnectionStatus = AapsV3ConnectionStatus.UNPAIRED,
     val busy: Boolean = false,
@@ -32,7 +35,14 @@ data class AapsV3ConnectionState(
     val insulinMissingUtcOffsetCount: Int = 0,
     val retainedComboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED,
     val retainedComboHazardKindCount: Int = 0,
-    val comboTransfer: ComboTransferState = ComboTransferState()
+    val comboTransfer: ComboTransferState = ComboTransferState(),
+    val settingsSubscribedAtCheck: Boolean? = null,
+    val pairingIssue: AapsV3PairingIssue? = null,
+    val localLinkCheckedAtMs: Long? = null,
+    val localEnrollmentRole: AapsFinalClientRole? = null,
+    val localMembershipVerifiedAtMs: Long? = null,
+    val localMembershipRole: AapsFinalClientRole? = null,
+    val localSettingsProbeVerified: Boolean? = null
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -43,11 +53,47 @@ internal class AapsV3TargetChannel(
     private val baselineGuard: suspend () -> String?,
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val historyStore: (() -> AapsV3ComboJournalStore)? = null
+    private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
+    private val localOffers: LocalEnrollmentOffers? = null,
+    private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
+    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
+    suspend fun submitManualMeal(id: String, recordPeer: ((String, ByteArray) -> Unit)?,
+                                 peer: (String, ByteArray) -> ByteArray?): NativeMealSubmission = withContext(Dispatchers.IO) {
+        val epoch = generation.get()
+        val pair = journal.pairingSnapshot() ?: return@withContext NativeMealSubmission.NOT_VERIFIED
+        fun guard() = check(runtimeAllowed && generation.get() == epoch && pair.localEnrollment)
+        val prepared = journal.reserveLocalMealPreview(id, clock, ::guard) ?: return@withContext NativeMealSubmission.NOT_VERIFIED
+        val bytes = prepared.envelope.json.toString().encodeToByteArray()
+        try {
+            guard()
+            val reply = peer(pair.masterInstallId, bytes) ?: return@withContext NativeMealSubmission.NOT_VERIFIED
+            try {
+                guard()
+                if (!journal.acceptLocalMealPreview(id, HistoryJson.parse(reply, 16_384), clock())) return@withContext NativeMealSubmission.NOT_VERIFIED
+                if (recordPeer != null) {
+                    val wire = journal.claimLocalMealRecord(id, clock, ::guard).json.toString().encodeToByteArray()
+                    try { guard(); recordPeer(pair.masterInstallId, wire) } finally { wire.fill(0) }
+                    NativeMealSubmission.CHECK_RECORD
+                } else NativeMealSubmission.PREVIEW_ONLY
+            } finally { reply.fill(0) }
+        } finally {
+            bytes.fill(0)
+            withContext(NonCancellable) { journal.retireLocalMealPreview(id) }
+        }
+    }
+    suspend fun verifyMealRow(row: io.aaps.copilot.data.local.entity.ActionCommandEntity, grams: Double,
+                              reader: suspend (String, Long, Double) -> Long?): Boolean {
+        val at = reader(row.idempotencyKey, row.timestamp, grams) ?: return false
+        return journal.confirmNativeMeal(row, at, grams)
+    }
+    private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long,
+                                  val receipt: AapsLocalRoleReceipt?, val settings: Boolean?)
+    // Accessed under refreshMutex; never used for command admission.
+    private var membershipCheck: MembershipCheck? = null
     private val commandMutex = Mutex()
     private val enrollmentMutex = Mutex()
     private val generation = AtomicLong(0)
@@ -77,7 +123,7 @@ internal class AapsV3TargetChannel(
             try {
                 if (!journal.hasNativeState()) {
                     synchronized(this@AapsV3TargetChannel) {
-                        if (generation.get() == epoch) mutableState.value = AapsV3ConnectionState()
+                        if (generation.get() == epoch) updateUnpaired()
                     }
                     return@launch
                 }
@@ -98,13 +144,23 @@ internal class AapsV3TargetChannel(
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.OFFLINE)
     }
 
-    suspend fun pair(pin: CharArray) = try { enrollmentMutex.withLock {
-        mutableState.value = mutableState.value.copy(busy = true)
+    suspend fun pair(pin: CharArray, route: AapsV3PairingRoute) = try { enrollmentMutex.withLock {
+        mutableState.update { it.copy(busy = true, pairingIssue = null) }
         val matches = mutableListOf<AapsV3PairingCredential>()
         try {
-            check(runtimeAllowed && storageAvailable())
+            val local = if (route == AapsV3PairingRoute.SAME_PHONE) localOffers?.current() else null
+            if (route == AapsV3PairingRoute.SAME_PHONE && (local == null || localOffers?.ready(local) != true || !runtimeAllowed)) {
+                mutableState.update { it.copy(pairingIssue = if (local == null) AapsV3PairingIssue.LOCAL_INVITATION_MISSING else AapsV3PairingIssue.LOCAL_NOT_READY) }
+                return@withLock
+            }
+            val routeReady = {
+                runtimeAllowed && if (local != null) localOffers?.ready(local) == true
+                else localOffers?.current() == null && storageAvailable()
+            }
+            check(routeReady())
             journal.reservePairingAttempt(clock())
-            val offers = db.localNightscoutV3Dao().pairingOffers()
+            if (local != null) matches += AapsV3PairingProtocol.unwrapFinal(local.wrapped, pin.copyOf(), clock())
+            val offers = if (local == null) db.localNightscoutV3Dao().pairingOffers() else emptyList()
             check(offers.size <= 8)
             for (row in offers) {
                 currentCoroutineContext().ensureActive()
@@ -115,25 +171,36 @@ internal class AapsV3TargetChannel(
                     HistoryJson.obj(body.getValue("offer"))
                 } catch (_: Exception) { continue }
                 try {
-                    val credential = AapsV3PairingProtocol.unwrap(offer, pin.copyOf(), clock())
+                    val credential = AapsV3PairingProtocol.unwrapFinal(offer, pin.copyOf(), clock())
                     if (row.identifier == "aaps_clientcontrol_offer_${credential.clientId}") matches += credential else credential.close()
                 } catch (_: AapsV3PairingFailure) { }
             }
             currentCoroutineContext().ensureActive()
-            check(matches.size == 1 && runtimeAllowed && storageAvailable())
-            journal.enroll(matches.single(), clock())
+            check(matches.size == 1 && routeReady())
+            journal.enroll(matches.single(), clock(), local?.handle, routeReady)
             runtimeScope?.let(::start)
             refresh()
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.ERROR) }
-        finally { pin.fill('\u0000'); matches.forEach { it.close() }; mutableState.value = mutableState.value.copy(busy = false) }
+        finally { pin.fill('\u0000'); matches.forEach { it.close() }; mutableState.update { it.copy(busy = false) } }
     } } finally { pin.fill('\u0000') }
 
-    suspend fun checkConnection() {
+    suspend fun checkConnection(checkSettings: Boolean = false) {
+        mutableState.update { it.copy(pairingIssue = null) }
         if (runtimeAllowed) runtimeScope?.let(::start)
         val epoch = generation.get()
-        try { refresh() } catch (cancelled: CancellationException) { throw cancelled }
+        try { refresh(recheckMembership = true, checkSettings = checkSettings) } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { connectionFailed(epoch) }
+    }
+
+    /** The key arrived via IPC, so there is no settings-document revision to wake this runtime. */
+    suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray): Boolean {
+        val offers = localOffers ?: return false
+        if (!runtimeAllowed || !journal.acceptLocalKey(offers, id, handle, bytes, clock)) return false
+        synchronized(this) {
+            if (runtimeAllowed) runtimeScope?.launch(Dispatchers.IO) { checkConnection() }
+        }
+        return true
     }
 
     @Synchronized private fun connectionFailed(epoch: Long) {
@@ -143,8 +210,27 @@ internal class AapsV3TargetChannel(
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.ERROR)
     }
 
+    suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray): Boolean {
+        val offers = localOffers ?: return false
+        if (!runtimeAllowed || !journal.acceptLocalPong(offers, id, handle, bytes, clock)) return false
+        synchronized(this) {
+            if (runtimeAllowed) runtimeScope?.launch(Dispatchers.IO) { checkConnection() }
+        }
+        return true
+    }
+
+    suspend fun acceptLocalEnrollmentRole(id: String, handle: String, bytes: ByteArray): Boolean {
+        val offers = localOffers ?: return false
+        if (!runtimeAllowed || !journal.acceptLocalRole(offers, id, handle, bytes, clock)) return false
+        synchronized(this) {
+            if (runtimeAllowed) runtimeScope?.launch(Dispatchers.IO) { checkConnection() }
+        }
+        return true
+    }
+
     suspend fun revoke() = try {
         stopHistory()
+        localOffers?.clear()
         journal.revokePairing()
         sessionProbeCounter = 0
         mutableState.value = AapsV3ConnectionState(AapsV3ConnectionStatus.REVOKED)
@@ -153,30 +239,36 @@ internal class AapsV3TargetChannel(
 
     override suspend fun isConfigured() = journal.hasNativeState()
 
-    private suspend fun refresh() = refreshMutex.withLock {
+    private fun updateUnpaired() {
+        val subscribed = runtimeAllowed && storageAvailable()
+        mutableState.update { AapsV3ConnectionState(settingsSubscribedAtCheck = subscribed, busy = it.busy, pairingIssue = it.pairingIssue) }
+    }
+
+    private suspend fun refresh(recheckMembership: Boolean = false, checkSettings: Boolean = false) = refreshMutex.withLock {
         val epoch = generation.get()
         if (!journal.hasNativeState()) {
             synchronized(this) {
                 if (generation.get() == epoch) {
                     stopHistory()
-                    mutableState.value = AapsV3ConnectionState()
+                    updateUnpaired()
                 }
             }
             return@withLock
         }
         var pair = checkNotNull(journal.pairingSnapshot())
-        store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it) }
+        if (runtimeAllowed && storageAvailable() && generation.get() == epoch) journal.rotateFinalSecret(clock())
         val ackRow = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
-        if (ackRow != null && !ackRow.deleted && ackRow.source == "local-v3-owner") {
-            val ack = HistoryJson.parse(ackRow.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject
-            if (ack != null) {
-                journal.acknowledgeProbe(ack, clock())
-                journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
-            }
-        }
+        val ack = ackRow?.takeIf { !it.deleted && it.source == "local-v3-owner" }
+            ?.let { HistoryJson.parse(it.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject }
+        if (ack != null) journal.acknowledgeProbe(ack, clock())
+        store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it, clock()) }
+        if (ack != null) journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
         journal.expire(clock())
-        if (runtimeAllowed && storageAvailable() && generation.get() == epoch) {
-            journal.probe(clock(), sessionStartedAt)?.let { publication ->
+        fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment)
+            localOffers?.current()?.let { it.clientId == pair.clientId && localOffers.ready(it) } == true
+        else storageAvailable()
+        if (runtimeAllowed && probeRouteReady(pair) && generation.get() == epoch) {
+            journal.probe(clock(), sessionStartedAt, localOffers)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
                 synchronized(this) {
                     if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
@@ -188,9 +280,28 @@ internal class AapsV3TargetChannel(
             profileSource.readEvidence(maxOf(1, observedAt - 86_400_000L), observedAt, clock()) else null
         // Profile IO may suspend; derive connectivity from the pairing again after that read.
         pair = checkNotNull(journal.pairingSnapshot())
+        val witnessPeer = localWitnessPeer
+        val witness = if (witnessPeer != null && runtimeAllowed && epoch == generation.get() && pair.localEnrollment &&
+            pair.enrollmentRole != null && pair.phase != AapsV3PairingPhase.REVOKED && localOffers?.current() == null) {
+            val now = clock()
+            val previous = membershipCheck?.takeIf { it.epoch == epoch && it.client == pair.clientId }
+            if (previous != null && ((!recheckMembership && now - previous.attempted in 0 until 60_000L) ||
+                (checkSettings && previous.settings != null && now - previous.attempted in 0 until 5_000L))) previous.receipt
+            else {
+                val storagePeer = localSettingsPeer.takeIf { checkSettings }
+                val overSettings = storagePeer?.let { journal.checkLocalMembership(clock, it) }
+                val result = overSettings ?: if (storagePeer != null && previous != null &&
+                    previous.settings == null && now - previous.attempted in 0 until 5_000L) previous.receipt
+                    else journal.checkLocalMembership(clock, witnessPeer)
+                membershipCheck = MembershipCheck(epoch, pair.clientId, now, result, storagePeer?.let { overSettings != null })
+                result
+            }
+        } else { membershipCheck = null; null }
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
-            !runtimeAllowed || !storageAvailable() -> AapsV3ConnectionStatus.OFFLINE
+            !runtimeAllowed -> AapsV3ConnectionStatus.OFFLINE
+            witness != null -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
+            !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
             pair.phase == AapsV3PairingPhase.WAITING -> AapsV3ConnectionStatus.WAITING
             !pair.controlEnabled -> AapsV3ConnectionStatus.CONTROL_DISABLED
             sessionProbeCounter <= 0 || pair.pongCounter < sessionProbeCounter || clock() - pair.lastPongAt !in 0..90_000 -> AapsV3ConnectionStatus.VERIFYING
@@ -218,7 +329,11 @@ internal class AapsV3TargetChannel(
             } ?: 0 else 0,
             if (showEvidence) evidence?.comboHistory?.status ?: AapsV3ComboHistoryStatus.UNCHECKED else AapsV3ComboHistoryStatus.UNCHECKED,
             if (showEvidence) evidence?.comboHistory?.hazards?.size ?: 0 else 0,
-            mutableHistoryState.value)
+            mutableHistoryState.value, pairingIssue = mutableState.value.pairingIssue,
+            localLinkCheckedAtMs = pair.lastPongAt.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING && pair.pongCounter == 2L && it > 0 },
+            localEnrollmentRole = pair.enrollmentRole.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING },
+            localMembershipVerifiedAtMs = witness?.signedAt, localMembershipRole = witness?.role,
+            localSettingsProbeVerified = membershipCheck?.settings)
             if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch)
             else stopHistory(clearAudit = status != AapsV3ConnectionStatus.VERIFYING)
         }
@@ -301,13 +416,14 @@ internal class AapsV3TargetChannel(
                     currentCoroutineContext().ensureActive()
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
                     check(baselineGuard() == null && deliveryGuard() == null)
-                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter)
+                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
                 }
                 val prepared = publicationLease {
-                    journal.prepare(command.idempotencyKey, target, protocol, clock(), currentTime = clock) { guard() }
+                    journal.prepare(command.idempotencyKey, target, protocol, clock(),
+                        currentTime = clock, expectedActionId = command.id) { guard() }
                 }
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)

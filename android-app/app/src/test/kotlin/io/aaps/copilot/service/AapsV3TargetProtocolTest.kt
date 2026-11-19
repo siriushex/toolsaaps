@@ -90,6 +90,34 @@ class AapsV3TargetProtocolTest {
         }
     }
 
+    @Test fun manualMealRequiresSignedTypedPreviewForExactlyOneUnchangedPortion() {
+        AapsV3TargetProtocol(key).use { protocol ->
+            val request = protocol.prepareMeal(client, 7, at, "manual:meal:sample", 12.0)
+            val action = Json.parseToJsonElement(request.envelope.json.getValue("payload").jsonPrimitive.content)
+                .jsonObject.getValue("actions").jsonArray.single().jsonObject
+            assertEquals(setOf("type", "carbs", "notes"), action.keys)
+            assertEquals("bolus", action.getValue("type").jsonPrimitive.content)
+            assertEquals(12, action.getValue("carbs").jsonPrimitive.int)
+            assertEquals("copilot:manual:meal:sample", action.getValue("notes").jsonPrimitive.content)
+            val details = """{"marker":"copilot:manual:meal:sample","carbsGrams":12,"insulinUnits":0.0}"""
+            fun wire(d: String) = preview.dropLast(1) + ""","manualMeal":$d}"""
+            val good = ack(7, payload = wire(details))
+            assertTrue(protocol.verifiedMealPreview(request, good, at + 2))
+            assertFalse(protocol.verifiedMealPreview(request, good, at + AapsV3TargetProtocol.TTL_MS))
+            assertFalse(protocol.verifiedMealPreview(request, ack(7, payload = wire(details), timestamp = at - 1), at + 2))
+            assertFalse(protocol.verifiedMealPreview(request, ack(7, payload = wire(details), timestamp = at + 3), at + 2))
+            assertFalse(protocol.verifiedMealPreview(request, ack(8, payload = wire(details)), at + 2))
+            assertFalse(protocol.verifiedMealPreview(request, JsonObject(good + ("signature" to JsonPrimitive("0".repeat(64)))), at + 2))
+            listOf(preview, wire(details.replace("12", "10")), wire(details.replace("sample", "other")),
+                wire(details.replace("0.0", "1.0")), wire(details.replace("12", "\"12\""))).forEach {
+                assertFalse(protocol.verifiedMealPreview(request, ack(7, payload = it), at + 2))
+            }
+            assertThrows(IllegalArgumentException::class.java) { protocol.commit(request.envelope, good, 8, at + 2) }
+            for (grams in listOf(0.0, 12.5, 121.0, Double.NaN))
+                assertThrows(IllegalArgumentException::class.java) { protocol.prepareMeal(client, 7, at, request.mealKey, grams) }
+        }
+    }
+
     @Test fun forgedStaleOtherClientAndWrongCounterAcksNeverCommit() {
         AapsV3TargetProtocol(key).use { protocol ->
             val request = protocol.prepare(client, 9, at, target)

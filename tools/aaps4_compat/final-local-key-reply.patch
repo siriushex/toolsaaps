@@ -1,0 +1,248 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/AuthorizedClient.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/AuthorizedClient.kt
+index eccc8dda66..1a4b85b0b0 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/AuthorizedClient.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/AuthorizedClient.kt
+@@ -65,7 +65,9 @@ data class AuthorizedClient(
+      * only secret when the client first signs with it; until then the client may not have the answer yet, so both
+      * are accepted.
+      */
+-    val pendingSecret: String? = null
++    val pendingSecret: String? = null,
++    /** Same-phone enrollment never accepts commands from the ordinary Nightscout receiver. */
++    val localCopilot: Boolean = false
+ )
+
+ @Serializable
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index b02c2125f9..620d6b0c1f 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -6,6 +6,9 @@ import app.aaps.core.keys.StringNonKey
+ import app.aaps.core.keys.interfaces.ClientRole
+ import app.aaps.core.keys.interfaces.Preferences
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.utils.ClientControlCrypto
+ import com.google.common.truth.Truth.assertThat
+ import kotlinx.coroutines.test.runTest
+ import org.junit.jupiter.api.BeforeEach
+@@ -59,6 +62,32 @@ internal class AuthorizedClientsRepositoryTest {
+
+     // -- roles --------------------------------------------------------------------------------
+
++    @Test
++    fun localKeyIsBoundToCurrentConsentAndIsOnlyStagedOnce() = runTest {
++        val master = "fixture-master"
++        whenever(preferences.get(StringNonKey.NsClientControlOwnInstallId)).thenReturn(master)
++        whenever(preferences.hardenedMode).thenReturn(true)
++        for (local in listOf(false, true)) {
++            val (entry, secret) = if (local) sut.addLocalPending("phone", ClientRole.Caregiver, 60_000, 1_000)
++                else sut.addPending("phone", ClientRole.Caregiver, 60_000, 1_000)
++            val offer = PairingPayload(masterInstallId = master, clientId = entry.clientId, secretHex = secret,
++                expiresAt = entry.pairExpiresAt, name = entry.name, role = entry.role)
++            val hello = ClientControlCrypto.signEnvelope(ClientControlCrypto.hexToBytes(secret),
++                SignedEnvelope(entry.clientId, 1L, 1_001L, "hello", """{"type":"hello"}""", "", entry.pairExpiresAt))
++            val key = ByteArray(32) { 42 }
++            assertThat(sut.stageLocalKey(offer, hello.copy(signature = ""), key) { 1_002 }).isFalse()
++            assertThat(sut.stageLocalKey(offer, hello, key) { entry.pairExpiresAt }).isFalse()
++            assertThat(sut.stageLocalKey(offer.copy(role = "Admin"), hello, key) { 1_002 }).isFalse()
++            whenever(preferences.hardenedMode).thenReturn(false)
++            assertThat(sut.stageLocalKey(offer, hello, key) { 1_002 }).isFalse()
++            whenever(preferences.hardenedMode).thenReturn(true)
++            assertThat(sut.stageLocalKey(offer, hello, key) { 1_002 }).isEqualTo(local)
++            assertThat(sut.stageLocalKey(offer, hello, key) { 1_003 }).isFalse()
++            assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
++            assertThat(sut.secretLookup(entry.clientId)?.pendingSecretBytes != null).isEqualTo(local)
++        }
++    }
++
+     @Test
+     fun addPendingStoresTheChosenRole() = runTest {
+         val (entry, _) = sut.addPending("phone", ClientRole.MealAssistant, pairTtlMs = 60_000L, now = 1_000L)
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+index 935d9c300d..ea8c903c8b 100644
+--- a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -5,8 +5,10 @@ import android.content.pm.PackageManager
+ import android.net.Uri
+ import android.os.Bundle
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
++import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+-import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.plugins.sync.nsclientV3.clientcontrol.AuthorizedClientsRepository
++import app.aaps.plugins.sync.nsclientV3.clientcontrol.ClientTokens
+ import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
+ import app.aaps.core.nssdk.utils.ClientControlPinOffer
+ import kotlinx.coroutines.CancellationException
+@@ -16,8 +18,8 @@ import kotlinx.serialization.json.Json
+ import java.util.UUID
+
+ /** One explicit local enrollment. No Nightscout settings, global TLS or stored session changes. */
+-internal class LocalCopilotPinEnrollment(private val context: Context) {
+-    suspend fun exchange(pending: PairingPayload, pin: String, acceptHello: suspend (SignedEnvelope) -> Boolean): Boolean =
++internal class LocalCopilotPinEnrollment(private val context: Context, private val clients: AuthorizedClientsRepository) {
++    suspend fun exchange(pending: PairingPayload, pin: String): Boolean =
+         withContext(Dispatchers.IO) {
+             val pm = context.packageManager
+             fun trusted(): Boolean {
+@@ -28,6 +30,9 @@ internal class LocalCopilotPinEnrollment(private val context: Context) {
+             }
+             try {
+                 if (!trusted() || !pin.matches(Regex("[0-9]{8}"))) return@withContext false
++                val name = pending.name ?: return@withContext false
++                val subject = ClientTokens.subjectName(name)
++                if (clients.findRaw(pending.clientId)?.localCopilot != true) return@withContext false
+                 val wrapped = codec.encodeToString(PairingOffer.serializer(), ClientControlPinOffer.wrap(pending, pin)).encodeToByteArray()
+                 try {
+                     context.contentResolver.acquireUnstableContentProviderClient(Uri.parse("content://$AUTHORITY"))?.use { provider ->
+@@ -44,7 +49,23 @@ internal class LocalCopilotPinEnrollment(private val context: Context) {
+                             val leaf = ticket.getByteArray("leaf")?.takeIf { it.size in 1..8192 } ?: return@use false
+                             val port = ticket.getInt("port").takeIf { it in 1..65535 } ?: return@use false
+                             val bearer = ticket.getString("bearer") ?: return@use false
+-                            LocalPinHelloPeer.exchange(port, NsLoopbackUploadIdentity(root, leaf), bearer, pending, acceptHello)
++                            LocalPinHelloPeer.exchange(port, NsLoopbackUploadIdentity(root, leaf), bearer, pending) handshake@{ hello ->
++                                val answer = LocalPinKeyResponder.answer(pending, hello, issue = { point ->
++                                    if (!trusted()) null else provider.call("issue_pending_v1", null, Bundle().apply {
++                                        putString("client", pending.clientId); putString("master", pending.masterInstallId)
++                                        putString("point", point); putString("subject", subject)
++                                    })?.getByteArray("token")
++                                }, storePending = { env, key -> clients.stageLocalKey(pending, env, key, System::currentTimeMillis) })
++                                    ?: return@handshake false
++                                if (!trusted()) return@handshake false
++                                val bytes = codec.encodeToString(KeyExchangeEnvelope.serializer(), answer).encodeToByteArray()
++                                try {
++                                    val result = provider.call("local_pin_key_v1", null, Bundle().apply {
++                                        putString("client", pending.clientId); putString("handle", handle); putByteArray("key", bytes)
++                                    })
++                                    result?.keySet() == setOf("accepted") && result.getBoolean("accepted")
++                                } finally { bytes.fill(0) }
++                            }
+                         } finally {
+                             // Same acquired peer and offer only. Unknown IPC outcomes are never retried.
+                             try {
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 8102140b0c..b31a1793f7 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -8,6 +8,8 @@ import app.aaps.core.keys.interfaces.ClientRole
+ import app.aaps.core.keys.interfaces.Preferences
+ import app.aaps.core.nssdk.localmodel.clientcontrol.AuthorizedClient
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
+ import app.aaps.core.nssdk.utils.ClientControlCrypto
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.Inject
+@@ -91,7 +93,14 @@ class AuthorizedClientsRepository(
+      * for caller-side wrapping (PIN-based pairing offer) — caller must not persist it. The
+      * encrypted form is stored on the entry.
+      */
+-    suspend fun addPending(name: String, role: ClientRole, pairTtlMs: Long, now: Long, nsSubject: String? = null): PendingResult = mutex.withLock {
++    suspend fun addPending(name: String, role: ClientRole, pairTtlMs: Long, now: Long, nsSubject: String? = null): PendingResult =
++        createPending(name, role, pairTtlMs, now, nsSubject, false)
++
++    internal suspend fun addLocalPending(name: String, role: ClientRole, pairTtlMs: Long, now: Long): PendingResult =
++        createPending(name, role, pairTtlMs, now, null, true)
++
++    private suspend fun createPending(name: String, role: ClientRole, pairTtlMs: Long, now: Long,
++                                      nsSubject: String?, localCopilot: Boolean): PendingResult = mutex.withLock {
+         val secretBytes = ClientControlCrypto.newSecretBytes()
+         val secretHex = ClientControlCrypto.bytesToHex(secretBytes)
+         val entry = AuthorizedClient(
+@@ -102,12 +111,35 @@ class AuthorizedClientsRepository(
+             createdAt = now,
+             pairExpiresAt = now + pairTtlMs,
+             role = role.name,
+-            nsSubject = nsSubject
++            nsSubject = nsSubject,
++            localCopilot = localCopilot
+         )
+         write(decode() + entry)
+         PendingResult(entry, secretHex)
+     }
+
++    /** Atomically binds the signed local Hello to its master record; Ping must still prove possession. */
++    internal suspend fun stageLocalKey(pending: PairingPayload, hello: SignedEnvelope, key: ByteArray,
++                                       clock: () -> Long): Boolean = mutex.withLock {
++        val list = decode()
++        val entry = list.singleOrNull { it.clientId == hello.clientId } ?: return@withLock false
++        fun eligible() = preferences.hardenedMode &&
++            preferences.get(StringNonKey.NsClientControlOwnInstallId) == pending.masterInstallId &&
++            clock() in maxOf(hello.timestamp, entry.createdAt) until entry.pairExpiresAt
++        if (!entry.localCopilot || entry.state != ClientState.Pending || entry.counterReceived != 0L ||
++            entry.pendingSecret != null || entry.clientId != pending.clientId || entry.name != pending.name ||
++            entry.role != pending.role || entry.pairExpiresAt != pending.expiresAt || key.size != 32 ||
++            hello.type != "hello" || hello.counter != 1L || hello.wantsAck || hello.validUntil != pending.expiresAt ||
++            !eligible()) return@withLock false
++        val old = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(entry.encryptedSecret))
++        val verified = try { old.size == 32 && ClientControlCrypto.verifyEnvelope(old, hello) } finally { old.fill(0) }
++        if (!verified) return@withLock false
++        val wrapped = secureEncrypt.encrypt(ClientControlCrypto.bytesToHex(key), SECURE_ENCRYPT_ALIAS)
++        if (wrapped.isEmpty() || !eligible()) return@withLock false
++        write(list.map { if (it == entry) it.copy(pendingSecret = wrapped, counterReceived = 1L) else it })
++        true
++    }
++
+     /**
+      * Keeps [secret] from a key exchange next to the current one, replacing an earlier one that the client never used.
+      * Returns false when it cannot be wrapped (then the exchange is not answered).
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index a451eb5c47..0e5c5825b2 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -310,6 +310,7 @@ class ClientControlReceiver(
+             // See the no-delete rationale above: never tombstone a slot we don't own.
+             return
+         }
++        if (entry.localCopilot) return
+         val lookup = authorizedRepository.secretLookup(entry.clientId) ?: return
+         // After a key exchange the client signs with the new secret as soon as it has the master's answer, and with the
+         // old one before that, so both pass. The first message with the new one makes it the only one (below).
+diff --git a/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinKeyResponder.kt b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinKeyResponder.kt
+new file mode 100644
+index 0000000000..97c2e89b7a
+--- /dev/null
++++ b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinKeyResponder.kt
+@@ -0,0 +1,40 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
++import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.utils.ClientControlCrypto
++import app.aaps.core.nssdk.utils.ClientControlKeyExchangeCrypto
++import kotlinx.serialization.json.Json
++
++/** Only used from the pinned subscriber. No fallback to a Nightscout subject or owner token. */
++internal object LocalPinKeyResponder {
++    suspend fun answer(pending: PairingPayload, hello: SignedEnvelope, issue: suspend (String) -> ByteArray?,
++                       storePending: suspend (SignedEnvelope, ByteArray) -> Boolean): KeyExchangeEnvelope? {
++        val old = ClientControlCrypto.hexToBytes(pending.secretHex)
++        try {
++            fun current() = System.currentTimeMillis() in hello.timestamp until pending.expiresAt
++            if (!current() || hello.clientId != pending.clientId || hello.validUntil != pending.expiresAt ||
++                hello.counter != 1L || hello.type != "hello" || hello.wantsAck || !ClientControlCrypto.verifyEnvelope(old, hello)) return null
++            val payload = Json.decodeFromString(ClientControlMessage.serializer(), hello.payload) as? ClientControlMessage.Hello ?: return null
++            val point = payload.publicKey?.takeIf { payload.protocolVersion == 1 && it.length == 88 } ?: return null
++            val master = ClientControlKeyExchangeCrypto.newKeyPair()
++            val keys = try {
++                ClientControlKeyExchangeCrypto.deriveKeys(master.privateKey, point, old, pending.clientId, point, master.publicKey)
++            } finally { master.privateKey.fill(0) }
++            try {
++                val token = issue(point) ?: return null
++                val encrypted = try {
++                    val value = token.decodeToString()
++                    if (token.size != 43 || !value.matches(Regex("[A-Za-z0-9_-]{43}"))) return null
++                    ClientControlKeyExchangeCrypto.encryptToken(keys.tokenKey, value)
++                } finally { token.fill(0) }
++                if (!current() || !storePending(hello, keys.secret) || !current()) return null
++                return ClientControlCrypto.signKeyExchange(old, KeyExchangeEnvelope(clientId = pending.clientId,
++                    clientPublicKey = point, masterPublicKey = master.publicKey, tokenIv = encrypted.first,
++                    token = encrypted.second, timestamp = System.currentTimeMillis(), signature = ""))
++            } finally { keys.secret.fill(0); keys.tokenKey.fill(0) }
++        } finally { old.fill(0) }
++    }
++}

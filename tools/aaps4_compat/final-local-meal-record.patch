@@ -1,0 +1,448 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 6cff9627cd..85cb460936 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -11,2 +11,3 @@
+     <permission android:name="${applicationId}.permission.PREVIEW_LOCAL_MEAL" android:protectionLevel="signature" />
++    <permission android:name="${applicationId}.permission.RECORD_LOCAL_MEAL" android:protectionLevel="signature" />
+     <queries>
+@@ -82,2 +83,7 @@
+
++        <provider android:name="app.aaps.localsession.LocalMealRecordProvider"
++            android:authorities="${applicationId}.localmealrecord"
++            android:permission="${applicationId}.permission.RECORD_LOCAL_MEAL"
++            android:exported="true" android:grantUriPermissions="false" />
++
+         <provider android:name="app.aaps.localsession.LocalSessionProvider"
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 48037f2500..540bbe73d9 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -163,2 +163,8 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+
++    internal suspend fun submitCheckedLocalMeal(master: String, request: app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope): Boolean {
++        if (config.AAPSCLIENT || config.PUMPCONTROL || AndroidStorage.failure != null || !config.initProgressFlow.value.done) return false
++        val graph = metroGraphs.rootGraph
++        return graph.authorizedClientsRepository.submitCheckedLocalMeal(master, request, graph.masterActionExecutor, System::currentTimeMillis)
++    }
++
+     internal suspend fun matchesLocalMeal(key: String, at: Long, grams: Double): Boolean {
+@@ -167,2 +173,6 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     }
++    internal suspend fun localMealRecordedAt(key: String, at: Long, validUntil: Long, grams: Double): Long? {
++        check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
++        return persistenceLayer.localMealRecordedAt("copilot:$key", at, validUntil, grams)
++    }
+     internal suspend fun readLocalObservation(now: Long): ByteArray {
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+index fcb6263bfa..229ed18886 100644
+--- a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -47,3 +47,4 @@ class LocalObservationProvider : ContentProvider() {
+         }
+-        if (method == "meal_receipt_v1") return mealReceipt(app, arg, extras)
++        if (method == "meal_receipt_v1" || method == "meal_receipt_v2")
++            return mealReceipt(app, arg, extras, windowed = method == "meal_receipt_v2")
+         if (method == "upload_v3" && arg == null && extras != null) return upload(app, extras)
+@@ -111,5 +112,5 @@ class LocalObservationProvider : ContentProvider() {
+
+-    private fun mealReceipt(app: MainApp, key: String?, extras: Bundle?): Bundle {
++    private fun mealReceipt(app: MainApp, key: String?, extras: Bundle?, windowed: Boolean): Bundle {
+         require(key != null && key.matches(Regex("manual:meal:[A-Za-z0-9_-]{1,80}")))
+-        require(extras != null && extras.keySet() == setOf("at", "grams"))
++        require(extras != null && extras.keySet() == if (windowed) setOf("at", "until", "grams") else setOf("at", "grams"))
+         val at = extras.getLong("at", -1)
+@@ -118,2 +119,3 @@ class LocalObservationProvider : ContentProvider() {
+         require(at in (now - 86_400_000L)..now && grams in 1.0..120.0)
++        val deadline = if (windowed) extras.getLong("until", -1).also { require(it == at + 8_000L) } else at
+         if (!readingMeal.compareAndSet(false, true)) return Bundle()
+@@ -125,6 +127,13 @@ class LocalObservationProvider : ContentProvider() {
+             try {
+-                val matched = runBlocking(Dispatchers.IO) {
+-                    withTimeoutOrNull(2_500L) { app.matchesLocalMeal(key, at, grams) }
++                val recordedAt = runBlocking(Dispatchers.IO) {
++                    withTimeoutOrNull(2_500L) {
++                        if (windowed) app.localMealRecordedAt(key, at, deadline, grams)
++                        else at.takeIf { app.matchesLocalMeal(key, at, grams) }
++                    }
++                }
++                return Bundle().apply {
++                    if (recordedAt != null && recordedAt <= System.currentTimeMillis()) {
++                        if (windowed) putLong("recordedAt", recordedAt) else putBoolean("recorded", true)
++                    }
+                 }
+-                return Bundle().apply { if (matched == true) putBoolean("recorded", true) }
+             } catch (_: Exception) {
+diff --git a/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt b/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt
+index ba132fa297..9e04068d5a 100644
+--- a/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt
+@@ -19,3 +19,4 @@ import java.util.concurrent.atomic.AtomicBoolean
+
+-class LocalMealPreviewProvider : ContentProvider() {
++open class LocalMealPreviewProvider : ContentProvider() {
++    protected open val recordsMeal = false
+     private val busy = AtomicBoolean(false)
+@@ -26,7 +27,9 @@ class LocalMealPreviewProvider : ContentProvider() {
+         val peer = "io.aaps.predictivecopilot"
++        val permission = if (recordsMeal) ".permission.RECORD_LOCAL_MEAL" else ".permission.PREVIEW_LOCAL_MEAL"
+         if (app.packageName != "info.nightscout.androidaps" || callingPackage != peer ||
+             app.packageManager.getPackagesForUid(uid)?.singleOrNull() != peer ||
+-            app.checkCallingPermission(app.packageName + ".permission.PREVIEW_LOCAL_MEAL") != PackageManager.PERMISSION_GRANTED ||
++            app.checkCallingPermission(app.packageName + permission) != PackageManager.PERMISSION_GRANTED ||
+             app.packageManager.checkSignatures(uid, Process.myUid()) != PackageManager.SIGNATURE_MATCH) throw SecurityException("denied")
+-        require(method == "preview_meal_v1" && arg == null && extras?.keySet() == setOf("master", "request"))
++        require(method == (if (recordsMeal) "record_meal_v1" else "preview_meal_v1") &&
++            arg == null && extras?.keySet() == setOf("master", "request"))
+         val master = extras?.getString("master")?.takeIf { it.length in 1..128 } ?: return Bundle()
+@@ -36,8 +39,12 @@ class LocalMealPreviewProvider : ContentProvider() {
+         return try {
+-            val ack = runBlocking(Dispatchers.IO) {
++            runBlocking(Dispatchers.IO) {
+                 withTimeoutOrNull(4_000L) {
+-                    app.previewLocalMeal(master, Json.decodeFromString(SignedEnvelope.serializer(), bytes.decodeToString(throwOnInvalidSequence = true)))
++                    val envelope = Json.decodeFromString(SignedEnvelope.serializer(), bytes.decodeToString(throwOnInvalidSequence = true))
++                    if (recordsMeal) Bundle().apply {
++                        if (app.submitCheckedLocalMeal(master, envelope)) putBoolean("admitted", true)
++                    } else app.previewLocalMeal(master, envelope)?.let { ack ->
++                        Bundle().apply { putByteArray("preview", Json.encodeToString(AckEnvelope.serializer(), ack).encodeToByteArray()) }
++                    }
+                 }
+-            } ?: return Bundle()
+-            Bundle().apply { putByteArray("preview", Json.encodeToString(AckEnvelope.serializer(), ack).encodeToByteArray()) }
++            } ?: Bundle()
+         } catch (_: Exception) { Bundle() } finally {
+@@ -54 +61,5 @@ class LocalMealPreviewProvider : ContentProvider() {
+ }
++
++class LocalMealRecordProvider : LocalMealPreviewProvider() {
++    override val recordsMeal = true
++}
+diff --git a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+index 58012ea9f8..3e1d4d7aaa 100644
+--- a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
++++ b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+@@ -293,2 +293,6 @@ interface PersistenceLayer {
+
++    /** Persist an immediate marked carb entry once; return its actual stored timestamp. */
++    suspend fun storeLocalManualMealOnce(carbs: CA): Long
++    suspend fun localMealRecordedAt(marker: String, issuedAt: Long, validUntil: Long, grams: Double): Long?
++
+     /**
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+index 4e37d5f376..c11c5243e6 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+@@ -798,2 +798,6 @@ class AppRepository internal constructor(
+
++    suspend fun localMealRecordedAt(marker: String, issuedAt: Long, until: Long, grams: Double): Long? =
++        database.carbsDao.currentLocalMeals(marker).singleOrNull()?.takeIf { it.isValid && it.duration == 0L &&
++            it.amount == grams && it.timestamp in issuedAt until until }?.timestamp
++
+     // BOLUS CALCULATOR RESULT
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
+index e274d49c71..a5ccaee576 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
+@@ -31,2 +31,8 @@ internal interface CarbsDao : TraceableDao<Carbs> {
+
++    @Query("SELECT * FROM $TABLE_CARBS WHERE referenceId IS NULL AND notes = :marker LIMIT 2")
++    suspend fun currentLocalMeals(marker: String): List<Carbs>
++
++    @Query("SELECT EXISTS(SELECT 1 FROM $TABLE_CARBS WHERE referenceId IS NOT NULL AND notes = :marker)")
++    suspend fun hasPriorLocalMeal(marker: String): Boolean
++
+     @Query("SELECT * FROM $TABLE_CARBS WHERE (nightscoutId = :nsId) AND (referenceId IS NULL)")
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertLocalManualMealOnce.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertLocalManualMealOnce.kt
+new file mode 100644
+index 0000000000..afc6c7543a
+--- /dev/null
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/transactions/InsertLocalManualMealOnce.kt
+@@ -0,0 +1,28 @@
++package app.aaps.database.transactions
++
++import app.aaps.database.entities.Carbs
++
++/** Called inside the repository's IMMEDIATE writer transaction, for one immediate carb-only entry. */
++class InsertLocalManualMealOnce(private val meal: Carbs) : Transaction<Long>() {
++    override suspend fun run(): Long {
++        val marker = requireNotNull(meal.notes)
++        require(MARKER.matches(marker) && meal.id == 0L && meal.version == 0 && meal.referenceId == null &&
++            meal.isValid && meal.duration == 0L && meal.timestamp > 0L && meal.amount in 1.0..120.0)
++        val dao = database.carbsDao
++        val current = dao.currentLocalMeals(marker)
++        if (current.isNotEmpty()) {
++            val existing = current.singleOrNull()
++            check(existing != null && existing.isValid && existing.duration == 0L && existing.amount == meal.amount) {
++                "local_meal_record_conflict"
++            }
++            return existing.timestamp
++        }
++        // A renamed or invalidated entry must not be resurrected by replay.
++        check(!dao.hasPriorLocalMeal(marker)) { "local_meal_record_conflict" }
++        dao.insertNewEntry(meal)
++        check(dao.matchesLocalMeal(marker, meal.timestamp, meal.amount)) { "local_meal_not_persisted" }
++        return meal.timestamp
++    }
++
++    private companion object { val MARKER = Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}") }
++}
+diff --git a/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt
+index d52d7cbfc5..6af56fd7e6 100644
+--- a/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt
++++ b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt
+@@ -4,2 +4,7 @@ import app.aaps.database.di.JvmAppDatabaseBuilder
+ import app.aaps.database.entities.Carbs
++import app.aaps.database.transactions.InsertLocalManualMealOnce
++import app.aaps.database.transactions.InsertOrUpdateCarbsTransaction
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.awaitAll
+ import kotlinx.coroutines.test.runTest
+@@ -10,2 +15,5 @@ import kotlin.test.assertFalse
+ import kotlin.test.assertTrue
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++import kotlin.test.assertFailsWith
+
+@@ -13,4 +21,4 @@ class LocalMealRecordTest {
+     private val dir = createTempDirectory("meal-record-test")
+-    private val db = JvmAppDatabaseBuilder().provideAppDatabase("$dir/test.db")
+-    private val dao = db.carbsDao
++    private var db = JvmAppDatabaseBuilder().provideAppDatabase("$dir/test.db")
++    private val dao get() = db.carbsDao
+     private val marker = "copilot:manual:meal:test-entry"
+@@ -43,2 +51,44 @@ class LocalMealRecordTest {
+     }
++
++    @Test fun competingRetriesPersistOnceAndReturnActualTimeAcrossReopen() = runTest {
++        val start = meal.timestamp
++        val repo = AppRepository { db }
++        val recorded = try {
++            (1..8).map { offset -> async(Dispatchers.Default) {
++                repo.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy(timestamp = start + offset)))
++            } }.awaitAll().distinct().single()
++        } finally { repo.close() }
++        assertTrue(recorded in start + 1..start + 8)
++        db.close()
++        db = JvmAppDatabaseBuilder().provideAppDatabase("$dir/test.db")
++        val reopened = AppRepository { db }
++        try {
++            assertEquals(recorded, reopened.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy(timestamp = start + 20))))
++            assertEquals(recorded, reopened.localMealRecordedAt(marker, start, start + 8_000, meal.amount))
++            assertNull(reopened.localMealRecordedAt(marker, start, recorded, meal.amount))
++            assertNull(reopened.localMealRecordedAt(marker, recorded + 1, start + 8_000, meal.amount))
++            assertNull(reopened.localMealRecordedAt(marker, start, start + 8_000, meal.amount + 1))
++            assertFailsWith<IllegalStateException> {
++                reopened.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy(amount = meal.amount + 1)))
++            }
++            assertEquals(1, dao.currentLocalMeals(marker).size)
++            val saved = dao.currentLocalMeals(marker).single()
++            reopened.runTransactionForResultSuspend(InsertOrUpdateCarbsTransaction(saved.copy(notes = "edited locally")))
++            assertFailsWith<IllegalStateException> {
++                reopened.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy()))
++            }
++            assertNull(reopened.localMealRecordedAt(marker, start, start + 8_000, meal.amount))
++        } finally { reopened.close() }
++    }
++
++    @Test fun invalidOrDuplicateMarkerCannotBeRecreatedOrAcknowledged() = runTest {
++        val repo = AppRepository { db }
++        try {
++            dao.insert(meal.copy(isValid = false))
++            assertFailsWith<IllegalStateException> { repo.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy())) }
++            dao.insert(meal.copy())
++            assertNull(repo.localMealRecordedAt(marker, meal.timestamp, meal.timestamp + 8_000, meal.amount))
++            assertFailsWith<IllegalStateException> { repo.runTransactionForResultSuspend(InsertLocalManualMealOnce(meal.copy())) }
++        } finally { repo.close() }
++    }
+ }
+diff --git a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+index aea42b61af..6f27909346 100644
+--- a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
++++ b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+@@ -507,2 +507,9 @@ class PersistenceLayerImpl(
+
++    override suspend fun storeLocalManualMealOnce(carbs: CA): Long = withContext(aapsIoDispatcher) {
++        repository.runTransactionForResultSuspend(app.aaps.database.transactions.InsertLocalManualMealOnce(carbs.toDb()))
++    }
++
++    override suspend fun localMealRecordedAt(marker: String, issuedAt: Long, validUntil: Long, grams: Double): Long? =
++        withContext(aapsIoDispatcher) { repository.localMealRecordedAt(marker, issuedAt, validUntil, grams) }
++
+     override suspend fun getCarbsByNSId(nsId: String): CA? = withContext(aapsIoDispatcher) {
+diff --git a/implementation/src/androidHostTest/kotlin/app/aaps/implementation/queue/CommandQueueImplementationTest.kt b/implementation/src/androidHostTest/kotlin/app/aaps/implementation/queue/CommandQueueImplementationTest.kt
+index 0d04f9d84f..3e90a37a33 100644
+--- a/implementation/src/androidHostTest/kotlin/app/aaps/implementation/queue/CommandQueueImplementationTest.kt
++++ b/implementation/src/androidHostTest/kotlin/app/aaps/implementation/queue/CommandQueueImplementationTest.kt
+@@ -369,2 +369,12 @@ class CommandQueueImplementationTest : TestBaseWithProfile() {
+
++    @Test
++    fun markedImmediateMealUsesDurableCarbStoreAndNeverEnqueuesPumpDelivery() = runTest {
++        val input = DetailedBolusInfo().apply { carbs = 12.0; notes = "copilot:manual:meal:local-example" }
++        whenever(persistenceLayer.storeLocalManualMealOnce(any())).thenReturn(input.timestamp)
++        assertThat(commandQueue.bolus(input).success).isTrue()
++        verify(persistenceLayer).storeLocalManualMealOnce(any())
++        verify(persistenceLayer, never()).insertOrUpdateCarbs(anyOrNull(), anyOrNull(), anyOrNull(), anyOrNull())
++        assertThat(commandQueue.size()).isEqualTo(0)
++    }
++
+     @Test
+diff --git a/implementation/src/commonMain/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt b/implementation/src/commonMain/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
+index f3e0e3af78..1cb24b7cfe 100644
+--- a/implementation/src/commonMain/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
++++ b/implementation/src/commonMain/kotlin/app/aaps/implementation/queue/CommandQueueImplementation.kt
+@@ -152,2 +152,3 @@ class CommandQueueImplementation(
+     private val enqueueLock = AapsLock()
++    private val localManualMealMarker = Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}")
+     override var waitingForDisconnect = false
+@@ -648,7 +649,8 @@ class CommandQueueImplementation(
+             return try {
+-                persistenceLayer.insertOrUpdateCarbs(
+-                    carbs = detailedBolusInfo.createCarbs(),
+-                    action = Action.CARBS,
+-                    source = Sources.Database
+-                )
++                val carbs = detailedBolusInfo.createCarbs()
++                if (carbs.duration == 0L && carbs.amount in 1.0..120.0 && carbs.notes?.matches(localManualMealMarker) == true) {
++                    persistenceLayer.storeLocalManualMealOnce(carbs)
++                } else {
++                    persistenceLayer.insertOrUpdateCarbs(carbs, Action.CARBS, Sources.Database)
++                }
+                 pumpEnactResultProvider().enacted(false).success(true)
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index 74bafdc92c..9f2925ee3d 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -175,2 +175,27 @@ internal class AuthorizedClientsRepositoryTest {
+                 org.mockito.kotlin.verifyNoMoreInteractions(executor)
++                val body = """{"type":"local_meal_record_v1","prepareCounter":3,"previewId":79,"marker":"copilot:manual:meal:sample","carbsGrams":12}"""
++                val commit = ClientControlCrypto.signEnvelope(key, SignedEnvelope(entry.clientId, 4, now, "local_meal_record_v1", body, "", now + 8_000, true))
++                assertThat(sut.submitCheckedLocalMeal(master, commit.copy(signature = ""), executor) { now }).isFalse()
++                assertThat(sut.submitCheckedLocalMeal(master, ClientControlCrypto.signEnvelope(key, commit.copy(payload = body.replace(":12}", ":13}"))), executor) { now }).isFalse()
++                assertThat(sut.submitCheckedLocalMeal(master, commit, executor) { now + 8_000 }).isFalse()
++                sut.setRole(entry.clientId, ClientRole.ReadOnly)
++                assertThat(sut.submitCheckedLocalMeal(master, commit, executor) { now }).isFalse()
++                sut.setRole(entry.clientId, ClientRole.MealAssistant)
++                assertThat(sut.submitCheckedLocalMeal(master, commit, executor) { now }).isFalse()
++                val renewed = ClientControlCrypto.signEnvelope(key, meal.copy(counter = 4))
++                assertThat(sut.previewLocalMeal(master, renewed, executor) { now }).isNotNull()
++                val second = ClientControlCrypto.signEnvelope(key, commit.copy(counter = 5, payload = body.replace("Counter\":3", "Counter\":4")))
++                assertThat(sut.submitCheckedLocalMeal(master, second, executor) { now + 2 }).isTrue()
++                assertThat(sut.submitCheckedLocalMeal(master, second, executor) { now + 3 }).isFalse()
++                val later = now + 10
++                val after = ClientControlCrypto.signEnvelope(key, meal.copy(counter = 6, timestamp = later, validUntil = later + 8_000))
++                assertThat(sut.previewLocalMeal(master, after, executor) { later }).isNotNull()
++                whenever(executor.prepareBatch(any(), any())).thenReturn(app.aaps.core.interfaces.bolus.MasterActionExecutor.PrepareResult.Preview(0.0, 11, 81))
++                val capped = ClientControlCrypto.signEnvelope(key, commit.copy(counter = 7, timestamp = later, validUntil = later + 8_000,
++                    payload = body.replace("Counter\":3", "Counter\":6")))
++                assertThat(sut.submitCheckedLocalMeal(master, capped, executor) { later }).isFalse()
++                org.mockito.kotlin.verify(executor).discard(81)
++                org.mockito.kotlin.verify(executor).deliverECarbs(org.mockito.kotlin.eq(12), org.mockito.kotlin.eq(now + 2), org.mockito.kotlin.eq(0),
++                    org.mockito.kotlin.eq(0), org.mockito.kotlin.eq("copilot:manual:meal:sample"), org.mockito.kotlin.eq(app.aaps.core.data.ue.Sources.NSClient), any(), any())
++                org.mockito.kotlin.verify(executor, org.mockito.kotlin.never()).deliverECarbs(org.mockito.kotlin.eq(11), any(), any(), any(), any(), any(), any(), any())
+                 sut.delete(entry.clientId)
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 469ad616b0..0c8d71023f 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -80,2 +80,6 @@ class AuthorizedClientsRepository(
+     private val mutex = Mutex()
++    private class CheckedMeal(val master: String, val owner: AuthorizedClient, val action: BatchActionDto,
++                              val previewId: Long, val checkedAt: Long, val until: Long, val epoch: Long)
++    private var checkedMeal: CheckedMeal? = null
++    private var localGrantEpoch = 0L
+
+@@ -258,3 +262,3 @@ class AuthorizedClientsRepository(
+         val action = one.toDomain() ?: return null
+-        val (owner, role) = mutex.withLock {
++        val (owner, role, epoch) = mutex.withLock {
+             val list = decode()
+@@ -270,3 +274,3 @@ class AuthorizedClientsRepository(
+             write(list.map { if (it == entry) next else it })
+-            next to role
++            Triple(next, role, localGrantEpoch)
+         }
+@@ -275,5 +279,5 @@ class AuthorizedClientsRepository(
+             if (preview.bolusId <= 0 || preview.insulin != 0.0 || preview.carbs != one.carbs ||
+-                preview.advisorApplies || preview.advisorLines.isNotEmpty()) return null
++                preview.advisorApplies || preview.advisorLines.isNotEmpty() || preview.wizardDetail != null) return null
+             return mutex.withLock {
+-                if (!live() || decode().singleOrNull { it.clientId == owner.clientId } != owner) return@withLock null
++                if (!live() || localGrantEpoch != epoch || decode().singleOrNull { it.clientId == owner.clientId } != owner) return@withLock null
+                 val lines = preview.lines.map { app.aaps.core.nssdk.localmodel.clientcontrol.ConfirmationLineDto(it.role.name, it.text) }
+@@ -285,3 +289,5 @@ class AuthorizedClientsRepository(
+                     ClientControlCrypto.signAck(key, AckEnvelope(owner.clientId, request.counter, AckPhase.Done, AckStatus.Ok,
+-                        payload = Json.encodeToString(BolusPreview.serializer(), body), timestamp = at, signature = ""))
++                        payload = Json.encodeToString(BolusPreview.serializer(), body), timestamp = at, signature = "")).also {
++                        checkedMeal = CheckedMeal(master, owner, one, preview.bolusId, at, request.validUntil, epoch)
++                    }
+                 } finally { key.fill(0) }
+@@ -291,2 +297,52 @@ class AuthorizedClientsRepository(
+
++    /** A separate signed user submission. The preview id is an association, never an executable bolus id. */
++    suspend fun submitCheckedLocalMeal(master: String, request: SignedEnvelope, executor: MasterActionExecutor,
++                                       clock: () -> Long): Boolean {
++        fun live(meal: CheckedMeal, now: Long) = localGrantEpoch == meal.epoch && preferences.hardenedMode && master == meal.master &&
++            preferences.get(StringNonKey.NsClientControlOwnInstallId) == master &&
++            request.timestamp in meal.checkedAt until meal.until && request.validUntil > request.timestamp &&
++            request.validUntil - request.timestamp == 8_000L && now in request.timestamp until minOf(meal.until, request.validUntil)
++        val (meal, owner, caller) = mutex.withLock {
++            val meal = checkedMeal ?: return false
++            val list = decode()
++            val entry = list.singleOrNull { it.clientId == request.clientId } ?: return false
++            val role = ClientRole.entries.singleOrNull { it.name == entry.role } ?: return false
++            if (entry != meal.owner || !role.allows(ClientRole.MealAssistant) || !live(meal, clock()) ||
++                !request.wantsAck || request.type != "local_meal_record_v1" || request.counter <= 0 ||
++                request.counter - 1 != entry.counterReceived) return false
++            val expected = kotlinx.serialization.json.buildJsonObject {
++                put("type", kotlinx.serialization.json.JsonPrimitive(request.type))
++                put("prepareCounter", kotlinx.serialization.json.JsonPrimitive(entry.counterReceived))
++                put("previewId", kotlinx.serialization.json.JsonPrimitive(meal.previewId))
++                put("marker", kotlinx.serialization.json.JsonPrimitive(meal.action.notes))
++                put("carbsGrams", kotlinx.serialization.json.JsonPrimitive(meal.action.carbs))
++            }
++            if (request.payload != expected.toString()) return false
++            val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(entry.encryptedSecret))
++            val valid = try { key.size == 32 && ClientControlCrypto.verifyEnvelope(key, request) } finally { key.fill(0) }
++            if (!valid || !live(meal, clock())) return false
++            val updated = entry.copy(counterReceived = request.counter, lastSeenAt = clock())
++            write(list.map { if (it == entry) updated else it })
++            checkedMeal = null
++            Triple(meal, updated, RemoteCaller(entry.clientId, role))
++        }
++        val fresh = executor.prepareBatch(listOf(meal.action.toDomain() ?: return false), caller) as? MasterActionExecutor.PrepareResult.Preview ?: return false
++        try {
++            if (fresh.bolusId <= 0 || fresh.insulin != 0.0 || fresh.carbs != meal.action.carbs ||
++                fresh.advisorApplies || fresh.advisorLines.isNotEmpty() || fresh.wizardDetail != null) return false
++            val finished = kotlinx.coroutines.CompletableDeferred<Unit>()
++            val admitted = mutex.withLock {
++                if (decode().singleOrNull { it.clientId == owner.clientId } != owner) return@withLock false
++                val at = clock()
++                if (!live(meal, at)) return@withLock false
++                // This native entry point takes grams, not insulin units. Its asynchronous return is not a receipt.
++                executor.deliverECarbs(fresh.carbs, at, 0, 0, meal.action.notes, app.aaps.core.data.ue.Sources.NSClient,
++                    { finished.complete(Unit) }, { finished.complete(Unit) })
++                true
++            }
++            if (admitted) kotlinx.coroutines.withTimeoutOrNull(750L) { finished.await() }
++            return admitted
++        } finally { executor.discard(fresh.bolusId) }
++    }
++
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */
+@@ -319,3 +375,5 @@ class AuthorizedClientsRepository(
+     suspend fun delete(clientId: String): Unit = mutex.withLock {
+-        write(decode().filterNot { it.clientId == clientId })
++        val list = decode()
++        if (list.any { it.clientId == clientId && it.localCopilot }) { localGrantEpoch++; checkedMeal = null }
++        write(list.filterNot { it.clientId == clientId })
+     }
+@@ -332,3 +390,6 @@ class AuthorizedClientsRepository(
+         val updated = list.map { if (it.clientId == clientId) it.copy(role = role.name) else it }
+-        if (updated != list) write(updated)
++        if (updated != list) {
++            if (list.any { it.clientId == clientId && it.localCopilot }) { localGrantEpoch++; checkedMeal = null }
++            write(updated)
++        }
+     }

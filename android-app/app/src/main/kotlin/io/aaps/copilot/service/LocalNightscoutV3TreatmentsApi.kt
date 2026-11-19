@@ -19,7 +19,7 @@ internal class LocalNightscoutV3TreatmentsApi(private val db: CopilotDatabase, n
     private val store = LocalNightscoutV3Store(db, now)
     private val collection = LocalV3Collection.TREATMENTS
 
-    suspend fun handle(method: String, path: String, query: Map<String, String>, readBody: () -> ByteArray): LocalV3HttpResult {
+    suspend fun handle(method: String, path: String, query: Map<String, String>, readBody: () -> ByteArray, localUpload: Boolean): LocalV3HttpResult {
         if (path == ROOT) return when (method) {
             "GET" -> {
                 require(query["sort"] == "created_at" && query.keys.all { it in setOf("sort", "created_at\$gt", "limit") })
@@ -27,7 +27,7 @@ internal class LocalNightscoutV3TreatmentsApi(private val db: CopilotDatabase, n
                 val page = store.chronological(collection, after, limit(query))
                 documents(page.documents, null)
             }
-            "POST" -> { require(query.isEmpty()); create(parse(readBody())) }
+            "POST" -> { require(query.isEmpty()); create(parse(readBody()), localUpload) }
             else -> rejected(405)
         }
         if (path.startsWith("$ROOT/history/")) {
@@ -54,15 +54,20 @@ internal class LocalNightscoutV3TreatmentsApi(private val db: CopilotDatabase, n
         }
     }
 
-    private suspend fun create(body: JsonObject): LocalV3HttpResult {
+    private suspend fun create(body: JsonObject, localUpload: Boolean): LocalV3HttpResult {
         val payload = format { validated(body) }
         val id = optionalString(body, "identifier") ?: stableIdentifier(payload)
         require(ID.matches(id))
         return db.withTransaction {
             val previous = store.get(collection, id)
             format { metadata(body, id, previous) }
-            written(store.create(LocalV3DocumentInput(collection, id, SOURCE, HistoryJson.long(payload.getValue("date")),
-                payload.toString(), readOnly(body))), wrapped = false, created = previous == null)
+            val input = LocalV3DocumentInput(collection, id, SOURCE, HistoryJson.long(payload.getValue("date")),
+                payload.toString(), readOnly(body))
+            val repair = localUpload && body.keys.none { it in METADATA } && previous != null && !previous.deleted &&
+                !previous.readOnly && previous.source == SOURCE && previous.payloadJson != input.payloadJson &&
+                isExactLocalScheduleRepair(previous.payloadJson, payload)
+            val result = if (repair) store.update(input, checkNotNull(previous).modifiedRevision) else store.create(input)
+            written(result, wrapped = false, created = previous == null)
         }
     }
 

@@ -26,6 +26,11 @@ authorization remain unchanged.
 - Every v3 path requires a bearer. Do not accept v1 api-secret, query tokens,
   refresh credentials or anonymous requests. Supplied Date must be epoch
   milliseconds within five minutes, matching the SDK's clock-skew error contract.
+- AAPS 4.0.0 separately checks `api:settings:create` and `api:settings:update`
+  when status does not report full permissions. The bearer-authenticated
+  `GET /api/v2/authorization/debug/check/<permission>` returns
+  `{"check":true}` only for those two existing owner capabilities. Other
+  permissions are denied; there is no role management or authority change.
 - Status/entries now use the typed adapter in LOCAL_NS_V3_ENTRIES.md. Remaining
   collections return501 with empty permissions, never fake synchronization.
 - Credential responses/errors are no-store. Credential-bearing refresh paths,

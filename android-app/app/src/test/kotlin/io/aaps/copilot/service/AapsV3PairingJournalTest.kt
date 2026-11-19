@@ -43,6 +43,50 @@ class AapsV3PairingJournalTest {
         assertNull(failure!!.cause)
     }
 
+    @Test fun stockTokenAnswerMustMatchTheLocalPendingGrantBeforePublishingItsSubject() = runBlocking {
+        suspend fun <T> stage(label: String, block: suspend () -> T): T = try { block() }
+            catch (e: AapsV3TargetJournalFailure) { throw AssertionError(label, e) }
+        val j = owner()
+        val enrollment = AapsV3PairingCredential(client, master, at + 120_000, secret,
+            requiresSignedRoster = true).use { stage("enroll") { j.enroll(it, at).publication!! } }
+        val doc = Json.parseToJsonElement(enrollment.document.payloadJson).jsonObject
+        val point = Json.parseToJsonElement(doc.getValue("envelope").jsonObject.getValue("payload").jsonPrimitive.content)
+            .jsonObject.getValue("publicKey").jsonPrimitive.content
+        val subject = "aaps-test-phone"
+        suspend fun issue(p: String = point, who: String = subject, time: Long = at) =
+            owner().issuePendingClientToken(client, master, p, who, time)
+        refused { issue(p = "wrong-point") }
+        refused { issue(time = at + 120_000) }
+        val token = stage("issue") { issue() }.decodeToString()
+        assertEquals(token, stage("reopen") { issue() }.decodeToString())
+        refused { issue(who = "aaps-other") }
+        val store = LocalNightscoutV3Store(db, { at + 1 })
+        val keyId = "aaps_clientcontrol_key_$client"
+        suspend fun answer(returnedToken: String?) {
+            val body = buildJsonObject { put("schemaVersion", 1); put("key", finalSdkTokenAnswer(point, returnedToken)) }
+            val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, keyId, "local-v3-owner", 946_684_800_001, body.toString())
+            val previous = store.get(LocalV3Collection.SETTINGS, keyId)
+            if (previous == null) store.create(input) else store.update(input, previous.modifiedRevision)
+        }
+        answer("unissued-local-token")
+        assertFalse(stage("unissued credential") { j.rotateFinalSecret(at + 1) })
+        answer(null)
+        assertFalse(stage("missing credential") { j.rotateFinalSecret(at + 1) })
+        answer(token)
+        assertTrue(stage("verified credential") { j.rotateFinalSecret(at + 1) })
+        refused { issue() }
+        val offer = store.create(LocalV3DocumentInput(LocalV3Collection.SETTINGS, "aaps_clientcontrol_offer_$client",
+            "local-v3-owner", 946_684_800_001, "{}"))
+        store.delete(LocalV3Collection.SETTINGS, offer.document.identifier, offer.document.modifiedRevision)
+        val ping = stage("publish ping") { owner().probe(at + 2) }!!.document
+        assertEquals("local-v3-target", ping.source)
+        val storedSubject = Json.parseToJsonElement(ping.payloadJson).jsonObject.getValue(LOCAL_SUBJECT_FIELD).jsonPrimitive.content
+        assertEquals(subject, localV3WireSubject(ping.collection, ping.source, storedSubject))
+        assertEquals("local-v3-owner", localV3WireSubject("settings", "local-v3-owner", subject))
+        assertFalse(ping.payloadJson.contains(token))
+        assertNull(j.probe(at + 3))
+    }
+
     @Test fun externalTransactionCannotExposeEnrollmentOrConsumePinAttempt() = runBlocking {
         db.withTransaction {
             refused { owner().reservePairingAttempt(at) }

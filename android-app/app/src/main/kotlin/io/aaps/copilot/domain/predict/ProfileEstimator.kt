@@ -83,13 +83,17 @@ private val ACCEPTED_PROFILE_TELEMETRY_QUALITIES = setOf("TRUSTED", "GOOD", "OK"
 class ProfileEstimator private constructor(
     private val config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
     private val zoneId: ZoneId = ZoneId.systemDefault(),
-    private val componentResolver: ProfileComponentResolver
+    private val componentResolver: ProfileComponentResolver,
+    private val selectedLoopFactors: List<TelemetrySignal> = emptyList()
 ) {
 
     constructor(
         config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
         zoneId: ZoneId = ZoneId.systemDefault()
     ) : this(config, zoneId, ProfileComponentResolver(::resolveTherapyComponents))
+
+    internal constructor(config: ProfileEstimatorConfig, selectedLoopFactors: List<TelemetrySignal>) :
+        this(config, ZoneId.systemDefault(), ProfileComponentResolver(::resolveTherapyComponents), selectedLoopFactors)
 
     internal constructor(
         config: ProfileEstimatorConfig = ProfileEstimatorConfig(),
@@ -551,7 +555,7 @@ class ProfileEstimator private constructor(
         signals: List<TelemetrySignal>,
         referenceTs: Long
     ): List<TimedSample> {
-        return signals.freshAt(referenceTs).mapNotNull { signal ->
+        val broadcast = signals.freshAt(referenceTs).mapNotNull { signal ->
             if (!isTelemetryIsfKey(signal.key)) return@mapNotNull null
             val raw = signal.numericValue() ?: return@mapNotNull null
             val mmolPerUnit = if (raw > 12.0) UnitConverter.mgdlToMmol(raw) else raw
@@ -559,19 +563,32 @@ class ProfileEstimator private constructor(
                 TimedSample(signal.ts, it, SampleSource.TELEMETRY)
             }
         }
+        return broadcast + localFactor("aaps_isf", referenceTs, 0.8..18.0)
     }
 
     private fun buildTelemetryCrSamples(
         signals: List<TelemetrySignal>,
         referenceTs: Long
     ): List<TimedSample> {
-        return signals.freshAt(referenceTs).mapNotNull { signal ->
+        val broadcast = signals.freshAt(referenceTs).mapNotNull { signal ->
             if (!isTelemetryCrKey(signal.key)) return@mapNotNull null
             val gramsPerUnit = signal.numericValue() ?: return@mapNotNull null
             gramsPerUnit.takeIf { it in 2.0..60.0 }?.let {
                 TimedSample(signal.ts, it, SampleSource.TELEMETRY)
             }
         }
+        return broadcast + localFactor("aaps_cr", referenceTs, 2.0..60.0)
+    }
+
+    // Only explicit current selections qualify; the history scan also contains superseded rows.
+    private fun localFactor(key: String, at: Long, bounds: ClosedFloatingPointRange<Double>): List<TimedSample> {
+        val maxAge = minOf(300_000L, config.telemetryMaxAgeMinutes.coerceAtLeast(0) * 60_000L)
+        val row = selectedLoopFactors.singleOrNull { it.key == key } ?: return emptyList()
+        val value = row.valueDouble ?: return emptyList()
+        if (row.source != "aaps_local_loop" || row.quality !in ACCEPTED_PROFILE_TELEMETRY_QUALITIES ||
+            row.ts !in maxOf(1L, at - maxAge)..at || value !in bounds) return emptyList()
+        // The signed importer has already converted ISF to mmol/L/U (including values above 12).
+        return listOf(TimedSample(row.ts, value, SampleSource.TELEMETRY))
     }
 
     private fun buildUamPoints(

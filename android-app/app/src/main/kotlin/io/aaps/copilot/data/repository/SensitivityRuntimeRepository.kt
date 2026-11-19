@@ -26,7 +26,8 @@ data class SensitivityRuntimeLoadedCandidates(
     val isfPreference: SensitivitySourcePreference,
     val crPreference: SensitivitySourcePreference,
     val isfCandidates: SensitivityCandidates,
-    val crCandidates: SensitivityCandidates
+    val crCandidates: SensitivityCandidates,
+    internal val localLoopInputs: LocalLoopForecastSelection? = null
 )
 
 fun interface SensitivityRuntimeCandidateLoader {
@@ -78,8 +79,9 @@ class SensitivityRuntimeRepository(
     private val _current = MutableStateFlow<SensitivityRuntimeSnapshot?>(null)
     private val _acceptedCandidateDiagnostics =
         MutableStateFlow<AcceptedSensitivityCandidateDiagnostics?>(null)
-    private val candidateDiagnosticsByIdentity =
-        LinkedHashMap<SensitivitySnapshotIdentity, AcceptedSensitivityCandidateDiagnostics>()
+    private data class CandidateInputs(val diagnostics: AcceptedSensitivityCandidateDiagnostics,
+        val local: LocalLoopForecastSelection?)
+    private val candidateDiagnosticsByIdentity = LinkedHashMap<SensitivitySnapshotIdentity, CandidateInputs>()
     private var latestCandidate: SensitivityRuntimeSnapshot? = null
     private var acceptedOrder: AcceptedPublicationOrder? = null
     private var acceptedReservation: SensitivityRuntimeAcceptanceReservation? = null
@@ -89,7 +91,7 @@ class SensitivityRuntimeRepository(
 
     internal fun isfCrInputGenerationForCandidate(snapshot: SensitivityRuntimeSnapshot): IsfCrInputGeneration =
         synchronized(acceptedStateLock) {
-            val diagnostics = requireNotNull(candidateDiagnosticsByIdentity[snapshot.identity()]) {
+            val diagnostics = requireNotNull(candidateDiagnosticsByIdentity[snapshot.identity()]?.diagnostics) {
                 "accepted sensitivity candidate diagnostics are unavailable"
             }
             val generations = listOf(
@@ -105,6 +107,9 @@ class SensitivityRuntimeRepository(
             }
             generations.first()
         }
+
+    internal fun localLoopInputsForCandidate(snapshot: SensitivityRuntimeSnapshot): LocalLoopForecastSelection? =
+        synchronized(acceptedStateLock) { requireNotNull(candidateDiagnosticsByIdentity[snapshot.identity()]).local }
 
     private fun SensitivityCandidates.contributingCandidates(
         resolved: SensitivityResolvedSource
@@ -240,7 +245,7 @@ class SensitivityRuntimeRepository(
         snapshot: SensitivityRuntimeSnapshot,
         order: AcceptedPublicationOrder
     ) {
-        _acceptedCandidateDiagnostics.value = candidateDiagnosticsByIdentity[snapshot.identity()]
+        _acceptedCandidateDiagnostics.value = candidateDiagnosticsByIdentity[snapshot.identity()]?.diagnostics
         _current.value = snapshot
         acceptedOrder = order
     }
@@ -278,7 +283,7 @@ class SensitivityRuntimeRepository(
             "sensitivity settings changed during persistence: loaded=${loaded.settingsRevision}, current=$publishedRevision"
         }
         synchronized(acceptedStateLock) {
-            candidateDiagnosticsByIdentity[snapshot.identity()] = AcceptedSensitivityCandidateDiagnostics(
+            val diagnostics = AcceptedSensitivityCandidateDiagnostics(
                 settingsRevision = snapshot.settingsRevision,
                 forecastCycleId = snapshot.forecastCycleId,
                 snapshotTimestamp = snapshot.timestamp,
@@ -286,6 +291,7 @@ class SensitivityRuntimeRepository(
                 isfCandidates = loaded.isfCandidates,
                 crCandidates = loaded.crCandidates
             )
+            candidateDiagnosticsByIdentity[snapshot.identity()] = CandidateInputs(diagnostics, loaded.localLoopInputs)
             while (candidateDiagnosticsByIdentity.size > MAX_CANDIDATE_DIAGNOSTIC_IDENTITIES) {
                 candidateDiagnosticsByIdentity.entries.iterator().run {
                     next()

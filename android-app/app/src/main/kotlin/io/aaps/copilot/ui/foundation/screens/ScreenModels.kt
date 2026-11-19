@@ -284,6 +284,7 @@ data class OverviewUiState(
     val sampleAgeMinutes: Long? = null,
     val syncAgeMinutes: Long? = null,
     val forecastsCurrent: Boolean = false,
+    val aapsV3Observation: Boolean = false,
     val foodDisplayScope: FoodDisplayScope? = null,
     val acceptedFoodDisplay: AcceptedFoodDisplaySnapshot? = null,
     val foodDisplayScopeReset: Boolean = false,
@@ -292,6 +293,9 @@ data class OverviewUiState(
     val foodCobTimestamp: Long? = null,
     val eatingSoon: EatingSoonUiState = EatingSoonUiState(),
     val observedAapsTargetMmol: Double? = null,
+    val aapsLocalTargetMode: Boolean = false,
+    val aapsLocalTarget: io.aaps.copilot.service.AapsObservedTarget? = null,
+    val aapsLocalMetrics: io.aaps.copilot.service.AapsObservedMetrics? = null,
     val calibrationGain: Double? = null,
     val calibrationOffsetMmol: Double? = null,
     val calibrationConfidence: Double? = null,
@@ -391,7 +395,8 @@ data class ForecastUiState(
     val futurePath: List<ChartPointUi> = emptyList(),
     val futureCi: List<ChartCiPointUi> = emptyList(),
     val decomposition: ForecastDecompositionUi = ForecastDecompositionUi(),
-    val qualityLines: List<String> = emptyList()
+    val qualityLines: List<String> = emptyList(),
+    val aapsV3Observation: Boolean = false
 )
 
 data class UamEventUi(
@@ -584,6 +589,7 @@ data class AnalyticsUiState(
     val historyOverlayPoints: List<IsfCrOverlayPointUi> = emptyList(),
     val historyLastUpdatedTs: Long? = null,
     val circadianSections: List<CircadianPatternSectionUi> = emptyList(),
+    val circadianFromObservedAaps: Boolean = false,
     val deepLines: List<String> = emptyList(),
     val selectedInsulinProfileId: String = "NOVORAPID",
     val insulinProfileCurves: List<InsulinProfileCurveUi> = emptyList(),

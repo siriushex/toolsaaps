@@ -17,6 +17,22 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class ManualMealSubmissionTest {
+    @Test fun delayedAapsReceiptStagesMealOnceWithoutRepeatingEitherSend() = runTest {
+        var available = false
+        var sends = 0
+        var targets = 0
+        var staged = 0
+        val subject = ManualMealSubmission({ sends++; false }, { _, _, _ -> staged++ },
+            { targets++; EatingSoonResult(MealDeliveryStatus.SENT) }, reconcileCarbs = { available })
+        suspend fun submit() = subject.submit(command, selection, null, true)
+        assertThat(submit().carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
+        assertThat(submit().carbs).isEqualTo(MealDeliveryStatus.UNKNOWN)
+        assertThat(staged).isEqualTo(0)
+        available = true
+        assertThat(submit().carbs).isEqualTo(MealDeliveryStatus.SENT)
+        assertThat(submit().profileSaved).isTrue()
+        assertThat(listOf(sends, targets, staged)).containsExactly(1, 1, 1)
+    }
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test fun newEatingSoonDoesNotWaitForAnotherMealsCarbTransport() = runTest {
         val firstCarbsEntered = CompletableDeferred<Unit>()

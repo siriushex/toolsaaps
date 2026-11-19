@@ -1,0 +1,205 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalFirstPong.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalFirstPong.kt
+new file mode 100644
+index 0000000000..85eb7c42ec
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/LocalFirstPong.kt
+@@ -0,0 +1,22 @@
++package app.aaps.core.nssdk.utils
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckPhase
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckStatus
++import app.aaps.core.nssdk.localmodel.clientcontrol.PongPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import kotlinx.serialization.json.Json
++
++/** Only the first liveness probe for this local enrollment, never an action acknowledgement. */
++object LocalFirstPong {
++    fun sign(key: ByteArray, clientId: String, ping: SignedEnvelope, enrolledAt: Long, expiresAt: Long,
++             now: Long, signingPoint: String): AckEnvelope? {
++        if (key.size != 32 || signingPoint.length != 88 || ping.clientId != clientId || ping.counter != 2L ||
++            !ping.wantsAck || ping.type != "ping" || ping.payload != """{"type":"ping"}""" ||
++            ping.timestamp !in enrolledAt..now || now >= expiresAt || now >= ping.validUntil ||
++            ping.validUntil - ping.timestamp != 8000L || !ClientControlCrypto.verifyEnvelope(key, ping)) return null
++        val payload = Json.encodeToString(PongPayload.serializer(), PongPayload(signingPoint))
++        return ClientControlCrypto.signAck(key, AckEnvelope(clientId, ping.counter, AckPhase.Done, AckStatus.Ok,
++            payload = payload, timestamp = now, signature = ""))
++    }
++}
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index 620d6b0c1f..40c8f9b19a 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -85,6 +85,21 @@ internal class AuthorizedClientsRepositoryTest {
+             assertThat(sut.stageLocalKey(offer, hello, key) { 1_003 }).isFalse()
+             assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
+             assertThat(sut.secretLookup(entry.clientId)?.pendingSecretBytes != null).isEqualTo(local)
++            val ping = ClientControlCrypto.signEnvelope(key, SignedEnvelope(entry.clientId, 2L, 1_004L, "ping",
++                """{"type":"ping"}""", "", 9_004L, true))
++            val signingPair = app.aaps.core.nssdk.utils.MasterDocSigning.newKeyPair()
++            val signingPoint = signingPair.publicKey
++            signingPair.privateKey.fill(0)
++            assertThat(sut.answerLocalProbe(offer, ping.copy(signature = ""), signingPoint) { 1_005 }).isNull()
++            assertThat(sut.answerLocalProbe(offer, ping, signingPoint) { 9_004 }).isNull()
++            whenever(preferences.hardenedMode).thenReturn(false)
++            assertThat(sut.answerLocalProbe(offer, ping, signingPoint) { 1_005 }).isNull()
++            whenever(preferences.hardenedMode).thenReturn(true)
++            val pong = sut.answerLocalProbe(offer, ping, signingPoint) { 1_005 }
++            assertThat(pong != null).isEqualTo(local)
++            if (pong != null) assertThat(ClientControlCrypto.verifyAck(key, pong)).isTrue()
++            assertThat(sut.answerLocalProbe(offer, ping, signingPoint) { 1_006 }).isNull()
++            assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
+         }
+     }
+
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+index ea8c903c8b..f6e07fd20f 100644
+--- a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -6,9 +6,11 @@ import android.net.Uri
+ import android.os.Bundle
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
+ import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.AuthorizedClientsRepository
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.ClientTokens
++import app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey
+ import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
+ import app.aaps.core.nssdk.utils.ClientControlPinOffer
+ import kotlinx.coroutines.CancellationException
+@@ -18,7 +20,8 @@ import kotlinx.serialization.json.Json
+ import java.util.UUID
+
+ /** One explicit local enrollment. No Nightscout settings, global TLS or stored session changes. */
+-internal class LocalCopilotPinEnrollment(private val context: Context, private val clients: AuthorizedClientsRepository) {
++internal class LocalCopilotPinEnrollment(private val context: Context, private val clients: AuthorizedClientsRepository,
++                                         private val signingKey: MasterSigningKey) {
+     suspend fun exchange(pending: PairingPayload, pin: String): Boolean =
+         withContext(Dispatchers.IO) {
+             val pm = context.packageManager
+@@ -49,7 +52,7 @@ internal class LocalCopilotPinEnrollment(private val context: Context, private v
+                             val leaf = ticket.getByteArray("leaf")?.takeIf { it.size in 1..8192 } ?: return@use false
+                             val port = ticket.getInt("port").takeIf { it in 1..65535 } ?: return@use false
+                             val bearer = ticket.getString("bearer") ?: return@use false
+-                            LocalPinHelloPeer.exchange(port, NsLoopbackUploadIdentity(root, leaf), bearer, pending) handshake@{ hello ->
++                            LocalPinHelloPeer.exchange(port, NsLoopbackUploadIdentity(root, leaf), bearer, pending, accept = handshake@{ hello ->
+                                 val answer = LocalPinKeyResponder.answer(pending, hello, issue = { point ->
+                                     if (!trusted()) null else provider.call("issue_pending_v1", null, Bundle().apply {
+                                         putString("client", pending.clientId); putString("master", pending.masterInstallId)
+@@ -65,7 +68,19 @@ internal class LocalCopilotPinEnrollment(private val context: Context, private v
+                                     })
+                                     result?.keySet() == setOf("accepted") && result.getBoolean("accepted")
+                                 } finally { bytes.fill(0) }
+-                            }
++                            }, confirmProbe = probe@{ ping ->
++                                if (!trusted()) return@probe false
++                                val point = signingKey.publicKey() ?: return@probe false
++                                val pong = clients.answerLocalProbe(pending, ping, point, System::currentTimeMillis) ?: return@probe false
++                                if (!trusted()) return@probe false
++                                val bytes = codec.encodeToString(AckEnvelope.serializer(), pong).encodeToByteArray()
++                                try {
++                                    val result = provider.call("local_pin_pong_v1", null, Bundle().apply {
++                                        putString("client", pending.clientId); putString("handle", handle); putByteArray("pong", bytes)
++                                    })
++                                    result?.keySet() == setOf("accepted") && result.getBoolean("accepted")
++                                } finally { bytes.fill(0) }
++                            })
+                         } finally {
+                             // Same acquired peer and offer only. Unknown IPC outcomes are never retried.
+                             try {
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index b31a1793f7..a4156dcb47 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -10,6 +10,8 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.AuthorizedClient
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+ import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
++import app.aaps.core.nssdk.utils.LocalFirstPong
+ import app.aaps.core.nssdk.utils.ClientControlCrypto
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.Inject
+@@ -153,6 +155,24 @@ class AuthorizedClientsRepository(
+         true
+     }
+
++    /** A first local Ping can prove liveness, not grant a role or activate a client. */
++    internal suspend fun answerLocalProbe(pending: PairingPayload, ping: SignedEnvelope, signingPoint: String,
++                                          clock: () -> Long): AckEnvelope? = mutex.withLock {
++        val list = decode()
++        val entry = list.singleOrNull { it.clientId == pending.clientId } ?: return@withLock null
++        val wrapped = entry.pendingSecret ?: return@withLock null
++        fun allowed() = preferences.hardenedMode && preferences.get(StringNonKey.NsClientControlOwnInstallId) == pending.masterInstallId
++        if (!entry.localCopilot || entry.state != ClientState.Pending || entry.counterReceived != 1L ||
++            entry.pairExpiresAt != pending.expiresAt || entry.role != pending.role || entry.name != pending.name ||
++            !allowed() || !secureEncrypt.isValidDataString(wrapped)) return@withLock null
++        val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(wrapped))
++        val ack = try { LocalFirstPong.sign(key, entry.clientId, ping, entry.createdAt, entry.pairExpiresAt, clock(), signingPoint) }
++            finally { key.fill(0) }
++        if (ack == null || !allowed() || clock() !in ack.timestamp until minOf(entry.pairExpiresAt, ping.validUntil)) return@withLock null
++        write(list.map { if (it == entry) it.copy(counterReceived = ping.counter) else it })
++        ack
++    }
++
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */
+     suspend fun promotePendingSecret(clientId: String): Unit = mutex.withLock {
+         val list = decode()
+diff --git a/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt
+index 0d5c0e7f9c..a23bae1221 100644
+--- a/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt
++++ b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt
+@@ -19,7 +19,8 @@ import java.util.Base64
+ /** Enrollment only: never executes a command or marks an AAPS client active. */
+ internal object LocalPinHelloPeer {
+     suspend fun exchange(port: Int, identity: NsLoopbackUploadIdentity, bearer: String,
+-                         pending: PairingPayload, accept: suspend (SignedEnvelope) -> Boolean): Boolean {
++                         pending: PairingPayload, accept: suspend (SignedEnvelope) -> Boolean,
++                         confirmProbe: suspend (SignedEnvelope) -> Boolean): Boolean {
+         require(Regex("ls1\\.[A-Za-z0-9_-]{43}").matches(bearer))
+         val initial = System.currentTimeMillis()
+         val remaining = pending.expiresAt - initial
+@@ -33,7 +34,8 @@ internal object LocalPinHelloPeer {
+                 })
+                 val subscribed = CompletableDeferred<Boolean>()
+                 val received = CompletableDeferred<SignedEnvelope?>()
+-                fun lost() { subscribed.complete(false); received.complete(null) }
++                val probe = CompletableDeferred<SignedEnvelope?>()
++                fun lost() { subscribed.complete(false); received.complete(null); probe.complete(null) }
+                 try {
+                     socket.on(Socket.EVENT_CONNECT_ERROR) { lost() }
+                     socket.on(Socket.EVENT_DISCONNECT) { lost() }
+@@ -50,21 +52,28 @@ internal object LocalPinHelloPeer {
+                     for (event in listOf("create", "update")) socket.on(event) { args ->
+                         val frame = args.singleOrNull() as? JSONObject ?: return@on
+                         val doc = frame.optJSONObject("doc") ?: return@on
+-                        if (frame.optString("colName") != "settings" ||
+-                            doc.optString("identifier") != "aaps_clientcontrol_hello_${pending.clientId}") return@on
++                        if (frame.optString("colName") != "settings") return@on
++                        val destination = when (doc.optString("identifier")) {
++                            "aaps_clientcontrol_hello_${pending.clientId}" -> received
++                            "aaps_clientcontrol_cmd_ping_${pending.clientId}" -> probe
++                            else -> return@on
++                        }
+                         val raw = doc.optJSONObject("envelope")?.toString() ?: return@on
+                         val env = if (raw.length <= 4096) runCatching { Json.decodeFromString(SignedEnvelope.serializer(), raw) }.getOrNull() else null
+-                        received.complete(env)
++                        destination.complete(env)
+                     }
+                     withTimeoutOrNull(minOf(120_000L, remaining)) {
+                         socket.connect()
+                         if (!subscribed.await()) return@withTimeoutOrNull false
+                         val env = received.await() ?: return@withTimeoutOrNull false
+                         val now = System.currentTimeMillis()
+-                        socket.connected() && env.clientId == pending.clientId && env.type == "hello" && env.counter == 1L && !env.wantsAck &&
++                        val admitted = socket.connected() && env.clientId == pending.clientId && env.type == "hello" && env.counter == 1L && !env.wantsAck &&
+                             env.validUntil == pending.expiresAt && now in initial until pending.expiresAt &&
+                             env.timestamp in initial..now && ClientControlCrypto.verifyEnvelope(key, env) &&
+                             hasKeyExchangeHello(env.payload) && accept(env)
++                        if (!admitted) return@withTimeoutOrNull false
++                        val ping = probe.await() ?: return@withTimeoutOrNull false
++                        socket.connected() && System.currentTimeMillis() in initial until pending.expiresAt && confirmProbe(ping)
+                     } == true
+                 } finally { socket.off(); socket.close() }
+             }

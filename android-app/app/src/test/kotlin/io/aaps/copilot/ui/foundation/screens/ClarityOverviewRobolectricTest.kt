@@ -638,6 +638,42 @@ class ClarityOverviewRobolectricTest {
         }
     }
 
+    @Test fun localAapsTargetMissingNeverFallsBackToLegacyCurrentOrProposedTarget() {
+        val before = ready()
+        var state by mutableStateOf(before.copy(
+            aapsLocalTargetMode = true,
+            targetManagerLiveStatus = before.targetManagerLiveStatus.copy(
+                currentTargetMmol = 5.6, proposedTargetMmol = 6.7
+            )
+        ))
+        withUi { screen(state, {}) }.use {
+            compose.onNodeWithTag("clarityObservedTarget", useUnmergedTree = true).assertTextEquals("--")
+            compose.onNodeWithText(text(R.string.clarity_aaps_target_unavailable)).assertIsDisplayed()
+            compose.runOnIdle {
+                state = state.copy(aapsLocalTarget = io.aaps.copilot.service.AapsObservedTarget(
+                    5.0, 6.0, io.aaps.copilot.service.AapsObservedTarget.Kind.TEMPORARY, null
+                ))
+            }
+            compose.onNodeWithTag("clarityObservedTarget", useUnmergedTree = true).assertTextEquals("5.0 - 6.0")
+            assertNoTextOverflow()
+        }
+    }
+
+    @Test fun observationCobAndProfileMetricsAreLabeledSeparatelyFromCopilotValues() {
+        withUi { screen(ready().copy(
+            aapsV3Observation = true, currentCobGrams = 789.0,
+            aapsLocalMetrics = io.aaps.copilot.service.AapsObservedMetrics(2.5, 12.0, 0.0)
+        ), {}) }.use {
+            compose.onNodeWithText(text(R.string.clarity_aaps_cob)).assertIsDisplayed()
+            compose.onNodeWithText("789.0", substring = true).assertDoesNotExist()
+            compose.onNodeWithText("0.0 ", substring = true).assertIsDisplayed()
+            val resources = RuntimeEnvironment.getApplication().resources
+            compose.onNodeWithText(resources.getString(R.string.clarity_aaps_profile_metric, "ISF")).assertIsDisplayed()
+            compose.onNodeWithText(resources.getString(R.string.clarity_aaps_profile_metric, "CR")).assertIsDisplayed()
+            assertNoTextOverflow()
+        }
+    }
+
     @Test fun ordinaryCompactOverviewFitsWithNativeTopAndBottomChrome() {
         withUi(chrome = true) { screen(ready(), {}) }.use {
             val axis = compose.onNodeWithTag("clarityContent").fetchSemanticsNode()

@@ -364,6 +364,12 @@ class _Root:
                         raise ValueError()
                     try:
                         info = entry.stat(follow_symlinks=False)
+                        if (entry.name.endswith("-journal") and info.st_nlink == 0
+                                and stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+                                and stat.S_IMODE(info.st_mode) in (0o400, 0o600)):
+                            # An unlinked rollback journal can still have a stat
+                            # result. Validate the current name, not that inode.
+                            info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
                     except FileNotFoundError:
                         # SQLite deletes rollback journals after commit. Permanent
                         # database and lock identities must still remain present.

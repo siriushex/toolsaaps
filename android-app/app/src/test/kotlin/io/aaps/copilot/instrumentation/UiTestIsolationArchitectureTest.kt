@@ -65,6 +65,10 @@ class UiTestIsolationArchitectureTest {
             .toSet()
 
         assertThat(removedPermissions).containsAtLeastElementsIn(productionPermissions)
+        val declaredPermissions = directChildren(mainManifest.documentElement, "permission").map { it.androidName() }
+        val removedDeclarations = directChildren(uiTestManifest.documentElement, "permission")
+            .filter { it.toolsNode() == "remove" }.map { it.androidName() }
+        assertThat(removedDeclarations).containsAtLeastElementsIn(declaredPermissions)
         assertThat(removedPermissions).containsAtLeast(
             "android.permission.INTERNET",
             "android.permission.ACCESS_NETWORK_STATE",

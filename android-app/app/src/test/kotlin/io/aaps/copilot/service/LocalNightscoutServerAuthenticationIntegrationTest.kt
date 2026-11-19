@@ -19,14 +19,18 @@ import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.AuditLogger
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import io.aaps.copilot.data.repository.GlucoseSanitizer
 import io.aaps.copilot.data.repository.CarbsSendThrottle
 import io.aaps.copilot.data.repository.TempTargetSendThrottle
 import io.aaps.copilot.data.repository.NightscoutActionRepository
+import io.aaps.copilot.data.repository.NativeTargetOutcome
 import io.aaps.copilot.data.repository.SyncRepository
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.target.EatingSoonPolicy
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -37,9 +41,17 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.SSLHandshakeException
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -48,7 +60,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import org.junit.After
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Assume
 import org.junit.Test
@@ -163,6 +177,526 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         } finally {
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun samePhoneAapsReceivesBootstrapPingOverTlsAndCopilotAcceptsItsPongOnce() = runBlocking {
+        val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing AAPS enrollment fixture" }
+        Assume.assumeTrue("Requires final AAPS enrollment fixture", ready)
+        val afterEnrollment = AtomicLong(0)
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = {
+            afterEnrollment.get().takeIf { it > 0 } ?: System.currentTimeMillis()
+        })
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val runtime = SupervisorJob()
+        val scope = CoroutineScope(runtime + Dispatchers.IO)
+        val offers = LocalEnrollmentOffers(scope, listener::openLocalSettingsTicket)
+        val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+            SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+        })
+        val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
+            { "not_armed" }, { error("Unexpected command") }, localOffers = offers)
+        val root = File.createTempFile("pair-root-", ".der")
+        val leaf = File.createTempFile("pair-leaf-", ".der")
+        var child: Process? = null
+        val reads = Executors.newSingleThreadExecutor()
+        try {
+            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(cp).readText(),
+                "integration.finalenrollment.PinnedEnrollmentInteropKt").apply {
+                environment()["SETTINGS_TEST_CA"] = root.absolutePath
+                environment()["SETTINGS_TEST_LEAF"] = leaf.absolutePath
+                environment()["SETTINGS_TEST_PORT"] = port.toString()
+                redirectError(File("/dev/null"))
+            }.start()
+            child = process
+            val input = process.inputStream.bufferedReader()
+            fun receive(): String = reads.submit<String> { checkNotNull(input.readLine()) }.get(20, TimeUnit.SECONDS)
+            val output = process.outputStream.bufferedWriter()
+            fun send(value: String) { output.appendLine(value); output.flush() }
+            val offer = receive()
+            val receipt = checkNotNull(offers.publish(offer.toByteArray()))
+            val ticket = checkNotNull(receipt.getBundle("ticket"))
+            root.writeBytes(checkNotNull(ticket.getByteArray("root")))
+            leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
+            send(checkNotNull(ticket.getString("bearer")))
+            val current = checkNotNull(offers.current())
+            send(current.handle)
+            withTimeout(18_000) {
+                while (!offers.ready(current)) {
+                    check(process.isAlive) { "Peer exited before subscribing" }
+                    delay(25)
+                }
+            }
+            channel.start(scope)
+            channel.pair("23456789".toCharArray(), AapsV3PairingRoute.SAME_PHONE)
+            val pair = checkNotNull(journal.pairingSnapshot())
+            val point = receive()
+            val unboundRefused = try {
+                journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", System.currentTimeMillis())
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(unboundRefused).isTrue()
+            val token = journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", System.currentTimeMillis(), offers)
+            try { send(token.decodeToString()) } finally { token.fill(0) }
+            val key = receive().toByteArray()
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, "different-handle", key)).isFalse()
+            val parsed = io.aaps.copilot.data.repository.HistoryJson.parse(key, 2048)
+            val unsigned = kotlinx.serialization.json.JsonObject(parsed + ("signature" to kotlinx.serialization.json.JsonPrimitive("0".repeat(64))))
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, unsigned.toString().toByteArray())).isFalse()
+            var keyClockReads = 0
+            val expiredDuringWrite = try {
+                journal.acceptLocalKey(offers, pair.clientId, current.handle, key) {
+                    if (keyClockReads++ == 0) System.currentTimeMillis() else current.expires
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(expiredDuringWrite).isTrue()
+            assertThat(journal.probe(System.currentTimeMillis(), localOffers = offers)).isNull()
+            assertThat(channel.acceptLocalEnrollmentKey(pair.clientId, current.handle, key)).isTrue()
+            assertThat(journal.acceptLocalKey(offers, pair.clientId, current.handle, key)).isFalse()
+            send("KEY_ACCEPTED")
+            val pong = receive().toByteArray()
+            val ack = io.aaps.copilot.data.repository.HistoryJson.parse(pong, 2048)
+            assertThat(journal.acknowledgeProbe(ack, System.currentTimeMillis())).isFalse()
+            assertThat(journal.acceptLocalPong(offers, pair.clientId, "other", pong)).isFalse()
+            var pongClockReads = 0
+            val stalePongRolledBack = try {
+                journal.acceptLocalPong(offers, pair.clientId, current.handle, pong) {
+                    if (pongClockReads++ == 0) System.currentTimeMillis() else current.expires
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(stalePongRolledBack).isTrue()
+            assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(0)
+            assertThat(channel.acceptLocalEnrollmentPong(pair.clientId, current.handle, pong)).isTrue()
+            assertThat(journal.acceptLocalPong(offers, pair.clientId, current.handle, pong)).isFalse()
+            assertThat(journal.pairingSnapshot()?.pongCounter).isEqualTo(2)
+            send("PONG_ACCEPTED")
+            val role = receive().toByteArray()
+            val doc = io.aaps.copilot.data.repository.HistoryJson.parse(role, 2048)
+            val body = io.aaps.copilot.data.repository.HistoryJson.parse(doc.getValue("signed").jsonPrimitive.content.toByteArray(), 1024)
+            val issued = body.getValue("signedAt").jsonPrimitive.content.toLong()
+            val deadline = body.getValue("expiresAt").jsonPrimitive.content.toLong()
+            val masterKey = checkNotNull(AapsFinalMasterKey.fromPong(ack["payload"]))
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, pair.masterInstallId, current.handle, issued, deadline, issued)?.role)
+                .isEqualTo(AapsFinalClientRole.CAREGIVER)
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, "another-master", current.handle, issued, deadline, issued)).isNull()
+            assertThat(masterKey.verifyLocalRole(doc, pair.clientId, pair.masterInstallId, current.handle, issued, deadline, deadline)).isNull()
+            var roleClockReads = 0
+            val staleRoleRolledBack = try {
+                journal.acceptLocalRole(offers, pair.clientId, current.handle, role) {
+                    if (roleClockReads++ == 0) System.currentTimeMillis() else deadline
+                }
+                false
+            } catch (_: AapsV3TargetJournalFailure) { true }
+            assertThat(staleRoleRolledBack).isTrue()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, "wrong", role)).isFalse()
+            val edited = role.decodeToString().replace("Caregiver", "Admin").toByteArray()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, edited)).isFalse()
+            assertThat(journal.pairingSnapshot()?.enrollmentRole).isNull()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, role)).isTrue()
+            assertThat(channel.acceptLocalEnrollmentRole(pair.clientId, current.handle, role)).isFalse()
+            assertThat(journal.pairingSnapshot()?.enrollmentRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
+            assertThat(journal.pairingSnapshot()?.controlEnabled).isFalse()
+            send("ROLE_OBSERVED")
+            assertThat(offers.withdraw(pair.clientId, current.handle)).isTrue()
+            val reopened = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+                SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+            })
+            val afterPin = current.expires + 60_000L
+            val mealId = "manual:meal:sample"
+            val mealRow = io.aaps.copilot.data.local.entity.ActionCommandEntity("sample", afterPin, "carbs",
+                """{"carbsGrams":"12","mealProfile":"MIXED"}""", "{}", mealId, "PENDING")
+            db.actionCommandDao().upsert(mealRow)
+            val wireCount = db.localNightscoutV3Dao().count()
+            var gateCalls = 0
+            assertThat(runCatching { reopened.reserveLocalMealPreview(mealId, { afterPin }) {
+                check(++gateCalls == 1)
+            } }.exceptionOrNull()).isInstanceOf(AapsV3TargetJournalFailure::class.java)
+            assertThat(reopened.pending()).isNull()
+            val prepared = checkNotNull(journal.reserveLocalMealPreview(mealId, { afterPin }) {})
+            assertThat(reopened.reserveLocalMealPreview(mealId, { afterPin }) { error("duplicate dispatch") }).isNull()
+            assertThat(reopened.pending()?.counter).isEqualTo(3)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(wireCount)
+            send(prepared.envelope.json.toString())
+            val mealAck = io.aaps.copilot.data.repository.HistoryJson.parse(receive().encodeToByteArray(), 4096)
+            db.actionCommandDao().upsert(mealRow.copy(payloadJson = """{"carbsGrams":"12","mealProfile":"FAST"}"""))
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isFalse()
+            db.actionCommandDao().upsert(mealRow)
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isTrue()
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isFalse()
+            assertThat(reopened.status(mealId)).isEqualTo(AapsV3TargetPhase.PREVIEW)
+            val wrongCommit = runCatching { reopened.withTargetProtocol { p ->
+                reopened.commit(mealId, p, afterPin + 3) { error("not a target") }
+            } }.exceptionOrNull()
+            assertThat(wrongCommit).isInstanceOf(AapsV3TargetJournalFailure::class.java)
+            val issuedAt = afterPin + 3
+            val denied = runCatching { reopened.claimLocalMealRecord(mealId, { issuedAt }) { error("disarmed") } }
+            assertThat(denied.isFailure).isTrue()
+            assertThat(db.actionCommandDao().byIdempotencyKey(mealId)?.status).isEqualTo("PENDING")
+            val write = reopened.claimLocalMealRecord(mealId, { issuedAt }) {}
+            send(write.json.toString())
+            assertThat(receive()).isEqualTo("MEAL_RECORD_WIRE_VERIFIED")
+            assertThat(reopened.pending()).isNull()
+            val waiting = checkNotNull(db.actionCommandDao().byIdempotencyKey(mealId))
+            assertThat(waiting.status).isEqualTo("AWAITING_AAPS_MEAL_RECORD")
+            assertThat(runCatching { journal.claimLocalMealRecord(mealId, { issuedAt }) {} }.isFailure).isTrue()
+            assertThat(journal.confirmNativeMeal(waiting, issuedAt + 1, 13.0)).isFalse()
+            assertThat(runCatching { journal.confirmNativeMeal(waiting, issuedAt - 1, 12.0) }.isFailure).isTrue()
+            assertThat(db.actionCommandDao().byIdempotencyKey(mealId)).isEqualTo(waiting)
+            assertThat(journal.confirmNativeMeal(waiting, issuedAt + 1, 12.0)).isTrue()
+            val confirmed = checkNotNull(db.actionCommandDao().byIdempotencyKey(mealId))
+            assertThat(confirmed.status).isEqualTo("SENT")
+            assertThat(confirmed.timestamp).isEqualTo(issuedAt + 1)
+            assertThat(journal.status(mealId)).isEqualTo(AapsV3TargetPhase.APPLIED)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(wireCount)
+            afterEnrollment.set(afterPin)
+            lateinit var reply: String
+            var transportCalls = 0
+            val resumed = AapsV3TargetChannel(db, reopened, { false }, { "not_armed" },
+                { error("Membership must not submit a command") }, clock = afterEnrollment::get,
+                localWitnessPeer = { _, _, _ -> null }, localSettingsPeer = { master, nonce, bytes ->
+                    transportCalls++
+                    if (transportCalls > 1) reply.encodeToByteArray() else checkNotNull(listener.openLocalWitnessTicket(master, nonce, bytes)).use { proof ->
+                        assertThat(master).isEqualTo(pair.masterInstallId)
+                        send(nonce); send(afterPin.toString()); send(checkNotNull(proof.extras.getString("bearer")))
+                        reply = receive()
+                        assertThat(listener.hasNativeStorageSubscription()).isFalse()
+                        reply.encodeToByteArray()
+                    }
+                })
+            try {
+                resumed.start(scope)
+                withTimeout(10_000) { resumed.state.first { it.status == AapsV3ConnectionStatus.OFFLINE } }
+                resumed.checkConnection(checkSettings = true)
+                assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED)
+                assertThat(resumed.state.value.localMembershipRole).isEqualTo(AapsFinalClientRole.READ_ONLY)
+                assertThat(resumed.state.value.localSettingsProbeVerified).isTrue()
+                resumed.checkConnection(checkSettings = true)
+                assertThat(transportCalls).isEqualTo(1)
+                afterEnrollment.addAndGet(5_001)
+                resumed.checkConnection(checkSettings = true)
+                assertThat(transportCalls).isEqualTo(2)
+                assertThat(resumed.state.value.localSettingsProbeVerified).isFalse()
+                assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
+                assertThat(resumed.state.value.localMembershipRole).isNull()
+            } finally {
+                resumed.stop()
+            }
+            assertThat(reopened.checkLocalMembership({ afterPin }) { _, _, _ -> reply.encodeToByteArray() }).isNull()
+            output.close()
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "No signed probe verification" }
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(input.readLine()).isEqualTo("LOCAL_PONG_VERIFIED")
+            channel.checkConnection()
+            assertThat(channel.state.value.localLinkCheckedAtMs).isGreaterThan(0L)
+            assertThat(channel.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
+            assertThat(channel.state.value.localEnrollmentRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
+            assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
+            assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+            // An uncommitted meal check must yield to a guarded target; late cleanup cannot clear the target.
+            val laterMeal = "manual:meal:later"
+            db.actionCommandDao().upsert(mealRow.copy(id = "later", idempotencyKey = laterMeal))
+            checkNotNull(reopened.reserveLocalMealPreview(laterMeal, { afterPin + 4 }) {})
+            reopened.withTargetProtocol { protocol ->
+                val target = AapsV3TargetSpec(110.0, 110.0, 30, "Activity")
+                assertThat(runCatching { reopened.prepare("priority-target", target, protocol, afterPin + 5) {
+                    error("target guard denied")
+                } }.isFailure).isTrue()
+                assertThat(reopened.status(laterMeal)).isEqualTo(AapsV3TargetPhase.PREPARED)
+                assertThat(reopened.prepare("priority-target", target, protocol, afterPin + 5) {}.publication).isNotNull()
+                reopened.retireLocalMealPreview(laterMeal)
+                assertThat(reopened.status(laterMeal)).isEqualTo(AapsV3TargetPhase.EXPIRED_NO_COMMIT)
+                assertThat(reopened.pending()?.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
+            }
+        } finally {
+            channel.stop()
+            offers.clear()
+            runtime.cancelAndJoin()
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            reads.shutdownNow()
+            root.delete()
+            leaf.delete()
+        }
+    }
+
+    @Test
+    fun finalAapsPinnedPollingReceivesSettingsFromIndependentCopilotListener() = runBlocking {
+        val cp = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing pinned settings fixture" }
+        Assume.assumeTrue("Requires AAPS 4.0.0 pinned settings fixture", ready)
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val root = File.createTempFile("settings-root-", ".der")
+        val leaf = File.createTempFile("settings-leaf-", ".der")
+        val clientId = "01234567-0000-4000-8000-abcdef123456"
+        val ticket = checkNotNull(listener.openLocalSettingsTicket(clientId))
+        var child: Process? = null
+        try {
+            root.writeBytes(checkNotNull(ticket.extras.getByteArray("root")))
+            leaf.writeBytes(checkNotNull(ticket.extras.getByteArray("leaf")))
+            val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(cp).readText(),
+                "integration.finalsettings.PinnedSettingsInteropKt").apply {
+                environment()["SETTINGS_TEST_CA"] = root.absolutePath
+                environment()["SETTINGS_TEST_LEAF"] = leaf.absolutePath
+                environment()["SETTINGS_TEST_PORT"] = port.toString()
+                environment()["SETTINGS_TEST_ACCESS"] = checkNotNull(ticket.extras.getString("bearer"))
+                environment()["SETTINGS_TEST_CLIENT"] = clientId
+                redirectErrorStream(true)
+            }.start()
+            child = process
+            withTimeout(20_000) {
+                while (!ticket.subscribed()) {
+                    check(process.isAlive) { "Pinned settings peer terminated before subscription" }
+                    delay(25)
+                }
+            }
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            val store = LocalNightscoutV3Store(db)
+            store.create(storageInput("private-configuration"))
+            store.create(pingPublication("01234567-0000-4000-8000-abcdef123457"))
+            store.create(pingPublication(clientId))
+            check(process.waitFor(18, TimeUnit.SECONDS)) { "Pinned settings peer timed out" }
+            assertThat(process.exitValue()).isEqualTo(0)
+            assertThat(process.inputStream.bufferedReader().use { it.readLines() }).contains("PINNED_SETTINGS_OK")
+        } finally {
+            ticket.close()
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            root.delete()
+            leaf.delete()
+        }
+        Unit
+    }
+
+    @Test
+    fun localSettingsTicketCannotReadRestOrSubscribeTwiceAndRevocationDropsPendingChanges() = runBlocking {
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketLimits = LocalNightscoutSocketLimits(maxOutboundPackets = 2, pollWaitMs = 20))
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val client = "01234567-0000-4000-8000-abcdef123456"
+        val ticket = checkNotNull(listener.openLocalSettingsTicket(client))
+        fun attempt(sid: String, token: String, names: List<String>): Boolean {
+            postSocket(peer, port, sid, storageSubscribe(token, names))
+            return getSocket(peer, port, sid).use { it.body!!.string().contains("\"success\":true") }
+        }
+        fun connected(): String = openSocket(peer, port).also {
+            postSocket(peer, port, it, "40/storage,")
+            getSocket(peer, port, it).close()
+        }
+        try {
+            val token = checkNotNull(ticket.extras.getString("bearer"))
+            val sid = connected()
+            assertThat(getCode(peer, port, "/api/v3/status", headers = mapOf("Authorization" to "Bearer $token"))).isEqualTo(401)
+            assertThat(attempt(sid, token, listOf("settings", "entries"))).isFalse()
+            assertThat(attempt(sid, token, listOf("settings"))).isTrue()
+            assertThat(attempt(connected(), token, listOf("settings"))).isFalse()
+            assertThat(listener.openLocalSettingsTicket(client)).isNull()
+            val store = LocalNightscoutV3Store(db)
+            val target = AapsV3TargetProtocol(ByteArray(32) { 3 }).use {
+                it.prepare(client, 3, System.currentTimeMillis(), AapsV3TargetSpec(110.0, 110.0, 30, "Eating Soon")).json
+            }
+            store.create(storageInput("aaps_clientcontrol_cmd_batch_prepare_$client").copy(
+                payloadJson = """{"date":946684800001,"utcOffset":0,"app":"AAPS","schemaVersion":1,"envelope":$target}"""))
+            val expired = store.create(pingPublication(client, System.currentTimeMillis() - 60_000))
+            repeat(6) { store.create(storageInput("owner-only-$it")) }
+            getSocket(peer, port, sid).use {
+                assertThat(it.code).isEqualTo(200)
+                assertThat(it.body!!.string()).doesNotContain("42/storage,")
+            }
+            postSocket(peer, port, sid, "40")
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).doesNotContain("40{")
+            store.update(pingPublication(client), expired.document.modifiedRevision)
+            ticket.close()
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            assertThat(getSocket(peer, port, sid).use { it.code }).isEqualTo(400)
+            assertThat(attempt(connected(), token, listOf("settings"))).isFalse()
+            checkNotNull(listener.openLocalSettingsTicket(client)).close()
+            val audit = Gson().toJson(db.auditLogDao().observeLatest(100).first())
+            assertThat(audit).doesNotContain(token)
+            assertThat(audit).doesNotContain(sid)
+        } finally { ticket.close() }
+    }
+
+    @Test
+    fun expiredSettingsSocketCannotDrainUnreadPublicationEvenWithFreshHeartbeat() = runBlocking {
+        val now = System.currentTimeMillis()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = { now })
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val clientId = "01234567-0000-4000-8000-abcdef123456"
+        checkNotNull(listener.openLocalSettingsTicket(clientId)).use { ticket ->
+            val peer = trustedClient(caCertificate)
+            val sid = openSocket(peer, port)
+            postSocket(peer, port, sid, "40/storage,")
+            getSocket(peer, port, sid).close()
+            postSocket(peer, port, sid, storageSubscribe(checkNotNull(ticket.extras.getString("bearer"))))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+            LocalNightscoutV3Store(db).create(pingPublication(clientId, now))
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(LocalSettingsGrants.LIFETIME_MS))
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            getSocket(peer, port, sid).use {
+                assertThat(it.code).isEqualTo(400)
+                assertThat(it.body!!.string()).doesNotContain(clientId)
+            }
+        }
+    }
+
+    @Test
+    fun postPinSettingsGrantCarriesOnlyOneFreshChallengeAndCannotReadDocuments() = runBlocking {
+        val clock = AtomicLong(System.currentTimeMillis())
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get,
+            socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val master = "12345678-0000-4000-8000-123456789012"
+        val client = "12345678-0000-4000-8000-123456789013"
+        val nonce = "12345678-0000-4000-8000-123456789014"
+        val request = AapsV3SessionProtocol(ByteArray(32) { 17 }).use { it.localWitness(client, master, nonce, clock.get()) }
+        val bytes = request.toString().encodeToByteArray()
+        assertThat(listener.openLocalWitnessTicket(master, client, bytes)).isNull()
+        assertThat(listener.openLocalWitnessTicket(client, nonce, bytes)).isNull()
+        checkNotNull(listener.openLocalWitnessTicket(master, nonce, bytes)).use { ticket ->
+            val token = checkNotNull(ticket.extras.getString("bearer"))
+            val sid = openSocket(peer, port)
+            postSocket(peer, port, sid, "40/storage,")
+            getSocket(peer, port, sid).close()
+            postSocket(peer, port, sid, storageSubscribe(token))
+            val packets = getSocket(peer, port, sid).use { it.body!!.string() }.split('\u001e')
+            assertThat(packets).hasSize(2)
+            assertThat(packets.first()).contains("\"success\":true")
+            val event = JsonParser.parseString(packets.last().removePrefix("42/storage,")).asJsonArray
+            assertThat(event[0].asString).isEqualTo("local_session_witness_v1")
+            assertThat(event[1]).isEqualTo(JsonParser.parseString(request.toString()))
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            assertThat(getCode(peer, port, "/api/v3/status", headers = mapOf("Authorization" to "Bearer $token"))).isEqualTo(401)
+            LocalNightscoutV3Store(db).create(pingPublication(client, clock.get()))
+            getSocket(peer, port, sid).use { assertThat(it.body!!.string()).doesNotContain("42/storage,") }
+            clock.addAndGet(8_000)
+            getSocket(peer, port, sid).use { assertThat(it.code).isEqualTo(400) }
+        }
+        assertThat(listener.openLocalWitnessTicket(master, nonce, bytes)).isNull()
+    }
+
+    @Test
+    fun settingsTicketExpiresOnMonotonicDeadlineAndOldHandleCannotRevokeReplacement() {
+        val clock = AtomicLong(500)
+        val grants = LocalSettingsGrants(clock::get)
+        val client = "01234567-0000-4000-8000-abcdef123456"
+        fun issue() = grants.issue(client, 12345, byteArrayOf(1), byteArrayOf(2)) {}
+        val first = checkNotNull(issue())
+        val token = checkNotNull(first.extras.getString("bearer"))
+        val lease = checkNotNull(grants.claim(token))
+        assertThat(grants.claim(token)).isNull()
+        clock.addAndGet(LocalSettingsGrants.LIFETIME_MS - 1)
+        assertThat(lease.live()).isTrue()
+        clock.incrementAndGet()
+        assertThat(lease.live()).isFalse()
+        val second = checkNotNull(issue())
+        first.close()
+        assertThat(grants.claim(token)).isNull()
+        assertThat(grants.claim(checkNotNull(second.extras.getString("bearer")))).isNotNull()
+        grants.close()
+        assertThat(issue()).isNull()
+        second.close()
+    }
+
+    @Test
+    fun androidAapsSocketLibrarySubscribesAndReceivesSettingsOverTls() = runBlocking {
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val socket = io.socket.client.IO.socket("https://127.0.0.1:$port/storage", io.socket.client.IO.Options().apply {
+            callFactory = peer
+            webSocketFactory = peer
+            forceNew = true
+            reconnection = false
+        })
+        val subscribed = CompletableDeferred<Boolean>()
+        val document = CompletableDeferred<String>()
+        try {
+            socket.on(io.socket.client.Socket.EVENT_CONNECT_ERROR) { subscribed.complete(false) }
+            socket.on(io.socket.client.Socket.EVENT_CONNECT) {
+                val names = listOf("devicestatus", "entries", "profile", "treatments", "foods", "settings")
+                val auth = org.json.JSONObject().put("accessToken", localAccessToken)
+                    .put("collections", org.json.JSONArray(names))
+                socket.emit("subscribe", auth, io.socket.client.Ack { args ->
+                    subscribed.complete((args.firstOrNull() as? org.json.JSONObject)?.optBoolean("success") == true)
+                })
+            }
+            socket.on("create") { args ->
+                val event = args.firstOrNull() as? org.json.JSONObject
+                if (event?.optString("colName") == "settings") {
+                    event.optJSONObject("doc")?.let { document.complete(it.optString("identifier")) }
+                }
+            }
+            socket.connect()
+            assertThat(withTimeout(12_000) { subscribed.await() }).isTrue()
+            assertThat(listener.hasNativeStorageSubscription()).isTrue()
+            LocalNightscoutV3Store(db).create(storageInput("socket-settings-test"))
+            assertThat(withTimeout(12_000) { document.await() }).isEqualTo("socket-settings-test")
+        } finally {
+            socket.off()
+            socket.close()
+        }
+    }
+
+    @Test
+    fun idleSettingsSubscriberIsUnavailableAtPongDeadlineWithoutAnotherRequest() {
+        val clock = AtomicLong(1_000)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get)
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        clock.addAndGet(25_000)
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("2")
+        clock.addAndGet(19_999)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+        clock.incrementAndGet()
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
+        assertThat(postSocketCode(peer, port, sid, "3")).isEqualTo(400)
+        openStorage(peer, port)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+    }
+
+    @Test
+    fun onlyAnAuthenticatedSettingsSubscriptionMakesNativeCommandsAvailable() = runBlocking {
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openSocket(peer, port)
+        postSocket(peer, port, sid, "40/storage,")
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).startsWith("40/storage,")
+        for ((names, available) in listOf(
+            listOf("entries") to false, listOf("entries", "settings") to true, listOf("entries") to false,
+            listOf("settings") to true
+        )) {
+            postSocket(peer, port, sid, storageSubscribe(collections = names))
+            assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).contains("\"success\":true")
+            assertThat(listener.hasNativeStorageSubscription()).isEqualTo(available)
+        }
+        postSocket(peer, port, sid, "41/storage,")
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
     }
 
     @Test
@@ -357,6 +891,40 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun v4SettingsCapabilityProbeRequiresV3BearerAndDoesNotWidenRights() = runBlocking {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val prefix = "/api/v2/authorization/debug/check/"
+        val path = prefix + "api:settings:create"
+        assertThat(getCode(peer, port, path)).isEqualTo(401)
+        assertThat(getCode(peer, port, path, apiSecretSha1)).isEqualTo(401)
+        assertThat(getCode(peer, port, path + "?token=$localAccessToken")).isEqualTo(401)
+        val bearer = get(peer, port, "/api/v2/authorization/request/$localAccessToken").use {
+            JsonParser.parseString(it.body!!.string()).asJsonObject["token"].asString
+        }
+        val headers = mapOf("Authorization" to "Bearer $bearer")
+        for (permission in listOf("api:settings:create", "api%3Asettings%3Aupdate")) {
+            get(peer, port, prefix + permission, headers = headers).use {
+                assertThat(it.code).isEqualTo(200)
+                assertThat(it.header("Cache-Control")).isEqualTo("no-store")
+                assertThat(it.body!!.string()).isEqualTo("""{"check":true}""")
+            }
+        }
+        for (permission in listOf("api:food:create", "api:settings:*", "api:settings:create/other")) {
+            get(peer, port, prefix + permission, headers = headers).use { assertThat(it.code).isEqualTo(403) }
+        }
+        get(peer, port, "$path?extra=1", headers = headers).use { assertThat(it.code).isEqualTo(400) }
+        peer.newCall(Request.Builder().url("https://127.0.0.1:$port$path").header("Authorization", "Bearer $bearer")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()).execute().use {
+            assertThat(it.code).isEqualTo(405)
+        }
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(0)
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
     fun v3RefreshRequiresExactDecodedCredentialAndGet() {
         val port = freePort()
         server = newServer(MutableLocalNightscoutRuntimeState())
@@ -395,6 +963,20 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         authorizeLocalServer(port)
         assertThat(runtime.value.status).isEqualTo(LocalNightscoutRuntimeStatus.READY)
         assertThat(getCode(peer, port, "/api/v1/status.json", apiSecretSha1)).isEqualTo(200)
+    }
+
+    @Test
+    fun localV3StatusRequiresBothTheIntendedCaAndBearer() {
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val path = "/api/v3/status"
+        val otherCa = HeldCertificate.Builder().certificateAuthority(0).build().certificate
+        assertThrows(SSLHandshakeException::class.java) {
+            getCode(trustedClient(otherCa), port, path)
+        }
+        assertThat(getCode(trustedClient(caCertificate), port, path)).isEqualTo(401)
+        assertThat(getCode(trustedClient(caCertificate), port, path, apiSecretSha1)).isEqualTo(401)
     }
 
     @Test
@@ -550,6 +1132,300 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         assertThat(server?.update(true, port)).isEqualTo(port)
         post(token).use { assertThat(it.code).isEqualTo(401) }
         assertThat(db.localNightscoutV3Dao().count()).isEqualTo(1)
+    }
+
+    @Test
+    fun uploadTicketStoresObservationsAndCannotReadOrApplyTherapy() = runBlocking {
+        val port = freePort()
+        val active = newServer(MutableLocalNightscoutRuntimeState())
+        server = active
+        assertThat(active.withLocalUploadTicket { error("Stopped server issued a ticket") }).isFalse()
+        assertThat(active.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        var endedHeaders = emptyMap<String, String>()
+        assertThat(active.withLocalUploadTicket { ticket ->
+            val headers = mapOf("Authorization" to "Bearer " + checkNotNull(ticket.getString("bearer")))
+            endedHeaders = headers
+            assertThat(ticket.getInt("port")).isEqualTo(port)
+            assertThat(ticket.getByteArray("root")).isEqualTo(caCertificate.encoded)
+            assertThat(getCode(peer, port, "/api/v3/status", headers = headers)).isEqualTo(200)
+            listOf("/api/v3/entries", "/api/v3/treatments", "/api/v3/settings").forEach { path ->
+                assertThat(getCode(peer, port, path, headers = headers)).isEqualTo(403)
+            }
+            fun post(path: String, payload: String) = peer.newCall(
+                Request.Builder().url("https://127.0.0.1:$port$path")
+                    .header("Authorization", headers.getValue("Authorization"))
+                    .post(payload.toRequestBody("application/json".toMediaType())).build()
+            ).execute().use { it.code }
+            assertThat(post("/api/v3/settings", "{}")).isEqualTo(403)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Temporary Target","date":1800000000000}""")).isEqualTo(403)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Correction Bolus","date":1800000000000,"carbs":42}""")).isEqualTo(403)
+            assertThat(post("/api/v3/entries?limit=1",
+                """{"app":"AAPS-local","type":"sgv","date":1800000000000,"sgv":120}""")).isEqualTo(403)
+            assertThat(post("/api/v3/entries",
+                """{"app":"AAPS-local","type":"sgv","device":"fixture-sensor","date":1800000000000,"sgv":120}""")).isEqualTo(201)
+            assertThat(post("/api/v3/entries",
+                """{"app":"AAPS-local","type":"sgv","device":"fixture-sensor","date":1800000000000,"sgv":120}""")).isEqualTo(200)
+            assertThat(post("/api/v3/treatments",
+                """{"app":"AAPS-local","eventType":"Temp Basal","date":1800000000000,"durationInMilliseconds":1800000,"percent":-100}""")).isEqualTo(201)
+            true
+        }).isTrue()
+        assertThat(getCode(peer, port, "/api/v3/status", headers = endedHeaders)).isEqualTo(401)
+        assertThat(db.localNightscoutV3Dao().count()).isEqualTo(2)
+        assertThat(db.glucoseDao().since(0)).isEmpty()
+        assertThat(db.therapyDao().since(0)).isEmpty()
+    }
+
+    @Test
+    fun pinnedLocalSdkStoresGlucoseProfileAndInsulinWithoutClinicalPromotion() = runBlocking {
+        val classpath = System.getenv("AAPS_LOOPBACK_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpath?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required local upload SDK fixture" }
+        }
+        Assume.assumeTrue("Requires the dedicated local upload SDK fixture",
+            classpath?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val root = File.createTempFile("loopback-root-", ".der")
+        val leaf = File.createTempFile("loopback-leaf-", ".der")
+        val output = File.createTempFile("loopback-result-", ".txt")
+        var child: Process? = null
+        try {
+            assertThat(checkNotNull(server).withLocalUploadTicket { ticket ->
+                root.writeBytes(checkNotNull(ticket.getByteArray("root")))
+                leaf.writeBytes(checkNotNull(ticket.getByteArray("leaf")))
+                val process = ProcessBuilder("$javaHome/bin/java", "-cp", checkNotNull(classpath).readText(),
+                    "integration.finalupload.PinnedUploadInteropKt")
+                    .apply {
+                        environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                        environment()["ENTRY_TEST_ROOT_DER"] = root.absolutePath
+                        environment()["ENTRY_TEST_LEAF_DER"] = leaf.absolutePath
+                        environment()["ENTRY_TEST_UPLOAD_BEARER"] = checkNotNull(ticket.getString("bearer"))
+                        redirectErrorStream(true)
+                        redirectOutput(output)
+                    }.start()
+                child = process
+                check(process.waitFor(35, TimeUnit.SECONDS)) { "Local upload fixture timed out" }
+                val lines = output.readLines()
+                val failure = lines.singleOrNull {
+                    Regex("PINNED_LOCAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+                }
+                check(process.exitValue() == 0 && "PINNED_LOCAL_WIRE_OK" in lines) {
+                    "Local upload fixture failed: ${failure ?: "unclassified"}"
+                }
+                true
+            }).isTrue()
+            val store = LocalNightscoutV3Store(db)
+            val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
+            assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)
+            assertThat(observed.profile).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(observed.insulin).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
+            assertThat(observed.insulinRecordCount).isEqualTo(1)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(3)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+        } finally {
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            root.delete()
+            leaf.delete()
+            output.delete()
+        }
+    }
+
+    @Test
+    fun pristineFinalSdkUsesRealTlsAuthenticationAndBoundedDeviceStatusHistory() = runBlocking {
+        val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        if (System.getenv("CI") == "true") {
+            check(classpath?.isFile == true && !javaHome.isNullOrBlank()) { "Missing required AAPS 4.0.0 SDK fixture" }
+        }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare_final.sh for AAPS 4.0.0 interop",
+            classpath?.isFile == true && !javaHome.isNullOrBlank())
+        val port = freePort()
+        server = newServer(MutableLocalNightscoutRuntimeState())
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        val trustFile = File.createTempFile("final-sdk-trust-", ".p12")
+        val output = File.createTempFile("final-sdk-result-", ".txt")
+        var process: Process? = null
+        try {
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            val child = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}",
+                "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", checkNotNull(classpath).readText(), "integration.finalupload.StockFinalInteropKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    redirectErrorStream(true)
+                    redirectOutput(output)
+                }.start()
+            process = child
+            check(child.waitFor(60, TimeUnit.SECONDS)) { "AAPS 4.0.0 SDK fixture timed out" }
+            val lines = output.readLines()
+            val safeFailure = lines.singleOrNull { Regex("STOCK_FINAL_WIRE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it) }
+            check(child.exitValue() == 0 && "STOCK_FINAL_WIRE_OK" in lines) {
+                "AAPS 4.0.0 SDK compatibility failed: ${safeFailure ?: "unclassified"}"
+            }
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(7)
+            val store = LocalNightscoutV3Store(db)
+            val observed = AapsV3InboundDiagnostics(store).check(1_800_000_000_001L)
+            assertThat(observed.glucose).isEqualTo(AapsV3InboundGlucose.FRESH)
+            assertThat(observed.profile).isEqualTo(AapsV3ObservedProfileStatus.OBSERVED)
+            assertThat(observed.insulin).isEqualTo(AapsV3ObservedInsulinStatus.OBSERVED)
+            assertThat(observed.insulinRecordCount).isEqualTo(1)
+            assertFinalSignedFixtures(store)
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+            assertThat(db.therapyDao().since(0)).isEmpty()
+        } finally {
+            process?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            trustFile.delete()
+            output.delete()
+        }
+    }
+
+    @Test
+    fun finalStorageRoundTripReadsBothTargetsFromIsolatedAapsDatabaseBeforeAck() = finalStorageRoundTrip(false)
+
+    @Test
+    fun finalLocalTokenBindsHttpAndStorageSubjectsForBothTargets() = finalStorageRoundTrip(true)
+
+    private fun finalStorageRoundTrip(useToken: Boolean) = runBlocking {
+        val classpath = System.getenv("AAPS_FINAL_INTEROP_CLASSPATH")?.let(::File)
+        val javaHome = System.getenv("AAPS_INTEROP_JAVA_HOME")
+        val ready = classpath?.isFile == true && !javaHome.isNullOrBlank()
+        if (System.getenv("CI") == "true") check(ready) { "Missing required final SDK fixture" }
+        Assume.assumeTrue("Run tools/aaps4_compat/prepare_final.sh", ready)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val runtime = SupervisorJob()
+        val now = AtomicLong(1_800_000_000_200L)
+        val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
+            SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
+        })
+        val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
+            { null }, { write -> write() }, now::get)
+        val trustFile = File.createTempFile("storage-stand-trust-", ".p12")
+        val output = File.createTempFile("storage-stand-result-", ".txt")
+        var child: Process? = null
+        fun failureCode() = output.readLines().singleOrNull {
+            Regex("FINAL_STORAGE_FAILED:[a-z-]+:[A-Za-z]+Exception").matches(it)
+        } ?: "unclassified"
+        try {
+            val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                setCertificateEntry("test-ca", caCertificate)
+            }
+            trustFile.outputStream().use { trust.store(it, "test-trust".toCharArray()) }
+            val process = ProcessBuilder("$javaHome/bin/java",
+                "-Djavax.net.ssl.trustStore=${trustFile.absolutePath}", "-Djavax.net.ssl.trustStorePassword=test-trust",
+                "-cp", checkNotNull(classpath).readText(), "integration.finalupload.FinalStorageStandKt")
+                .apply {
+                    environment()["ENTRY_TEST_URL"] = "https://127.0.0.1:$port"
+                    environment()["ENTRY_TEST_ACCESS"] = localAccessToken
+                    environment()["ENTRY_TEST_PAIR_TOKEN"] = if (useToken) "1" else "0"
+                    redirectErrorStream(true)
+                    redirectOutput(output)
+                }.start()
+            child = process
+            withTimeout(30_000) {
+                while ("FINAL_STORAGE_OFFER_READY" !in output.readLines()) {
+                    check(process.isAlive) { "Storage stand did not publish offer: ${failureCode()}" }
+                    delay(25)
+                }
+            }
+            assertThat(listener.hasNativeStorageSubscription()).isTrue()
+            channel.start(CoroutineScope(runtime + Dispatchers.IO))
+            channel.pair("23456789".toCharArray(), AapsV3PairingRoute.STORAGE)
+            if (useToken) {
+                val pair = checkNotNull(journal.pairingSnapshot())
+                val hello = checkNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_${pair.clientId}"))
+                val envelope = io.aaps.copilot.data.repository.HistoryJson.parse(hello.payloadJson.toByteArray(), 65_536).getValue("envelope").jsonObject
+                val point = io.aaps.copilot.data.repository.HistoryJson.parse(envelope.getValue("payload").jsonPrimitive.content.toByteArray(), 4096)
+                    .getValue("publicKey").jsonPrimitive.content
+                val issued = journal.issuePendingClientToken(pair.clientId, pair.masterInstallId, point, "aaps-Stand", now.get())
+                try { process.outputStream.use { it.write(issued) } } finally { issued.fill(0) }
+            }
+            withTimeout(12_000) {
+                while (channel.state.value.status != AapsV3ConnectionStatus.CONNECTED) {
+                    check(process.isAlive) { "Storage stand could not pair: ${failureCode()}" }
+                    channel.checkConnection()
+                    delay(25)
+                }
+            }
+            fun target(id: String, mmol: Double, minutes: Int) = ActionCommand(
+                id, "temp_target", mapOf("targetMmol" to mmol.toString(), "durationMinutes" to minutes.toString()),
+                SafetySnapshot(false, false, null, 0), id
+            )
+            val commands = listOf(target("fixture-target", 6.0, 45),
+                target("manual:meal:fixture:eating-soon", EatingSoonPolicy.TARGET_MMOL, EatingSoonPolicy.DURATION_MINUTES))
+            for (command in commands) {
+                now.addAndGet(1_000)
+                val outcome = channel.send(command) { null }
+                check(outcome == NativeTargetOutcome.APPLIED) { "Stand target not confirmed: ${failureCode()}" }
+                assertThat(journal.status(command.idempotencyKey)).isEqualTo(AapsV3TargetPhase.APPLIED)
+            }
+            check(process.waitFor(12, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                "Storage stand did not finish: ${failureCode()}"
+            }
+            assertThat(output.readLines()).contains("FINAL_STORAGE_READBACK_OK")
+            val head = db.localNightscoutV3Dao().head("settings")
+            assertThat(channel.send(commands.last()) { error("A settled command cannot be resent") })
+                .isEqualTo(NativeTargetOutcome.APPLIED)
+            assertThat(db.localNightscoutV3Dao().head("settings")).isEqualTo(head)
+            assertThat(db.therapyDao().since(0)).isEmpty()
+            assertThat(db.glucoseDao().since(0)).isEmpty()
+        } finally {
+            channel.stop()
+            runtime.cancelAndJoin()
+            child?.let { if (it.isAlive) it.destroyForcibly().waitFor(5, TimeUnit.SECONDS) }
+            trustFile.delete()
+            output.delete()
+        }
+    }
+
+    private suspend fun assertFinalSignedFixtures(store: LocalNightscoutV3Store) {
+        val at = 1_800_000_000_000L
+        val client = "11111111-2222-4333-8444-555555555555"
+        suspend fun settings(id: String) = io.aaps.copilot.data.repository.HistoryJson.parse(
+            checkNotNull(store.get(LocalV3Collection.SETTINGS, id)).payloadJson.toByteArray(), 65_536)
+        val offer = settings("aaps_clientcontrol_offer_$client").getValue("offer") as kotlinx.serialization.json.JsonObject
+        val pin = "23456789".toCharArray()
+        AapsV3PairingProtocol.unwrapFinal(offer, pin, at).use { credential ->
+            assertThat(credential.clientId).isEqualTo(client)
+            assertThat(credential.advertisedRole).isEqualTo(AapsFinalClientRole.CAREGIVER)
+            val ack = settings("aaps_clientcontrol_ack_$client").getValue("ack") as kotlinx.serialization.json.JsonObject
+            val doc = settings("aaps")
+            credential.withSecret { shared ->
+                AapsV3SessionProtocol(shared).use { session ->
+                    val probe = session.ping(client, 2L, at)
+                    assertThat(session.isPong(probe, ack, at + 2)).isFalse()
+                    val key = checkNotNull(session.finalMasterKey(probe, ack, at + 2))
+                    val proof = checkNotNull(key.verifyRoster(doc, client, at + 2, at))
+                    assertThat(proof.member).isTrue()
+                    assertThat(proof.role).isEqualTo(AapsFinalClientRole.CAREGIVER)
+                    assertThat(proof.controlEnabled).isTrue()
+                    assertThat(key.verifyRoster(doc, client, at + 2, at + 2)).isNull()
+                    val other = "22222222-2222-4222-8222-222222222222"
+                    assertThat(key.verifyRoster(doc, other, at + 2, at)?.controlEnabled).isFalse()
+                    val tamperedDoc = kotlinx.serialization.json.JsonObject(doc + ("signed" to
+                        kotlinx.serialization.json.JsonPrimitive(doc.getValue("signed").toString() + " ")))
+                    assertThat(key.verifyRoster(tamperedDoc, client, at + 2, at)).isNull()
+                    val wrongProbe = session.ping(client, 3L, at)
+                    assertThat(session.finalMasterKey(wrongProbe, ack, at + 2)).isNull()
+                }
+            }
+        }
+        assertThat(pin.all { it == '\u0000' }).isTrue()
     }
 
     @Test
@@ -966,6 +1842,91 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             .isEqualTo(NightscoutActionRepository.STATUS_PENDING)
         assertThat(shadowOf(context as android.app.Application).broadcastIntents
             .filter { it.action == "com.eveningoutpost.dexdrip.NS_EMULATOR" }).isEmpty()
+    }
+
+    @Test fun missingLegacyReceiverUsesPrivateMealPreviewOnceWithoutReportingDelivery() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        val calls = mutableListOf<String>()
+        val command = managerTempTargetCommand("meal-form").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12"), idempotencyKey = "manual:meal:form")
+        val repository = NightscoutActionRepository(context, db, settings, ApiFactory { error("no HTTP fallback") },
+            CarbsSendThrottle(db.actionCommandDao()), TempTargetSendThrottle(db.actionCommandDao()),
+            Gson(), AuditLogger(db.auditLogDao(), Gson()), submitNativeMeal = { calls.add(it); io.aaps.copilot.data.repository.NativeMealSubmission.PREVIEW_ONLY })
+        repeat(2) { assertThat(repository.submitCarbs(command)).isFalse() }
+        assertThat(calls).containsExactly(command.idempotencyKey)
+        assertThat(repository.manualCarbBlockReason(command)).isEqualTo("local_meal_checked_not_saved")
+        assertThat(db.therapyDao().since(0)).isEmpty()
+        settings.setTherapyActionsArmed(false)
+        assertThat(repository.submitCarbs(command.copy(id = "other", idempotencyKey = "manual:meal:other"))).isFalse()
+        assertThat(calls).hasSize(1)
+    }
+
+    @Test fun localMealPostAndItsEchoDoNotSubstituteForAapsRecordReadback() = runBlocking {
+        val port = freePort()
+        val settings = configuredLocalSettings(port)
+        installAapsRelayReceiver()
+        server = newServer(MutableLocalNightscoutRuntimeState(), settingsStore = settings)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        authorizeLocalServer(port)
+
+        val posts = AtomicInteger()
+        var receiptAvailable = false
+        val command = managerTempTargetCommand("meal-record").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12.25"), idempotencyKey = "manual:meal:stand-meal")
+        val repository = NightscoutActionRepository(context, db, settings, ApiFactory {
+            posts.incrementAndGet()
+            LocalNightscoutClientIdentity(caCertificate, apiSecretSha1)
+        }, CarbsSendThrottle(db.actionCommandDao()), TempTargetSendThrottle(db.actionCommandDao()),
+            Gson(), AuditLogger(db.auditLogDao(), Gson()), localMealReadbackAvailable = { true },
+            readLocalMealRecord = { key, at, grams ->
+                assertThat(key).isEqualTo(command.idempotencyKey)
+                assertThat(grams).isEqualTo(12.25)
+                assertThat(at).isEqualTo(db.therapyDao().since(0L).single().timestamp)
+                receiptAvailable
+            })
+        assertThat(repository.submitCarbs(command)).isFalse()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo(NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+        val reopenedMeal = command.copy(id = "second-form", idempotencyKey = "manual:meal:second-form")
+        assertThat(repository.submitCarbs(reopenedMeal)).isFalse()
+        assertThat(repository.manualCarbBlockReason(reopenedMeal)).isEqualTo("carbs_rate_limit_30m")
+        assertThat(repository.submitCarbs(command)).isFalse()
+        receiptAvailable = true
+        assertThat(repository.submitCarbs(command)).isTrue()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo("SENT")
+        assertThat(posts.get()).isEqualTo(1)
+    }
+
+    @Test fun lostNativeMealReplyLeavesOnlyReadbackAndNeverPostsToNightscout() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        val command = managerTempTargetCommand("lost-meal-reply").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12"), idempotencyKey = "manual:meal:lost-reply")
+        var writes = 0
+        var reads = 0
+        val dao = db.actionCommandDao()
+        val repo = NightscoutActionRepository(context, db, settings, ApiFactory { error("no fallback") },
+            CarbsSendThrottle(dao), TempTargetSendThrottle(dao), Gson(), AuditLogger(db.auditLogDao(), Gson()),
+            submitNativeMeal = { key ->
+                writes++
+                val row = checkNotNull(dao.byIdempotencyKey(key))
+                dao.upsert(row.copy(status = NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT,
+                    payloadJson = Gson().toJson(command.params + ("deliveryChannel" to NATIVE_MEAL_RECEIPT))))
+                error("reply lost after claim")
+            }, verifyNativeMealRow = { row, grams ->
+                assertThat(row.idempotencyKey).isEqualTo(command.idempotencyKey)
+                assertThat(grams).isEqualTo(12.0)
+                if (++reads == 1) false else {
+                    dao.upsert(row.copy(status = NightscoutActionRepository.STATUS_SENT,
+                        payloadJson = Gson().toJson(command.params + ("deliveryChannel" to "aaps_meal_record"))))
+                    true
+                }
+            })
+        assertThat(repo.submitCarbs(command)).isFalse()
+        assertThat(dao.byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo(NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+        assertThat(repo.reconcilePendingLocalMeal()).isTrue()
+        assertThat(repo.submitCarbs(command)).isTrue()
+        assertThat(writes).isEqualTo(1)
+        assertThat(reads).isEqualTo(2)
+        assertThat(db.therapyDao().since(0)).isEmpty()
     }
 
     @Test
@@ -1968,7 +2929,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val release = CountDownLatch(1)
         val blockNext = AtomicBoolean(false)
         val port = freePort()
-        server = newServer(MutableLocalNightscoutRuntimeState(),
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime,
             socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20L),
             socketSnapshotCheckpoint = { checkpoint ->
                 if (checkpoint == phase && blockNext.compareAndSet(true, false)) {
@@ -1976,7 +2938,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                     check(release.await(10, TimeUnit.SECONDS))
                 }
             })
-        assertThat(server?.update(true, port)).isEqualTo(port)
+        val bound = server?.update(true, port)
+        com.google.common.truth.Truth.assertWithMessage("Loopback startup: %s", runtime.value.reason).that(bound).isEqualTo(port)
         val client = trustedClient(caCertificate)
         val donor = openSocket(client, port)
         postSocket(client, port, donor, authorizePacket())
@@ -2147,8 +3110,10 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     @Test
     fun normalClosePacketAcknowledgesThenRejectsFurtherRequests() {
         val port = freePort()
-        server = newServer(MutableLocalNightscoutRuntimeState())
-        assertThat(server?.update(true, port)).isEqualTo(port)
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        val started = server?.update(true, port)
+        com.google.common.truth.Truth.assertWithMessage("server startup (${runtime.value.reason})").that(started).isEqualTo(port)
         val client = trustedClient(caCertificate)
         val sid = openSocket(client, port)
         assertThat(postSocketCode(client, port, sid, "1")).isEqualTo(200)
@@ -2171,6 +3136,12 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     private fun storageInput(id: String, collection: LocalV3Collection = LocalV3Collection.SETTINGS) =
         LocalV3DocumentInput(collection, id, "local-v3-target", 946_684_800_001,
             """{"date":946684800001,"utcOffset":0,"app":"test","kind":"synthetic"}""")
+
+    private fun pingPublication(clientId: String, at: Long = System.currentTimeMillis()): LocalV3DocumentInput {
+        val envelope = AapsV3SessionProtocol(ByteArray(32) { 3 }).use { it.ping(clientId, 2, at) }
+        return storageInput("aaps_clientcontrol_cmd_ping_$clientId").copy(
+            payloadJson = """{"date":946684800001,"utcOffset":0,"app":"AAPS","schemaVersion":1,"envelope":$envelope}""")
+    }
 
     private fun pollStorageEvents(peer: OkHttpClient, port: Int, sid: String, count: Int): List<com.google.gson.JsonObject> {
         val result = mutableListOf<com.google.gson.JsonObject>()

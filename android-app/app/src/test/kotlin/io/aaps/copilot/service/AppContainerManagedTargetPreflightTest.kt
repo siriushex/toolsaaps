@@ -3,6 +3,7 @@ package io.aaps.copilot.service
 import com.google.common.truth.Truth.assertThat
 import com.google.gson.Gson
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.config.SetupInsulinSource
 import io.aaps.copilot.data.local.entity.ActionCommandEntity
 import io.aaps.copilot.data.repository.NightscoutActionRepository
 import io.aaps.copilot.data.repository.TargetCommandPreflightBlockedException
@@ -21,6 +22,17 @@ import org.junit.Test
 class AppContainerManagedTargetPreflightTest {
 
     private val gson = Gson()
+
+    @Test fun nativeInsulinAndMealReadsFollowSelectedRuntimeWithoutArmingIt() {
+        val settings = testSettings().copy(localAapsV3Upload = true, therapyActionsArmed = false, localObservationEnabled = false)
+        assertThat(settings.nativeInsulinInputEnabled(SetupInsulinSource.AAPS)).isFalse()
+        assertThat(settings.copy(localObservationEnabled = true).nativeInsulinInputEnabled(SetupInsulinSource.AAPS)).isTrue()
+        val armed = settings.copy(therapyActionsArmed = true)
+        assertThat(armed.nativeInsulinInputEnabled(SetupInsulinSource.AAPS)).isTrue()
+        assertThat(armed.nativeInsulinInputEnabled(SetupInsulinSource.INJECTIONS)).isFalse()
+        assertThat(armed.copy(localBroadcastIngestEnabled = false).nativeInsulinInputEnabled(SetupInsulinSource.AAPS)).isFalse()
+        assertThat(armed.copy(powerSaveUntilMs = Long.MAX_VALUE).nativeInsulinInputEnabled(SetupInsulinSource.AAPS)).isFalse()
+    }
 
     @Test
     fun confirmedEatingSoonBlocksOrdinaryRetargetButAllowsExistingQualifiedProtection() {

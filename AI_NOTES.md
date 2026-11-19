@@ -1,3 +1,351 @@
+# Eating Soon at the AAPS receiver (2026-11-19)
+
+- A manual meal and its separate Eating Soon target share the same marker
+  prefix. The integrated receiver previously rejected the latter as an
+  invalid carb entry before it could produce a target preview. Preserve the
+  original marker and distinguish the two complete action shapes.
+- A target must be the only action, have equal bounds inside AAPS limits,
+  start now and last 30 minutes. A preview with any dose, carbs or advisor
+  option is discarded. Meal validation, client roles and commit admission
+  stay unchanged. The existing CI receiver filter includes the new tests.
+- This repairs the receiver; it does not create a persistent command session
+  on the phone or prove clinical admission or a target write.
+
+# Signed temporary target recovery (2026-11-19)
+
+- Bind a new native prepare to the originating pending target action, if
+  uniquely identifiable. A prepare that expires without a commit, or a
+  definitive signed master refusal, releases only that unchanged action in
+  the same Room transaction. Do not rewrite ambiguous or older unbound rows.
+- After a commit, generic execution errors do not prove that no target was
+  written. Preserve the outstanding operation; do not replay or fall back
+  to a second writer. A signed successful target commit is distinct from
+  merely displaying the current AAPS target.
+- Regression coverage: AapsV3TargetJournalTest and AapsV3TargetChannelTest.
+  Target readiness and pump protections are unchanged.
+
+# Local AAPS inputs at forecast publication (2026-11-19)
+
+- Capture retained signed ISF, CR, net IOB and COB once per forecast candidate.
+  Recheck the exact values, original timestamps, freshness and read scope inside
+  the accepted-cycle transaction. A correction or withdrawal during prediction
+  rejects that result; an identical refresh does not. The last accepted cycle
+  is not rewritten on rejection. Existing source selection and therapeutic
+  limits are unchanged.
+- Room integration coverage starts from an accepted AAPS 4 forecast, changes
+  the signed packet during prediction and verifies recovery on the next cycle.
+  This is a data-consistency check, not validation of physiological accuracy.
+
+# First local AAPS observation without a normal cycle (2026-11-19)
+
+- A verified *live* CGM window can initialize the missing raw-glucose
+  calibration state in the same Room transaction. Match the fresh sample
+  against the clinical reader, use its bounded session evidence and the
+  normal RAW codec. No calibration fit, input correction or invented sensor
+  identity. Historical windows, empty packets and older points cannot do it.
+- Initialization is insert-once: existing or malformed authority, a previous
+  calibration check, any model (even retired), or a restored accepted authority
+  prevents replacement. Identical observations never refresh an existing token.
+  No changes to forecast readback, loop mode, alerting or therapy dispatch.
+- LocalAapsCgmSyncTest covers admission and non-replacement. In
+  AutomationRepositorySourceChangeRoomIntegrationTest, the same AAPS exchange
+  produces accepted 5/30/60 forecasts on a new database both after a normal
+  cycle and with only an observation cycle before source selection.
+
+# Cold-start profile recovery from local AAPS loop inputs (2026-11-19)
+
+- A fresh local ISF/CR pair plus recent valid glucose can trigger the existing
+  profile and model rebuild even if the install already recorded the current
+  estimator revision before importing its first observations. This uses the
+  real estimators and revision publication, not placeholder model rows.
+- Feed only the current Room selections to the estimator as telemetry priors.
+  A historical scan alone cannot authorize a local factor. Recheck the
+  selected pair before writing; preserve units and keep the history-only
+  estimate independent of telemetry. No delivery, accuracy or physical
+  therapy evidence is implied by acceptance of a forecast generation.
+- Regression entry points: AutomationRepositorySourceChangeRoomIntegrationTest
+  checks cold Room state, setup scope, withdrawal, the normal calibration
+  initialization, production ISF/CR source selection and accepted 5/30/60
+  forecasts. No calibration maintenance added to read-only source changes.
+
+# Native loop IOB, COB and sensitivity inputs (2026-11-19)
+
+- Signed local loop_inputs_v1 reads only the first IOB point from a recent,
+  non-early-stopped loop result (signed net units), and the independently
+  dated calculated autosens COB bucket in grams. Not the display COB with
+  later meals, future carbs, a delivery receipt, or a component estimate.
+- In a configured AAPS insulin setup, observation and armed runtimes both
+  read inputs and native carb history every five minutes. Manual mode, disabled
+  integration and power save do not start this reader. No command surface.
+- A nonce, strict schema and per-metric clocks protect the Room import; keep
+  stable source-specific rows for corrections. A complete reply can withdraw
+  either selection without deleting history. A failed read cannot refresh it;
+  the resolver checks the original sample time and current integration mode.
+  Changed data and selection durably request ordinary clinical invalidation.
+- Native net IOB enters the existing total-only path, not the component
+  path. A fresh complete broadcast component packet retains precedence. COB
+  enters the same external COB selection and meal-aware blend as before.
+  No inference of bolus units, basal units, physical delivery or meal timing.
+- For a recognized, non-early-stopped AMA/SMB/AutoISF result, read the
+  actual algorithm profile input pair sens and carb_ratio. These come from
+  the profile getters used by the old validated relay, but do not invoke a
+  new dynamic ISF calculation or its notification side effects. Convert
+  mg/dL/U to mmol/L/U once with the relay's factor of 18. Keep the original
+  result date and dedicated AAPS keys, separate from learned ISF/CR and
+  from the variable sensitivity returned in the algorithm output.
+
+# Exact AAPS effective-profile boundaries (2026-11-19)
+
+- The local AAPS EPS serializer uses the original effective block durations,
+  values and glucose units. It no longer floors each block duration to hours.
+  Do not apply the original switch percentage or timeshift again. Malformed
+  incomplete days are unavailable profiles, not valid schedules with defaults.
+- Both direct snapshots and scoped v3 uploads preserve exact seconds. A
+  synthetic cross-project export fixture covers sensitivity, carb ratio,
+  basal, both targets and insulin configuration. Profile values are source
+  observations, not personal learned estimates or delivery receipts.
+- Only the restricted local uploader can replace a retained rounded EPS on
+  POST. The corrected schedule must reproduce the exact old rounding, with
+  all non-schedule data unchanged, in the same writable nondeleted row.
+  Other changed POSTs retain the ordinary conflict behavior.
+
+# AAPS 4 insulin observation window (2026-11-19)
+
+- The v3 uploader and same-phone snapshot_v2 now include native temporary
+  basals and extended boluses that were still active at the start of the
+  previous 24 hours. Start time, amount/rate and duration remain unchanged.
+  Point boluses still have to start within the window. In AAPS, one Room
+  reader transaction excludes priming, invalid rows and historical versions
+  and rejects the whole read if the combined 512-row budget is exceeded.
+- Copilot requests v2 where available. The v1 contract remains start-only;
+  v2 rejects out-of-window boluses, expired intervals and duration overflow.
+  These observations do not establish actual pump delivery or independently
+  qualify a personal forecast, a new profile or permission to send a target.
+
+# Clinical glucose input from local AAPS 4 (2026-11-19)
+
+- The signature-checked cgm_window_v1 method returns complete bounded windows
+  of current, valid sensor readings, in mg/dL with their acquisition timestamps.
+  It does not export virtual predictions as CGM. The display snapshot is not
+  an input or fallback for this contract. Both APKs need this contract.
+- In the configured sensor/local integration, sync the last three hours and
+  one preceding three-hour interval every five minutes, back to fourteen days;
+  persist the backward cursor across restarts. Failed reads do not erase rows.
+  Resolve corrections, conflicts and removals only in the native source.
+  Retain independent originals through duplicate maintenance; select one
+  measurement per timestamp for computation. Changed imports durably request
+  recalculation using the existing clinical coordinator.
+- Regression exercises exact synthetic producer bytes, native Room, acquisition
+  time, unit conversion, mixed sources, backfill, cancellation and the existing
+  enhanced prediction engine. This does not validate a personal forecast,
+  fill in missing insulin delivery, or enable native target publication.
+
+# Rescheduled local AAPS meals and transient SQLite journals (2026-11-19)
+
+- On a revised carb row, look for the previously linked source ID even outside
+  the near-time match. A moved carb on a combined record supersedes only the
+  carb component. Its bolus timestamp, units and validity remain unchanged.
+  A Room regression covers amount and time moving together, replay, then
+  invalidation. It failed before the fix with the original grams still active.
+- The protected owner API also re-stats the name of an already unlinked,
+  privately owned rollback journal. The current entry must still satisfy the
+  original file checks if present. Tests cover absence, a private replacement,
+  a wrong-mode replacement and a symbolic link. No production changes.
+
+# Local AAPS carbohydrate history (2026-11-19)
+
+- On the local AAPS 4 path, the background reader and manual daily analysis
+  request the current carbohydrate history from the signature-checked provider.
+  Each scan uses one transport and one source revision; a busy or unsupported
+  provider does not fall back to a different source within that scan.
+- Corrections replace effective carbohydrate quantities, including legacy gram
+  aliases. Invalidation of the carbohydrate component must not cancel insulin.
+  The cross-app fixture is generated by the producer from synthetic records.
+- This read path does not acknowledge a submitted treatment, establish pump
+  delivery coverage or qualify a forecast for use by Target Manager.
+
+# Local AAPS net insulin observation (2026-11-19)
+
+- The combined candidate reads the last AAPS result's signed net IOB through
+  the same-signature local provider. Both the AAPS result and the measurement
+  must be recent. Old AAPS builds still supply the version-one profile and COB.
+- Overview labels this single number separately from bolus-only residual IOB.
+  A missing or stale value is not zero. No value from this observation changes
+  delivery evidence, a temporary target, a meal recommendation or a UAM event.
+- Legacy reference: the 3.4.2.3 application also ran CopilotDataRelay,
+  CopilotCarbHistoryReceiver and CopilotClinicalSummaryReceiver. Glucose-only
+  display, paired clients and fresh net IOB do not establish equivalent clinical
+  ingestion, personal ISF/CR, or treatment-aware 5/30/60-minute forecasts.
+
+# Local AAPS daily glucose patterns (2026-11-19)
+
+- Analytics can fit a daily glucose distribution when accepted pattern history is
+  absent. The input is a bounded, validated local v3 window from the latest
+  continuous sensor source. Three adequately sampled local dates are required.
+- Only the descriptive glucose curve is displayed. In particular, no insulin,
+  food, personalized coefficients or target changes are inferred by this fallback.
+- Verify with AapsObservedCircadianTest (Room read, source switching, incomplete
+  coverage and historical day/night differences) and the Android quality gates.
+
+# Local AAPS forecast and command permission (2026-11-19)
+
+- The Forecast tab now uses the same display-only glucose trend for fresh
+  same-sensor readings from local v3 and the signed observation fallback.
+  Sparse series still show measurements only; the trend does not change
+  accepted clinical forecasts, meal timing or target decisions.
+- Settings > AAPS 4 distinguishes the local peer response, the installation's
+  outgoing permission and the separate target safety gate. With AAPS selected
+  as the insulin source, a blocked installation can open the existing personal
+  permission review here. Opening the review does not arm or submit anything.
+- Regression checks: AapsSignedGlucoseDisplayTest and NativeAapsConnectionSectionTest.
+
+# Confirming local carbohydrate records (2026-11-19)
+
+- For a manual meal sent via the owned v1 endpoint with the same-signature
+  AAPS observation provider, retain the exact wire timestamp before POST.
+  Neither HTTP success nor the local echo confirms a meal. Only a matching
+  current AAPS carb row does. A delayed read can reconcile without re-posting
+  either carbs or Eating Soon. The original timestamp controls throttling.
+- The DB receipt is read-only; it exposes no notes, unrelated rows or delivery
+  commands. Check the real Room query and the real local HTTP path separately.
+  This does not add a sender for a stock installation without a treatment relay.
+
+# Manual meal local relay preflight (2026-11-19)
+
+- The manual carb writer checks the same package and receiver as the owned v1
+  relay. With no treatment receiver it records a localized rejection before POST;
+  ambiguous deliveries remain pending. External Nightscout and the independent
+  Eating Soon request are unchanged. This is not native carb command support.
+
+# Local enrollment liveness (2026-11-18)
+
+- The first Ping now travels on the pinned settings socket immediately after
+  key acceptance. The AAPS master checks its own pending client and signs Pong
+  with the rotated key. Copilot accepts it on the offer-bound return path once.
+- Separate-process test verifies transport, deadline rollback and replay
+  rejection without polling the UI or injecting a Ping outside the socket.
+  Neither a Pong nor an ambient roster grants the local client target rights.
+
+# Same-phone signed key return (2026-11-18)
+
+- Final AAPS stores a pending key for a local-only owner-approved client.
+  Ordinary Nightscout messages cannot promote that local client. Stock client
+  registration and its existing QR workflow retain their original contract.
+- The local offer's scoped subscriber and returned key are bound to the same
+  enrollment. Copilot requires its own encrypted token inside the signed reply;
+  wrong handle, wrong signature, expiry during persistence and replay cannot
+  complete the exchange. The stock document path cannot rotate a local key.
+- The SDK fixture verifies the bootstrap Ping with the rotated key. It does
+  not send a Pong, attest an active role, or enable the phone's target channel.
+
+# Same-phone encrypted offer and signed Hello (2026-11-18)
+
+- A final AAPS PIN offer can cross same-signer Android IPC as ciphertext. Its
+  ephemeral ticket reads only the pending client's settings stream. Enrollment
+  checks the same live ticket inside the journal transaction.
+- Two-process test: final AAPS creates the offer and verifies the first signed
+  Copilot Hello over pinned TLS. The journal still reports WAITING after Hello.
+- This is not a live target activation. Signed key exchange, roster, ongoing
+  transport and admission must work on the selected phone first.
+
+# Scoped settings subscriber (2026-11-18)
+
+- Switched the pinned AAPS interoperability peer from the synthetic owner
+  secret to the actual short-lived, single-session Copilot settings ticket.
+- Scoped polls select only current local outbox identities for their client.
+  Expiry and revocation apply to readiness, held polls and later requests;
+  restarting or closing a session does not make its ticket reusable.
+- Enrollment on Android and the signed return channel are not enabled here.
+
+# Independent AAPS settings polling (2026-11-18)
+
+- The Android/JVM SDK has a separate, closeable same-phone polling transport.
+  Upload-only REST paths are unchanged; no default TLS or NSClient URL changes.
+- The interop test launches the actual AAPS SDK and Socket.IO library in a
+  separate process. It requests only settings and waits for a committed event.
+  Its synthetic owner secret is not a provisioning mechanism for Android.
+- This does not enable pairing or clinical actions. Device enrollment still
+  needs a dedicated scoped credential and a signed response route.
+
+# Settings subscription readiness (2026-11-18)
+
+- Unpaired connection checks report the observed settings subscription separately
+  from enrollment. They do not reserve an attempt, publish a request, or grant a role.
+- A missed Engine.IO pong expires the readiness snapshot at the same deadline as
+  packet admission, even when no new packet arrives. The read stays lock-free.
+- An integration test uses the AAPS 4.0.0 Java Socket.IO library, the six stock
+  collections and a local test CA; the acknowledged client receives a settings
+  create over TLS. This does not configure NSClientV3 on Android.
+
+# Final local client identity (2026-11-18)
+
+- Full local Android run: 7211 passed, 6 skipped; lint and debug build passed.
+  The UI-test APK must neither export the enrollment provider nor declare its
+  signature permission. Verified the merged manifest and reran the glucose,
+  profile and insulin upload fixture with a fresh pinned SDK worktree.
+  Backend: 1977 passed, 27 skipped. These checks do not establish pump delivery.
+- The stock final key exchange binds a pending enrollment to its local issuer
+  before publishing the verified subject over HTTPS or the storage socket.
+  Private row provenance is not a network identity. A subjectless existing
+  pair is not silently converted.
+- 79 Copilot and 96 AAPS host tests passed without skips. The isolated
+  database test read back both temporary targets, including Eating Soon.
+  Evidence: `artifacts/final-local-client-binding/{end-to-end,aaps}.log`
+  in the parent workspace. AAPS candidate commit: `e5f969da41`.
+- USB readback on the Xiaomi stand still identifies the earlier final AAPS
+  4.0.0 build (SHA-256 prefix `6982065347e7`) and Copilot 0.1.20
+  (`cb4f63cb1c5d`). Neither candidate was installed. No physical target
+  application, raw archive completeness or clinical forecast is asserted.
+
+# Per-Read Combo Continuity - 2026-11-04
+
+- Main973c0917 Verify40920901933 and PR75/fbf210df exact-head checks are successful;
+  PR75 remains unmerged. Continue on its tail-audit base in an isolated branch.
+- No phone is available; user explicitly continues without it. Do not infer
+  historical UTC or complete bolus/basal delivery from the prior TBR readback.
+- Six new red regressions reproduce missing per-read event-counter gap warnings,
+  including a later retained read filling the aggregate gap after reopen. Original
+  failing XML/log are retained outside source. A seventh test covers unsigned
+  contiguous boundaries without inventing gaps.
+- Preserve forward counter jumps in the existing bounded raw-event order audit.
+  Unknown/clock-change events and block transitions participate. Preserve warnings
+  through damaged tails, reopen and clean catalog reconciliation; original bytes
+  remain unchanged. No schema, AAPS, timestamp repair, forecast coefficient,
+  notification gate, target or insulin action is changed.
+- Focused114tests passed. An older test expected large numeric gaps to produce
+  no warning; strengthen it to require EVENT_COUNTER_GAP while preserving exact
+  unsigned counters, raw bytes and false delivery/pairing authority. This does
+  not infer missing doses. Retain the initial failing report privately.
+- Complete local Android quality passed, followed by the prepared-SDK native
+  suites:7165passed/six existing private-data skips when reconciled by class.
+  Initial11native environment skips are not counted as passes. Lint has0errors,
+  379warnings/eight hints. APK guard:39,946,241bytes/7360retained app classes;
+  the artifact is test-only, not a published update. Exact-head workflow results
+  belong on the PR and are not inferred from this local result.
+- Clinical activation still requires independently qualified delivery/clock
+  coverage and prospective forecast/control-safety validation.
+
+# Combo Remaining-Event Audit - 2026-10-29
+
+- PR74/main973c0917 Verify40920901933 passed. Published0.1.20/code21 to the
+  existing static updater. Actual public manifest, complete resumed APK hash,
+  signer, metadata and ranges verified; previous pointer/page retained privately,
+  old APK retained. No service restart, phone installation or clinical activation.
+- Read-only ADB remains empty. Inspect pinned RC1 reader termination and its
+  current-offset event conversion; actual pump UTC epochs/basal coverage absent.
+- Three red regressions show returned reads lacking warnings for a declared
+  unconsumed tail and an unexplained drop between remaining-event counts.
+  Preserve their failing XML outside source; no private medical data in fixtures.
+- Audit fully validated raw blocks without changing native termination or commands.
+  Count unknown types too, allow new arrivals and zero final counts with records.
+  Keep contradictions adverse through private reopen and later clean catalogs.
+- Initial157focused tests passed; add unsigned boundary, corrupt-tail and combined
+  reader/event clock regressions. Full quality passed in3m30s:7158passed/six prior
+  skips, zero failures/errors; lint383warnings/eight hints unchanged, compile/build
+  passed. APK guard retained7357app classes. Nine new tests; exact-head CI pending.
+- No schema, transport, AAPS, model, notification, target or dose changes. These
+  source diagnostics do not establish complete delivery or a safe meal delay.
+
 # Diagnostic Update 0.1.20 Candidate - 2026-10-29
 
 - Main91bcd48a/Verify40908185065 successful:7149Android tests passed, six prior
@@ -16046,3 +16394,103 @@ clinical admission follows from source verification.
   admitted, and no warning baseline/suppression was added.
 - Publication/exact-head CI and intended-phone USB acceptance are separate
   post-commit checks. No new server or therapy activation. See AI_FOCUS_PLUS.md.
+# AAPS 4 Incoming Data Check - 2026-11-14
+
+- Add an explicit local v3 snapshot check to Settings. Report CGM freshness,
+  effective-profile evidence and non-invalidated insulin record counts without
+  signed pairing, a foreground listener, clinical projection or commands.
+- AAPS 4.0 still needs a configured NSClientV3 endpoint and access token. It
+  does not trust the private loopback CA by default, and its uploader asks for
+  full collection permissions that the local adapter does not advertise.
+  No changes to AAPS or the local server's trust policy are included.
+- To verify: run AapsV3EffectiveProfileSourceTest and
+  NativeAapsConnectionSectionTest. Stock Android upload and independent
+  Combo delivery completeness are separate device acceptance checks.
+- Local verification: 35 focused tests passed, lint reported zero errors, and
+  the debug APK built successfully. No deployment.
+
+## AAPS 4.0.0 Final Wire Compatibility
+
+- Admit the final SDK's two settings capability probes with the existing v3
+  bearer gate. Answer only for existing owner operations. Do not advertise full
+  collection rights, register remote clients or change clinical admission.
+- Recognize the final SDK's bounded device-status history query. Overflow still
+  fails rather than claiming a complete page.
+- The external final-release SDK fixture tests TLS, status, SGV, effective
+  profile, insulin and device status over the real local server, without
+  touching clinical tables. CI retains the separate RC1 fixture.
+- The focused v3 and projection suites passed 153 tests with one existing
+  optional skip. The final SDK fixture ran and passed, not skipped.
+  Android lint and debug packaging also passed.
+- Release SDK success does not replace Android TLS trust, AAPS worker admission,
+  clinical projection or on-device delivery verification.
+
+## AAPS Same-Phone Observation
+
+- The companion AAPS 4.0.0 patch provides a versioned read-only snapshot via
+  Android IPC. Both ends verify the package and signing identity. The snapshot
+  is requested from the existing incoming-data check; no daemon, remote import
+  or cloud sync is introduced.
+- Retain only diagnostic statuses and counts in the UI. Raw data is not used
+  for forecast, insulin delivery authority or commands.
+- Existing signed native-target and legacy action guards are unchanged.
+  Supporting all final AAPS Client Control actions is a separate milestone.
+- Both APKs built locally and the focused stages passed: 58 Copilot tests and
+  one AAPS observation test. The on-device signature permission and denied
+  unprivileged call were verified. The same-phone observation UI received CGM,
+  effective-profile and recorded-insulin data; no command was sent.
+
+## Final Client Control Proof
+
+- Add final-format PIN and Pong decoding and verification of the signed
+  role roster using the public key from the authenticated, correlated Pong.
+  Do not change the legacy enrollment path or production command admission.
+- Extend the actual 4.0.0 SDK TLS fixture with synthetic signed offers, ACKs
+  and roster. Check tampering, replay timestamp, counter and absent membership.
+- The final AAPS receiver test branch checks Hello, target-only and carb-only
+  preview, commit, signed acknowledgement and replay with a mock executor.
+- This is separate from the Xiaomi observation check. A production local
+  NSClientV3 endpoint, final runtime pairing and live commands are not enabled.
+
+## Final Runtime Signed Roster
+
+- New PIN enrollment requires final-format proof: offer erasure after
+  Hello, a fresh correlated Pong to pin the AAPS key, and a signed roster
+  with an increasing signing time. Pairing state remains encrypted and
+  the target role is rechecked in the same journal transaction as each
+  prepare or commit.
+- Test a target-only Eating Soon request and disconnected, tampered,
+  replayed and revoked states. Preserve the existing release clinical
+  guard; this stage does not configure NSClientV3 on the Xiaomi, implement
+  stock key rotation/token provisioning or authorize live commands.
+
+## Fresh AAPS 4 Observation With Retained History
+
+- A stale clinical graph no longer hides a strictly newer local AAPS 4
+  observation. Preserve accepted current forecasts and never move the view
+  backwards when the clinical history has an equal or newer sample.
+- Label the observation and keep its values separate from stale IOB, COB,
+  ISF, CR and model output. Keep existing safety warnings and command gates.
+  No data is restored, copied to the clinical pipeline or used for decisions.
+- Replace the initialization diagnostic about missing ISF/CR model and profile
+  revisions with a readable localised message on Overview and Settings.
+
+## Final AAPS PIN Secret Rotation
+
+- Bound the P-256 key exchange to the final PIN enrollment. Seal the pending
+  private key with the outbox, replace the original secret only on authenticated
+  correlation, and require a Pong signed with the new secret.
+- Use the stock 4.0.0 SDK as an independent interoperability check. Exercise
+  restart, rejected answers, stale secrets and target-only Eating Soon on the
+  fixture. Do not accept encrypted client tokens on this local route.
+- Keep the live release guard and current same-phone observation path unchanged.
+
+## Final AAPS Storage Stand
+
+- Use the final SDK with a throwaway stock AAPS database. Exercise Copilot's
+  real channel over loopback TLS and `/storage`. Acknowledge normal and Eating
+  Soon targets only after active-target readback in the test master.
+- Require the authenticated settings collection for channel liveness. A
+  data-only subscription, downgrade or disconnect cannot authorize publication.
+- No connected pump, real history, installed Android receiver or clinical
+  release enablement is part of the stand.

@@ -1,0 +1,128 @@
+diff --git a/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt b/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt
+index 9f0577bea3..14f8a75856 100644
+--- a/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localsession/LocalSessionProvider.kt
+@@ -11,6 +11,8 @@ import android.os.Process
+ import android.os.SystemClock
+ import app.aaps.MainApp
+ import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
++import app.aaps.plugins.sync.nsclientV3.localpin.LocalSessionSettingsPeer
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.runBlocking
+ import kotlinx.coroutines.withTimeoutOrNull
+@@ -22,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
+ /** Same-signature, single-peer, proof of current membership only. No settings or therapy operations. */
+ class LocalSessionProvider : ContentProvider() {
+     private val busy = AtomicBoolean(false)
+-    private var lastAttempt = -5_000L
++    private val lastAttempt = longArrayOf(-5_000L, -5_000L)
+     override fun onCreate() = true
+     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
+         val app = checkNotNull(context).applicationContext as MainApp
+@@ -31,25 +33,38 @@ class LocalSessionProvider : ContentProvider() {
+             app.packageManager.getPackagesForUid(uid)?.singleOrNull() != PEER ||
+             app.checkCallingPermission(app.packageName + ".permission.CHECK_LOCAL_CLIENT_SESSION") != PackageManager.PERMISSION_GRANTED ||
+             app.packageManager.checkSignatures(uid, Process.myUid()) != PackageManager.SIGNATURE_MATCH) throw SecurityException("denied")
+-        require(method == "witness_v1" && arg == null && extras != null && extras.keySet() == setOf("master", "nonce", "request"))
++        val storage = method == "settings_witness_v1"
++        require((storage || method == "witness_v1") && arg == null && extras != null &&
++            extras.keySet() == setOf("master", "nonce", if (storage) "ticket" else "request"))
+         val master = extras.getString("master")?.takeIf { it.length in 1..128 } ?: return Bundle()
+         val nonce = extras.getString("nonce")?.takeIf { it.length == 36 } ?: return Bundle()
+-        val bytes = extras.getByteArray("request")?.takeIf { it.size in 1..2048 } ?: return Bundle()
++        val bytes = if (storage) null else extras.getByteArray("request")?.takeIf { it.size in 1..2048 } ?: return Bundle()
+         if (!busy.compareAndSet(false, true)) return Bundle()
+         try {
+             val elapsed = SystemClock.elapsedRealtime()
+-            if (elapsed - lastAttempt < 5_000L) return Bundle()
+-            lastAttempt = elapsed
++            val lane = if (storage) 1 else 0
++            if (elapsed - lastAttempt[lane] < 5_000L) return Bundle()
++            lastAttempt[lane] = elapsed
+             val token = Binder.clearCallingIdentity()
+             try {
+-                val request = Json.decodeFromString(SignedEnvelope.serializer(), bytes.decodeToString(throwOnInvalidSequence = true))
+                 val witness = runBlocking(Dispatchers.IO) {
+-                    withTimeoutOrNull(2500) { app.localSessionWitness(request, master, nonce) }
++                    withTimeoutOrNull(if (storage) 6500L else 2500L) {
++                        val request = if (storage) {
++                            val ticket = extras.getBundle("ticket") ?: return@withTimeoutOrNull null
++                            if (ticket.keySet() != setOf("root", "leaf", "port", "bearer")) return@withTimeoutOrNull null
++                            val root = ticket.getByteArray("root")?.takeIf { it.size in 1..8192 } ?: return@withTimeoutOrNull null
++                            val leaf = ticket.getByteArray("leaf")?.takeIf { it.size in 1..8192 } ?: return@withTimeoutOrNull null
++                            LocalSessionSettingsPeer.receive(ticket.getInt("port"), NsLoopbackUploadIdentity(root, leaf),
++                                ticket.getString("bearer") ?: return@withTimeoutOrNull null, master, nonce)
++                                ?: return@withTimeoutOrNull null
++                        } else Json.decodeFromString(SignedEnvelope.serializer(), checkNotNull(bytes).decodeToString(throwOnInvalidSequence = true))
++                        app.localSessionWitness(request, master, nonce)
++                    }
+                 } ?: return Bundle()
+                 val reply = buildJsonObject { put("signed", witness.text); put("signature", witness.signature) }
+                 return Bundle().apply { putByteArray("witness", reply.toString().encodeToByteArray()) }
+             } catch (_: Exception) { return Bundle() } finally { Binder.restoreCallingIdentity(token) }
+-        } finally { bytes.fill(0); busy.set(false) }
++        } finally { bytes?.fill(0); busy.set(false) }
+     }
+     override fun getType(uri: Uri): String? = null
+     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? = null
+diff --git a/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalSessionSettingsPeer.kt b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalSessionSettingsPeer.kt
+new file mode 100644
+index 0000000000..6796504a0e
+--- /dev/null
++++ b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalSessionSettingsPeer.kt
+@@ -0,0 +1,54 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.networking.NsLocalSettingsPolling
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
++import app.aaps.core.nssdk.utils.LocalSessionWitness
++import io.socket.client.Ack
++import io.socket.client.IO
++import io.socket.client.Socket
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.withTimeoutOrNull
++import kotlinx.serialization.json.Json
++import org.json.JSONArray
++import org.json.JSONObject
++
++/** A post-enrollment challenge received on the pinned settings namespace, not over Binder. */
++object LocalSessionSettingsPeer {
++    suspend fun receive(port: Int, identity: NsLoopbackUploadIdentity, bearer: String, master: String, nonce: String,
++                        clock: () -> Long = System::currentTimeMillis): SignedEnvelope? {
++        if (port !in 1..65535 || !Regex("ls1\\.[A-Za-z0-9_-]{43}").matches(bearer)) return null
++        return NsLocalSettingsPolling(identity, port).use { calls ->
++            val socket = IO.socket("https://127.0.0.1:$port/storage", IO.Options().apply {
++                callFactory = calls; forceNew = true; multiplex = false
++                transports = arrayOf("polling"); upgrade = false; reconnection = false
++            })
++            val subscribed = CompletableDeferred<Boolean>()
++            val frame = CompletableDeferred<SignedEnvelope?>()
++            fun lost() { subscribed.complete(false); frame.complete(null) }
++            try {
++                socket.on(Socket.EVENT_DISCONNECT) { lost() }
++                socket.on(Socket.EVENT_CONNECT_ERROR) { lost() }
++                socket.on(Socket.EVENT_CONNECT) {
++                    socket.emit("subscribe", JSONObject().put("accessToken", bearer)
++                        .put("collections", JSONArray(listOf("settings"))), Ack { args ->
++                        val ack = args.singleOrNull() as? JSONObject
++                        subscribed.complete(ack?.optBoolean("success") == true && ack.optJSONArray("collections")?.let {
++                            it.length() == 1 && it.optString(0) == "settings"
++                        } == true)
++                    })
++                }
++                socket.on("local_session_witness_v1") { args ->
++                    val raw = (args.singleOrNull() as? JSONObject)?.toString()
++                    frame.complete(if (raw != null && raw.length in 1..2048)
++                        runCatching { Json.decodeFromString(SignedEnvelope.serializer(), raw) }.getOrNull() else null)
++                }
++                withTimeoutOrNull(4500L) {
++                    socket.connect()
++                    if (!subscribed.await()) return@withTimeoutOrNull null
++                    frame.await()?.takeIf { socket.connected() && LocalSessionWitness.accepts(it, master, nonce, clock()) }
++                }
++            } finally { socket.off(); socket.close() }
++        }
++    }
++}

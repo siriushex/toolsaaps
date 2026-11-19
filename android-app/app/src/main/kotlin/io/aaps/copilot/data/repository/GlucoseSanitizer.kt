@@ -5,6 +5,10 @@ import io.aaps.copilot.domain.model.GlucosePoint
 
 object GlucoseSanitizer {
 
+    internal fun isInputOutlier(sample: GlucoseSampleEntity, previous: GlucoseSampleEntity): Boolean =
+        kotlin.math.abs(sample.timestamp - previous.timestamp) <= 10 * 60_000L &&
+            kotlin.math.abs(sample.mmol - previous.mmol) >= 8.0
+
     internal const val CURRENT_CAUSAL_QUERY_LIMIT = 2
 
     private const val LEGACY_INVALID_SOURCE = "local_broadcast"
@@ -47,10 +51,12 @@ object GlucoseSanitizer {
 
     fun duplicateEntityIdsToDelete(samples: List<GlucoseSampleEntity>): List<Long> {
         if (samples.isEmpty()) return emptyList()
+        val reconciledTimes = samples.filter { it.source.startsWith(LocalAapsCgmSync.PREFIX) }.mapTo(hashSetOf()) { it.timestamp }
         val selected = linkedMapOf<Long, GlucoseSampleEntity>()
         val droppedIds = mutableListOf<Long>()
         samples
             .asSequence()
+            .filterNot { it.timestamp in reconciledTimes }
             .filterNot(::isLegacyStatusArtifact)
             .forEach { sample ->
                 val existing = selected[sample.timestamp]
@@ -133,6 +139,7 @@ object GlucoseSanitizer {
     private fun sourcePriority(source: String): Int {
         return when {
             source.equals("aaps_broadcast", ignoreCase = true) -> 60
+            source.startsWith(LocalAapsCgmSync.PREFIX) -> 61
             source.equals("nightscout", ignoreCase = true) -> 50
             source.equals("xdrip_broadcast", ignoreCase = true) -> 45
             source.equals("local_nightscout_entry", ignoreCase = true) -> 42

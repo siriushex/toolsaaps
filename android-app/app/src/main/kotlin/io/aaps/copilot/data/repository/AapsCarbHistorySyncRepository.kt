@@ -104,6 +104,9 @@ class AapsCarbHistorySyncRepository internal constructor(
     internal suspend fun sync(): AapsCarbHistorySyncResult =
         runSerializedSync(null)
 
+    internal suspend fun syncFromLocalAaps(source: AapsCarbHistoryPageLoader): AapsCarbHistorySyncResult =
+        runSerializedSync(null, source)
+
     internal suspend fun syncForRevision(revisionId: Long): AapsCarbHistorySyncResult {
         if (revisionId < 0L) {
             return AapsCarbHistorySyncResult.Failed(
@@ -116,11 +119,12 @@ class AapsCarbHistorySyncRepository internal constructor(
     }
 
     private suspend fun runSerializedSync(
-        requestedRevisionId: Long?
+        requestedRevisionId: Long?,
+        pageLoader: AapsCarbHistoryPageLoader = loadPage
     ): AapsCarbHistorySyncResult {
         return try {
             requestedRevisionId?.let { persistObservedRevisionFloor(it) }
-            syncInternal(requestedRevisionId)
+            syncInternal(requestedRevisionId, pageLoader)
         } catch (error: Throwable) {
             error.rethrowCancellationOrFatal()
             auditWarn(
@@ -139,7 +143,8 @@ class AapsCarbHistorySyncRepository internal constructor(
     }
 
     private suspend fun syncInternal(
-        requestedRevisionId: Long?
+        requestedRevisionId: Long?,
+        pageLoader: AapsCarbHistoryPageLoader
     ): AapsCarbHistorySyncResult = mutex.withLock {
         val observedBeforeStart = readObservedRevisionFloor()
         if (
@@ -191,7 +196,7 @@ class AapsCarbHistorySyncRepository internal constructor(
 
         while (pages < hardPageCap) {
             val result = try {
-                loadPage(
+                pageLoader(
                     fromTs,
                     throughTs,
                     cursorTimestamp,

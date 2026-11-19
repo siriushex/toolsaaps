@@ -74,7 +74,7 @@ internal object AapsV3ProfileJson {
             require(Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]").matches(label))
             val labelSeconds = label.take(2).toInt() * 3600 + label.takeLast(2).toInt() * 60
             // RC1 writes HH:00 labels even for non-hour boundaries. Preserve the exact seconds.
-            require(labelSeconds == seconds || labelSeconds == seconds / 3600 * 3600)
+            require(labelSeconds == seconds / 60 * 60 || labelSeconds == seconds / 3600 * 3600)
             val amount = HistoryJson.double(item.getValue("value"))
             require(if (allowZero) amount >= 0 else amount > 0)
             AapsV3SchedulePoint(label, seconds, amount)

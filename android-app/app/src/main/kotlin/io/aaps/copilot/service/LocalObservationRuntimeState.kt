@@ -1,10 +1,15 @@
 package io.aaps.copilot.service
 
 import io.aaps.copilot.config.AppSettings
+import io.aaps.copilot.config.SetupInsulinSource
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun AppSettings.localObservationRuntimeAllowed(): Boolean =
     therapyActionsArmed || localObservationEnabled
+
+internal fun AppSettings.nativeInsulinInputEnabled(source: SetupInsulinSource): Boolean =
+    localAapsV3Upload && localNightscoutEnabled && localObservationRuntimeAllowed() &&
+        localBroadcastIngestEnabled && !PowerSaveController.isActive(this) && source == SetupInsulinSource.AAPS
 
 internal suspend fun runAdmittedLocalRuntimeCycle(
     therapyArmed: Boolean,

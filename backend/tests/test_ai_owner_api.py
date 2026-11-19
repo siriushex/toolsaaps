@@ -1016,6 +1016,34 @@ def test_sqlite_journal_removal_during_inventory_is_normal_not_storage_drift(pro
         assert not app._unavailable
 
 
+@pytest.mark.parametrize("replacement", ["absent", "private", "wrong-mode", "symlink"])
+def test_unlinked_sqlite_journal_rechecks_current_name(provisioned, monkeypatch, replacement):
+    _, config = provisioned
+    with ExitStack() as stack:
+        root = owner._Root(Path(config["roots"]["proofs"]), stack)
+        journal = root.path / "proofs.sqlite-journal"
+        fd = os.open(journal, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        stack.callback(os.close, fd)
+        journal.unlink()
+        removed = os.fstat(fd)
+        assert removed.st_nlink == 0
+        if replacement == "symlink":
+            journal.symlink_to(root.database("proofs.sqlite"))
+        elif replacement != "absent":
+            journal.touch(mode=0o600)
+            if replacement == "wrong-mode":
+                journal.chmod(0o644)
+        @contextmanager
+        def scan(_fd):
+            yield iter([SimpleNamespace(name=journal.name, stat=lambda *, follow_symlinks: removed)])
+        monkeypatch.setattr(owner.os, "scandir", scan)
+        if replacement in {"absent", "private"}:
+            root.inventory({journal.name})
+        else:
+            with pytest.raises(ValueError):
+                root.inventory({journal.name})
+
+
 def test_overlapping_inventories_own_independent_directory_descriptions(provisioned, monkeypatch):
     _, value = provisioned
     with ExitStack() as stack:

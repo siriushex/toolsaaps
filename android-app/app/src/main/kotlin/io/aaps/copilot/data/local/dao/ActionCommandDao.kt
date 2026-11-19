@@ -106,6 +106,11 @@ interface ActionCommandDao {
         excludedPrefix: String
     ): ActionCommandEntity?
 
+    @Query("SELECT * FROM action_commands WHERE type = 'carbs' AND status = :status " +
+        "AND timestamp BETWEEN :since AND :through AND idempotencyKey LIKE 'manual:meal:%' " +
+        "ORDER BY timestamp, id LIMIT 64")
+    suspend fun pendingMealReceipts(status: String, since: Long, through: Long): List<ActionCommandEntity>
+
     @Query("SELECT MAX(timestamp) FROM action_commands WHERE status = :status AND type = :type")
     suspend fun latestTimestampByTypeAndStatus(
         type: String,

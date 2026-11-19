@@ -11,10 +11,18 @@ import io.aaps.copilot.data.repository.LocalV3DocumentInput
 import io.aaps.copilot.data.repository.NativeTargetOutcome
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.model.SafetySnapshot
+import io.aaps.copilot.domain.target.EatingSoonPolicy
+import java.math.BigInteger
+import java.security.KeyPairGenerator
+import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.*
@@ -37,6 +45,7 @@ class AapsV3TargetChannelTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client = "11111111-2222-4333-8444-555555555555"
     private val secret = ByteArray(32) { it.toByte() }
+    private var ackSecret = secret
     private val at = 1_800_000_000_000L
     private val now = AtomicLong(at + 200)
     private val cipher = KeystoreAapsV3JournalCipher { SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES") }
@@ -54,6 +63,93 @@ class AapsV3TargetChannelTest {
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
     private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+
+    private fun localWrapped(): ByteArray {
+        val expiry = at + 120_000
+        return syntheticPairingOffer(buildJsonObject {
+            put("v", 1); put("clientId", client); put("expiresAt", expiry); put("masterInstallId", "fixture-master")
+            put("secretHex", secret.joinToString("") { "%02x".format(it.toInt() and 255) })
+            put("role", "Meals"); put("name", "Fixture")
+        }, client, expiry).toString().toByteArray()
+    }
+
+    @Test fun localInvitationNeedsItsOwnSubscriptionAndOwnerPinAndDoesNotEnterSettingsHistory() = runBlocking {
+        var subscribed = false
+        val grants = LocalSettingsGrants()
+        val invites = LocalEnrollmentOffers(scope, { id ->
+            grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2), { subscribed }) {}
+        }, now::get)
+        channel = AapsV3TargetChannel(db, journal, { true }, { baseline() }, { it() }, now::get, localOffers = invites)
+        channel.start(scope)
+        val wrapped = localWrapped()
+        val receipt = checkNotNull(invites.publish(wrapped))
+        try {
+            assertNull(invites.publish(wrapped))
+            assertFalse(invites.withdraw(client, "old-handle"))
+            channel.pair("12345678".toCharArray(), AapsV3PairingRoute.SAME_PHONE)
+            assertNull(journal.pairingSnapshot())
+            assertEquals(AapsV3PairingIssue.LOCAL_NOT_READY, channel.state.value.pairingIssue)
+            subscribed = true
+            channel.pair("12345678".toCharArray(), AapsV3PairingRoute.STORAGE)
+            assertNull(journal.pairingSnapshot())
+            val wrong = "12345679".toCharArray()
+            channel.pair(wrong, AapsV3PairingRoute.SAME_PHONE)
+            assertTrue(wrong.all { it == '\u0000' })
+            assertNull(journal.pairingSnapshot())
+            val correct = "12345678".toCharArray()
+            channel.pair(correct, AapsV3PairingRoute.SAME_PHONE)
+            assertTrue(correct.all { it == '\u0000' })
+            assertEquals(client, journal.pairingSnapshot()?.clientId)
+            assertTrue(db.localNightscoutV3Dao().pairingOffers().isEmpty())
+            assertNotNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_$client"))
+            assertNotEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        } finally { assertTrue(invites.withdraw(client, checkNotNull(receipt.getString("handle")))) }
+    }
+
+    @Test fun localInviteRejectsPlaintextOrExpiredOffersAndOldReceiptCannotWithdrawNewOffer() {
+        val grants = LocalSettingsGrants()
+        var issued = 0
+        val invites = LocalEnrollmentOffers(scope, { id ->
+            issued++
+            grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2)) {}
+        }, now::get)
+        val bytes = localWrapped()
+        val plain = Json.parseToJsonElement(bytes.decodeToString()).jsonObject + ("pin" to JsonPrimitive("12345678"))
+        assertThrows(IllegalArgumentException::class.java) { invites.publish(JsonObject(plain).toString().toByteArray()) }
+        now.set(at + 120_000)
+        assertThrows(IllegalArgumentException::class.java) { invites.publish(bytes) }
+        assertEquals(0, issued)
+        now.set(at + 201)
+        val first = checkNotNull(invites.publish(bytes)).getString("handle")!!
+        assertTrue(invites.withdraw(client, first))
+        val second = checkNotNull(invites.publish(bytes)).getString("handle")!!
+        assertFalse(invites.withdraw(client, first))
+        assertTrue(invites.withdraw(client, second))
+        assertNull(invites.current())
+    }
+
+    @Test fun losingOfferInsideEnrollmentTransactionRollsBackTheHelloAndBothIdentityRows() = runBlocking {
+        var checks = 0
+        AapsV3PairingCredential(client, "fixture-master", at + 120_000, secret).use {
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { journal.enroll(it, now.get()) { ++checks == 1 } }
+            }
+        }
+        assertEquals(2, checks)
+        assertFalse(journal.hasNativeState())
+        assertEquals(0L, db.localNightscoutV3Dao().count().toLong())
+    }
+    @Test fun checkingSubscriptionBeforePairingDoesNotEnrollOrPublish() = runBlocking {
+        channel.start(scope)
+        for (active in listOf(false, true, false)) {
+            storage = active
+            channel.checkConnection()
+            assertEquals(AapsV3ConnectionStatus.UNPAIRED, channel.state.value.status)
+            assertEquals(active, channel.state.value.settingsSubscribedAtCheck)
+        }
+        assertFalse(journal.hasNativeState())
+        assertEquals(0L, db.localNightscoutV3Dao().count().toLong())
+    }
     private fun enableHistory(onOpen: () -> Unit = {}) {
         privateDb = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(),
             ComboJournalDatabase::class.java).allowMainThreadQueries().build()
@@ -63,11 +159,11 @@ class AapsV3TargetChannelTest {
     private fun command(key: String = "TargetManager.v1:synthetic") = ActionCommand("action-1", "temp_target",
         mapOf("targetMmol" to "5.5", "durationMinutes" to "30"), SafetySnapshot(false, false, null, 0), key)
 
-    private suspend fun settings(id: String, body: JsonObject) {
+    private suspend fun settings(id: String, body: JsonObject, schema: Int = 1) {
         val store = LocalNightscoutV3Store(db, now::get)
         val previous = store.get(LocalV3Collection.SETTINGS, id)
         val input = LocalV3DocumentInput(LocalV3Collection.SETTINGS, id, "local-v3-owner", 946_684_800_001,
-            JsonObject(body + ("schemaVersion" to JsonPrimitive(1))).toString())
+            JsonObject(body + ("schemaVersion" to JsonPrimitive(schema))).toString())
         if (previous == null) store.create(input) else store.update(input, previous.modifiedRevision)
     }
     private suspend fun request(type: String): JsonObject = withTimeout(4000) {
@@ -75,11 +171,12 @@ class AapsV3TargetChannelTest {
             LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_${type}_$client")
         }.filterNotNull().first().let { Json.parseToJsonElement(it.payloadJson).jsonObject.getValue("envelope").jsonObject }
     }
-    private suspend fun acknowledge(request: JsonObject, payload: String? = null, history: Boolean = false, status: String = "Ok") {
+    private suspend fun acknowledge(request: JsonObject, payload: String? = null, history: Boolean = false,
+                                    status: String = "Ok", signingSecret: ByteArray = ackSecret) {
         val counter = request.getValue("counter").jsonPrimitive.long
         val timestamp = request.getValue("timestamp").jsonPrimitive.long + 1
         val signature = Mac.getInstance("HmacSHA256").run {
-            init(SecretKeySpec(secret, "HmacSHA256"))
+            init(SecretKeySpec(signingSecret, "HmacSHA256"))
             doFinal("$client|$counter|Done|$status||${payload ?: ""}|$timestamp".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
         }
         settings(if (history) "aaps_clientcontrol_ack_history_$client" else "aaps_clientcontrol_ack_$client", buildJsonObject { put("ack", buildJsonObject {
@@ -100,6 +197,195 @@ class AapsV3TargetChannelTest {
     }
     private suspend fun preview() = acknowledge(request("batch_prepare"),
         """{"bolusId":321,"lines":[{"role":"Normal","text":"synthetic target"}]}""")
+
+    private inner class FinalMaster {
+        private val keys = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        private fun coordinate(value: BigInteger) = value.toByteArray().let { raw ->
+            val slice = raw.takeLast(32).toByteArray()
+            ByteArray(32 - slice.size) + slice
+        }
+        private fun point(key: ECPublicKey): String = key.w.let {
+            Base64.getEncoder().encodeToString(byteArrayOf(4) + coordinate(it.affineX) + coordinate(it.affineY))
+        }
+        fun pongPayload(): String = buildJsonObject { put("signingKey", point(keys.public as ECPublicKey)) }.toString()
+        suspend fun keyAnswer(tamper: Boolean = false, token: Boolean = false) {
+            val store = LocalNightscoutV3Store(db)
+            val hello = checkNotNull(store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_hello_$client"))
+            val envelope = Json.parseToJsonElement(hello.payloadJson).jsonObject.getValue("envelope").jsonObject
+            val payload = Json.parseToJsonElement(envelope.getValue("payload").jsonPrimitive.content).jsonObject
+            val clientPoint = payload.getValue("publicKey").jsonPrimitive.content
+            val exchange = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+            val masterPoint = point(exchange.public as ECPublicKey)
+            fun hmac(key: ByteArray, bytes: ByteArray) = Mac.getInstance("HmacSHA256").run {
+                init(SecretKeySpec(key, "HmacSHA256")); doFinal(bytes)
+            }
+            val timestamp = now.get()
+            val (iv, sealed) = if (token) "fixture-iv" to "fixture-sealed" else "" to ""
+            val tag = hmac(secret, "$client|$clientPoint|$masterPoint|$iv|$sealed|$timestamp".encodeToByteArray())
+            if (tamper) tag[0] = (tag[0].toInt() xor 1).toByte()
+            if (!tamper && !token) {
+                val shared = KeyAgreement.getInstance("ECDH").run {
+                    init(exchange.private); doPhase(AapsFinalKeyExchange.decodePoint(clientPoint), true); generateSecret()
+                }
+                ackSecret = hmac(hmac(secret, shared),
+                    "aaps-clientcontrol-key-v1|$client|$clientPoint|$masterPoint".encodeToByteArray() + byteArrayOf(1))
+            }
+            settings("aaps_clientcontrol_key_$client", buildJsonObject { putJsonObject("key") {
+                put("clientId", client); put("clientPublicKey", clientPoint); put("masterPublicKey", masterPoint)
+                put("timestamp", timestamp); put("signature", tag.joinToString("") { "%02x".format(it.toInt() and 255) })
+                if (token) { put("tokenIv", iv); put("token", sealed) }
+            } })
+        }
+        suspend fun roster(signedAt: Long, role: String? = "Caregiver", controlEnabled: Boolean = true, tamper: Boolean = false) {
+            val signed = buildJsonObject {
+                put("signedAt", signedAt)
+                put("runningConfig", buildJsonObject {
+                    put("authorizedClients", buildJsonObject {
+                        put("clientIds", buildJsonArray { if (role != null) add(client) })
+                        put("roles", buildJsonObject { if (role != null) put(client, role) })
+                    })
+                    put("syncedPrefs", buildJsonObject { put("ns_allow_client_control", controlEnabled.toString()) })
+                })
+            }.toString()
+            val rawSignature = Signature.getInstance("SHA256withECDSAinP1363Format").run {
+                initSign(keys.private); update("aaps-settings-v1|aaps|$signed".toByteArray()); sign()
+            }
+            settings("aaps", buildJsonObject {
+                put("signed", if (tamper) "$signed " else signed)
+                put("signature", Base64.getEncoder().encodeToString(rawSignature))
+            }, schema = 2)
+        }
+        suspend fun enterPin() {
+            val expiry = at + 120_000
+            val payload = buildJsonObject {
+                put("v", 1); put("clientId", client); put("masterInstallId", "fixture-master")
+                put("secretHex", secret.joinToString("") { "%02x".format(it.toInt() and 255) })
+                put("expiresAt", expiry); put("role", "Caregiver"); put("name", "Test client")
+            }
+            settings("aaps_clientcontrol_offer_$client", buildJsonObject {
+                put("offer", syntheticPairingOffer(payload, client, expiry))
+            })
+            channel.start(scope)
+            val pin = "12345678".toCharArray()
+            val localPin = pin.copyOf()
+            channel.pair(localPin, AapsV3PairingRoute.SAME_PHONE)
+            assertNull(journal.pairingSnapshot())
+            assertEquals(AapsV3PairingIssue.LOCAL_INVITATION_MISSING, channel.state.value.pairingIssue)
+            assertArrayEquals(CharArray(8), localPin)
+            channel.pair(pin, AapsV3PairingRoute.STORAGE)
+            assertArrayEquals(CharArray(8), pin)
+            assertEquals(AapsV3ConnectionStatus.WAITING, channel.state.value.status)
+        }
+        suspend fun completeEnrollment(role: String = "Caregiver") {
+            enterPin()
+            roster(now.get(), role)
+            assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_ping_$client"))
+            LocalNightscoutV3Store(db).erasePairingPayload("aaps_clientcontrol_offer_$client")
+            keyAnswer()
+            channel.checkConnection()
+            acknowledge(request("ping"), pongPayload())
+            channel.checkConnection()
+            assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        }
+    }
+
+    @Test fun finalPinUsesSignedRosterAndKeepsTheProductionClinicalFence() = runBlocking {
+        val master = FinalMaster()
+        master.completeEnrollment()
+        baseline = { "native_clinical_projection_unavailable" }
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+    }
+
+    @Test fun finalPinRejectsUnsignedRosterEvenAfterAnAuthenticatedPong() = runBlocking {
+        val master = FinalMaster()
+        master.enterPin()
+        LocalNightscoutV3Store(db).erasePairingPayload("aaps_clientcontrol_offer_$client")
+        master.keyAnswer()
+        channel.checkConnection()
+        acknowledge(request("ping"), master.pongPayload())
+        settings("aaps", buildJsonObject { put("runningConfig", buildJsonObject {
+            put("authorizedClients", buildJsonObject { put("clientIds", buildJsonArray { add(client) }) })
+            put("syncedPrefs", buildJsonObject { put("ns_allow_client_control", "true") })
+        }) })
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.WAITING, channel.state.value.status)
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+    }
+
+    @Test fun finalEnrollmentWaitsForValidRotationAndRejectsTheOldSecretAfterRestart() = runBlocking {
+        val master = FinalMaster()
+        master.enterPin()
+        val store = LocalNightscoutV3Store(db)
+        store.erasePairingPayload("aaps_clientcontrol_offer_$client")
+        val pingId = "aaps_clientcontrol_cmd_ping_$client"
+        master.keyAnswer(tamper = true)
+        channel.checkConnection()
+        assertNull(store.get(LocalV3Collection.SETTINGS, pingId))
+        master.keyAnswer(token = true)
+        channel.checkConnection()
+        assertNull(store.get(LocalV3Collection.SETTINGS, pingId))
+        channel.stop(); now.incrementAndGet(); channel = newChannel(); channel.start(scope)
+        master.keyAnswer()
+        master.roster(now.get())
+        channel.checkConnection()
+        val ping = request("ping")
+        acknowledge(ping, master.pongPayload(), signingSecret = secret)
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.WAITING, channel.state.value.status)
+        acknowledge(ping, master.pongPayload())
+        channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+    }
+
+    @Test fun finalRosterClockAndKeyArePinnedAcrossRestartAndTampering() = runBlocking {
+        val master = FinalMaster()
+        master.completeEnrollment()
+        val firstSignedAt = now.get()
+        channel.stop(); now.addAndGet(1000); channel = newChannel(); channel.start(scope); channel.checkConnection()
+        acknowledge(request("ping"), FinalMaster().pongPayload()); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.VERIFYING, channel.state.value.status)
+        acknowledge(request("ping"), master.pongPayload()); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.CONNECTED, channel.state.value.status)
+        master.roster(now.get(), tamper = true); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.CONTROL_DISABLED, channel.state.value.status)
+        master.roster(firstSignedAt); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.CONTROL_DISABLED, channel.state.value.status)
+        master.roster(now.get(), role = null); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.REVOKED, channel.state.value.status)
+        master.roster(now.incrementAndGet()); channel.checkConnection()
+        assertEquals(AapsV3ConnectionStatus.REVOKED, channel.state.value.status)
+    }
+
+    @Test fun finalMasterSignedRoleRefusesTargetsBeforePrepare() = runBlocking {
+        FinalMaster().completeEnrollment("MealAssistant")
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+    }
+
+    @Test fun finalEatingSoonFixturePublishesTargetOnlyAndWaitsForCommitAck() = runBlocking {
+        FinalMaster().completeEnrollment()
+        val eatingSoon = command("manual:meal:test:eating-soon").copy(params = mapOf(
+            "targetMmol" to EatingSoonPolicy.TARGET_MMOL.toString(),
+            "durationMinutes" to EatingSoonPolicy.DURATION_MINUTES.toString()
+        ))
+        val master = launch(Dispatchers.IO) {
+            val prepare = request("batch_prepare")
+            val action = Json.parseToJsonElement(prepare.getValue("payload").jsonPrimitive.content).jsonObject
+                .getValue("actions").jsonArray.single().jsonObject
+            assertEquals(JsonPrimitive("temp_target"), action["type"])
+            assertEquals(JsonPrimitive("Eating Soon"), action["reason"])
+            assertEquals(JsonPrimitive(EatingSoonPolicy.DURATION_MINUTES), action["durationMinutes"])
+            assertEquals(JsonPrimitive("copilot:" + eatingSoon.idempotencyKey), action["notes"])
+            preview()
+            val commit = request("bolus_commit")
+            val payload = Json.parseToJsonElement(commit.getValue("payload").jsonPrimitive.content).jsonObject
+            assertEquals(0.0, payload.getValue("correctionU").jsonPrimitive.double, 0.0)
+            acknowledge(commit)
+        }
+        assertEquals(NativeTargetOutcome.APPLIED, channel.send(eatingSoon) { null })
+        master.join()
+    }
 
     @Test fun historyNeedsLivePairingAndStopsWithRuntime() = runBlocking {
         val opened = AtomicInteger()
@@ -274,7 +560,11 @@ class AapsV3TargetChannelTest {
         val master = launch(Dispatchers.IO) { preview(); acknowledge(request("bolus_commit")) }
         assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { null })
         master.join()
-        assertEquals(3L, request("batch_prepare").getValue("counter").jsonPrimitive.long)
+        val prepare = request("batch_prepare")
+        assertEquals(3L, prepare.getValue("counter").jsonPrimitive.long)
+        val action = Json.parseToJsonElement(prepare.getValue("payload").jsonPrimitive.content).jsonObject
+            .getValue("actions").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("copilot:" + command().idempotencyKey), action["notes"])
         assertEquals(4L, request("bolus_commit").getValue("counter").jsonPrimitive.long)
         val head = db.localNightscoutV3Dao().head("settings")
         assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { error("no repeat") })

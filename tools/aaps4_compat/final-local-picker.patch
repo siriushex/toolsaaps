@@ -1,0 +1,457 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index 40c8f9b19a..b158e19951 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -235,6 +235,15 @@ internal class AuthorizedClientsRepositoryTest {
+         assertThat(sut.current(200_000L)).hasSize(1)
+     }
+
++    @Test
++    fun pruningLocalInvitationsDoesNotScheduleNightscoutDeletion() = runTest {
++        val local = sut.addLocalPending("local", ClientRole.MealAssistant, 5_000L, 1_000L).entry
++        val external = sut.addPending("external", ClientRole.MealAssistant, 5_000L, 1_000L).entry
++        sut.discardLocalPending(external.clientId)
++        assertThat(sut.pruneExpired(now = 6_000L)).containsExactly(external.clientId)
++        assertThat(sut.findRaw(local.clientId)).isNull()
++    }
++
+     @Test
+     fun pruneExpiredReturnsEmptyWhenNothingRemoved() = runTest {
+         sut.addPending("a", ClientRole.Admin, 60_000L, 1_000L)
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTest.kt
+index e02439351e..ea238133af 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTest.kt
+@@ -10,6 +10,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.AuthorizedClientsRepository
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.ClientTokens
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey
++import app.aaps.plugins.sync.nsclientV3.localpin.LocalPinTransport
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.PairingOfferPublisher
+ import com.google.common.truth.Truth.assertThat
+ import kotlinx.coroutines.Dispatchers
+@@ -46,6 +47,7 @@ internal class AuthorizedClientsViewModelTest {
+     @Mock private lateinit var rh: ResourceHelper
+     @Mock private lateinit var preferences: Preferences
+     @Mock private lateinit var masterSigningKey: MasterSigningKey
++    @Mock private lateinit var localPinTransport: LocalPinTransport
+
+     private lateinit var sut: AuthorizedClientsViewModel
+
+@@ -59,7 +61,7 @@ internal class AuthorizedClientsViewModelTest {
+         whenever(preferences.observe(BooleanKey.GeneralSimpleMode)).thenReturn(MutableStateFlow(false))
+         whenever(preferences.observe(StringNonKey.NsClientControlClientId)).thenReturn(MutableStateFlow(""))
+         whenever(preferences.get(BooleanKey.HardenedMode)).thenReturn(false)
+-        sut = AuthorizedClientsViewModel(repository, offerPublisher, clientTokens, dateUtil, rh, preferences, masterSigningKey)
++        sut = AuthorizedClientsViewModel(repository, offerPublisher, clientTokens, dateUtil, rh, preferences, masterSigningKey, localPinTransport)
+     }
+
+     @AfterEach
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTokensTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTokensTest.kt
+index a3329a2944..b6fca8ce17 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTokensTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModelTokensTest.kt
+@@ -14,6 +14,7 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.AuthorizedClientsRepository
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.ClientTokens
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey
++import app.aaps.plugins.sync.nsclientV3.localpin.LocalPinTransport
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.PairingOfferPublisher
+ import com.google.common.truth.Truth.assertThat
+ import kotlinx.coroutines.Dispatchers
+@@ -49,6 +50,7 @@ internal class AuthorizedClientsViewModelTokensTest {
+     @Mock private lateinit var rh: ResourceHelper
+     @Mock private lateinit var preferences: Preferences
+     @Mock private lateinit var masterSigningKey: MasterSigningKey
++    @Mock private lateinit var localPinTransport: LocalPinTransport
+
+     private val now = 1_000_000L
+     private val tabletToken = NSAuthSubject(id = "s1", name = "aaps-Tablet", roles = listOf(ClientTokens.ROLE_NAME), accessToken = "aapstablet-0123456789abcdef")
+@@ -76,7 +78,7 @@ internal class AuthorizedClientsViewModelTokensTest {
+         whenever(clientTokens.subjects()).thenReturn(ClientTokens.Result.Ok(listOf(tabletToken.copy(accessToken = null))))
+         whenever(repository.current(now)).thenReturn(emptyList())
+         whenever(masterSigningKey.publicKey()).thenReturn("master-key")
+-        return AuthorizedClientsViewModel(repository, offerPublisher, clientTokens, dateUtil, rh, preferences, masterSigningKey)
++        return AuthorizedClientsViewModel(repository, offerPublisher, clientTokens, dateUtil, rh, preferences, masterSigningKey, localPinTransport)
+     }
+
+     private fun shownCode(sut: AuthorizedClientsViewModel): ClientSetupCode {
+@@ -157,6 +159,39 @@ internal class AuthorizedClientsViewModelTokensTest {
+         verify(offerPublisher, never()).publishOffer(any(), any())
+     }
+
++    @Test
++    fun localPinUsesOnlyTheLocalPeerAndDismissDoesNotDeleteNightscoutData() = runTest {
++        val sut = newSut()
++        whenever(localPinTransport.available).thenReturn(true)
++        val entry = AuthorizedClient(clientId = "local-one", name = "Phone", encryptedSecret = "enc", state = ClientState.Pending,
++            createdAt = now, pairExpiresAt = now + 120_000L, localCopilot = true)
++        whenever(repository.addLocalPending("Phone", ClientRole.MealAssistant, AuthorizedClientsViewModel.PAIR_TTL_MS, now))
++            .thenReturn(AuthorizedClientsRepository.PendingResult(entry, "ab".repeat(32)))
++        whenever(localPinTransport.exchange(any(), any())).thenReturn(true)
++        sut.confirmAdd("Phone", ClientRole.MealAssistant, AuthorizedClientsViewModel.AddMethod.LocalPin)
++        val offer = checkNotNull(sut.pairingOffer.value)
++        assertThat(offer.local).isTrue()
++        assertThat(offer.publishStatus).isEqualTo(AuthorizedClientsViewModel.PublishStatus.Published)
++        val payload = org.mockito.kotlin.argumentCaptor<app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload>()
++        verify(localPinTransport).exchange(payload.capture(), eq(offer.pin))
++        assertThat(payload.firstValue.role).isEqualTo(ClientRole.MealAssistant.name)
++        assertThat(payload.firstValue.clientId).isEqualTo(entry.clientId)
++        assertThat(offer.toString()).doesNotContain(offer.pin)
++        sut.dismissPairing()
++        verify(repository).discardLocalPending(entry.clientId)
++        verify(offerPublisher, never()).publishOffer(any(), any())
++        verify(offerPublisher, never()).deleteOffer(any())
++    }
++
++    @Test
++    fun untrustedLocalPeerDoesNotCreateAnyInvitation() = runTest {
++        val sut = newSut()
++        sut.confirmAdd("Phone", ClientRole.MealAssistant, AuthorizedClientsViewModel.AddMethod.LocalPin)
++        assertThat(sut.pairingOffer.value).isNull()
++        verify(repository, never()).addLocalPending(any(), any(), any(), any())
++        verify(offerPublisher, never()).publishOffer(any(), any())
++    }
++
+     @Test
+     fun `the PIN way adds a client with a name of its own and shows the PIN`() = runTest {
+         val sut = newSut()
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+index f6e07fd20f..01994b935b 100644
+--- a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -4,6 +4,9 @@ import android.content.Context
+ import android.content.pm.PackageManager
+ import android.net.Uri
+ import android.os.Bundle
++import dev.zacsweers.metro.AppScope
++import dev.zacsweers.metro.ContributesBinding
++import dev.zacsweers.metro.Inject
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
+ import app.aaps.core.nssdk.localmodel.clientcontrol.KeyExchangeEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
+@@ -20,17 +23,22 @@ import kotlinx.serialization.json.Json
+ import java.util.UUID
+
+ /** One explicit local enrollment. No Nightscout settings, global TLS or stored session changes. */
+-internal class LocalCopilotPinEnrollment(private val context: Context, private val clients: AuthorizedClientsRepository,
+-                                         private val signingKey: MasterSigningKey) {
+-    suspend fun exchange(pending: PairingPayload, pin: String): Boolean =
++@Inject
++@ContributesBinding(AppScope::class)
++class LocalCopilotPinEnrollment(private val context: Context, private val clients: AuthorizedClientsRepository,
++                                         private val signingKey: MasterSigningKey) : LocalPinTransport {
++    override val available: Boolean get() = trusted()
++
++    private fun trusted(): Boolean {
++        val pm = context.packageManager
++        val provider = pm.resolveContentProvider(AUTHORITY, 0) ?: return false
++        return context.packageName == MASTER && provider.packageName == PEER &&
++            provider.exported && !provider.grantUriPermissions && provider.readPermission == PERMISSION &&
++            provider.writePermission == PERMISSION && pm.checkSignatures(MASTER, PEER) == PackageManager.SIGNATURE_MATCH
++    }
++
++    override suspend fun exchange(pending: PairingPayload, pin: String): Boolean =
+         withContext(Dispatchers.IO) {
+-            val pm = context.packageManager
+-            fun trusted(): Boolean {
+-                val provider = pm.resolveContentProvider(AUTHORITY, 0) ?: return false
+-                return context.packageName == MASTER && provider.packageName == PEER &&
+-                    provider.exported && !provider.grantUriPermissions && provider.readPermission == PERMISSION &&
+-                    provider.writePermission == PERMISSION && pm.checkSignatures(MASTER, PEER) == PackageManager.SIGNATURE_MATCH
+-            }
+             try {
+                 if (!trusted() || !pin.matches(Regex("[0-9]{8}"))) return@withContext false
+                 val name = pending.name ?: return@withContext false
+diff --git a/plugins/sync/src/androidMain/res/values-ru-rRU/strings.xml b/plugins/sync/src/androidMain/res/values-ru-rRU/strings.xml
+index 24e9ecab25..81cf7cfb56 100644
+--- a/plugins/sync/src/androidMain/res/values-ru-rRU/strings.xml
++++ b/plugins/sync/src/androidMain/res/values-ru-rRU/strings.xml
+@@ -189,4 +189,10 @@
+     <string name="sms_profile_switch_created">Переключатель профиля создан</string>
+     <string name="sms_wrong_tbr_duration">Длительность временного базала TBR должна быть кратной %1$d минутам и больше 0.</string>
+     <string name="a11y_otp_qr_code">QR код для создания одноразового пароля</string>
++    <string name="authorized_clients_local_pin">Copilot на этом телефоне</string>
++    <string name="authorized_clients_local_pin_summary">Локальное соединение по PIN без Nightscout.</string>
++    <string name="authorized_clients_local_enter">Переключитесь в Copilot на этом телефоне и введите PIN в настройках сопряжения с AAPS.</string>
++    <string name="authorized_clients_local_waiting">Ожидаем проверки связи с Copilot.</string>
++    <string name="authorized_clients_local_checked">Локальная связь проверена. Право менять цели пока не подтверждено.</string>
++    <string name="authorized_clients_local_failed">Связь не подтверждена. Для новой попытки закройте приглашение и создайте новый PIN.</string>
+ </resources>
+diff --git a/plugins/sync/src/androidMain/res/values/strings.xml b/plugins/sync/src/androidMain/res/values/strings.xml
+index 923154c142..1ba1364ab7 100644
+--- a/plugins/sync/src/androidMain/res/values/strings.xml
++++ b/plugins/sync/src/androidMain/res/values/strings.xml
+@@ -337,4 +337,10 @@
+     <string name="permission_sms_title">SMS</string>
+     <string name="permission_sms_description">Application needs SMS permission for remote control via text messages</string>
+
+-</resources>
+\ No newline at end of file
++    <string name="authorized_clients_local_pin">Copilot on this phone</string>
++    <string name="authorized_clients_local_pin_summary">Use a local PIN without Nightscout.</string>
++    <string name="authorized_clients_local_enter">Switch to Copilot on this phone and enter this PIN in its AAPS pairing settings.</string>
++    <string name="authorized_clients_local_waiting">Waiting for Copilot to verify the local connection.</string>
++    <string name="authorized_clients_local_checked">Local connection verified. Permission to change targets is not yet confirmed.</string>
++    <string name="authorized_clients_local_failed">Local connection not confirmed. Close this invitation and create a new PIN to try again.</string>
++</resources>
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index a4156dcb47..07e8372007 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -204,6 +204,12 @@ class AuthorizedClientsRepository(
+         write(decode().filterNot { it.clientId == clientId })
+     }
+
++    internal suspend fun discardLocalPending(clientId: String): Unit = mutex.withLock {
++        val list = decode()
++        val kept = list.filterNot { it.clientId == clientId && it.localCopilot && it.state == ClientState.Pending }
++        if (kept.size != list.size) write(kept)
++    }
++
+     /** Change the role of a client. It takes effect on the next command; the client learns it from the roster. */
+     suspend fun setRole(clientId: String, role: ClientRole): Unit = mutex.withLock {
+         val list = decode()
+@@ -238,7 +244,7 @@ class AuthorizedClientsRepository(
+     }
+
+     /**
+-     * Drop pending entries past their pairExpiresAt. Returns the clientIds that were removed so
++     * Drop pending entries past their pairExpiresAt. Returns only removed Nightscout clientIds so
+      * the caller can drive the matching offer-doc cleanup without an inconsistent re-snapshot of
+      * `clients` (which is a [SharingStarted.WhileSubscribed] StateFlow and can lag the prefs).
+      */
+@@ -248,7 +254,8 @@ class AuthorizedClientsRepository(
+         if (kept.size == list.size) return@withLock emptyList()
+         write(kept)
+         val keptIds = kept.mapTo(HashSet(kept.size)) { it.clientId }
+-        list.mapNotNull { if (it.clientId !in keptIds) it.clientId else null }
++        // Only external invitations have a Nightscout offer document to delete.
++        list.mapNotNull { if (!it.localCopilot && it.clientId !in keptIds) it.clientId else null }
+     }
+
+     /**
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsScreen.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsScreen.kt
+index 09d42fe9b8..4e84930bc5 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsScreen.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsScreen.kt
+@@ -113,6 +113,7 @@ fun AuthorizedClientsScreen(
+
+     when (val state = dialogState) {
+         AuthorizedClientsViewModel.DialogState.EnterName             -> EnterNameDialog(
++            localPinAvailable = remember { viewModel.localPinAvailable },
+             // Known before the user picks a QR code option: better said here than after the name is typed.
+             qrProblem = (tokens as? AuthorizedClientsViewModel.TokensState.Unavailable)?.problem
+                 ?.takeIf { it == AuthorizedClientsViewModel.TokenProblem.NotAllowed || it == AuthorizedClientsViewModel.TokenProblem.NotConnected },
+@@ -414,6 +415,7 @@ private fun UnpairedTokenCard(
+  */
+ @Composable
+ private fun EnterNameDialog(
++    localPinAvailable: Boolean,
+     qrProblem: AuthorizedClientsViewModel.TokenProblem?,
+     onConfirm: (String, ClientRole?, AuthorizedClientsViewModel.AddMethod) -> Unit,
+     onDismiss: () -> Unit
+@@ -478,6 +480,15 @@ private fun EnterNameDialog(
+                         )
+                     }
+                 }
++                if (localPinAvailable) {
++                    AddMethodOption(
++                        title = stringResource(SyncStrings.authorized_clients_local_pin),
++                        summary = stringResource(SyncStrings.authorized_clients_local_pin_summary),
++                        selected = method == AuthorizedClientsViewModel.AddMethod.LocalPin,
++                        enabled = true,
++                        onSelect = { method = AuthorizedClientsViewModel.AddMethod.LocalPin }
++                    )
++                }
+                 if (needsRole) {
+                     Row(modifier = Modifier.padding(top = AapsSpacing.medium), verticalAlignment = Alignment.CenterVertically) {
+                         Text(
+@@ -755,7 +766,7 @@ private fun PairingPinDialog(
+                     color = MaterialTheme.colorScheme.onSurface
+                 )
+                 Text(
+-                    text = stringResource(SyncStrings.authorized_clients_pin_instructions),
++                    text = stringResource(if (offer.local) SyncStrings.authorized_clients_local_enter else SyncStrings.authorized_clients_pin_instructions),
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                 )
+@@ -765,7 +776,14 @@ private fun PairingPinDialog(
+                     color = MaterialTheme.colorScheme.primary,
+                     modifier = Modifier.padding(vertical = AapsSpacing.large)
+                 )
+-                PublishStatusBanner(status = offer.publishStatus, onRetry = onRetry)
++                if (offer.local) {
++                    val message = when (offer.publishStatus) {
++                        AuthorizedClientsViewModel.PublishStatus.Loading -> SyncStrings.authorized_clients_local_waiting
++                        AuthorizedClientsViewModel.PublishStatus.Published -> SyncStrings.authorized_clients_local_checked
++                        AuthorizedClientsViewModel.PublishStatus.Failed -> SyncStrings.authorized_clients_local_failed
++                    }
++                    Text(stringResource(message), style = MaterialTheme.typography.bodyMedium)
++                } else PublishStatusBanner(status = offer.publishStatus, onRetry = onRetry)
+                 Text(
+                     text = stringResource(
+                         SyncStrings.authorized_clients_pin_expires_in,
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModel.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModel.kt
+index 72ea28b8f4..31cff81d82 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModel.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/compose/AuthorizedClientsViewModel.kt
+@@ -24,6 +24,7 @@ import app.aaps.plugins.sync.nsclientV3.clientcontrol.ClientTokens
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.MasterSigningKey
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.PairingOfferPublisher
+ import app.aaps.plugins.sync.nsclientV3.clientcontrol.clientRole
++import app.aaps.plugins.sync.nsclientV3.localpin.LocalPinTransport
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.ContributesIntoMap
+ import dev.zacsweers.metro.Inject
+@@ -52,8 +53,10 @@ class AuthorizedClientsViewModel(
+     private val dateUtil: DateUtil,
+     private val rh: TextResolver,
+     private val preferences: Preferences,
+-    private val masterSigningKey: MasterSigningKey
++    private val masterSigningKey: MasterSigningKey,
++    private val localPinTransport: LocalPinTransport
+ ) : ViewModel() {
++    val localPinAvailable: Boolean get() = localPinTransport.available
+
+     companion object {
+
+@@ -189,6 +192,7 @@ class AuthorizedClientsViewModel(
+     fun confirmAdd(name: String, role: ClientRole?, method: AddMethod) {
+         when (method) {
+             AddMethod.Pin              -> role?.let { addWithPin(name, it) }
++            AddMethod.LocalPin         -> if (localPinAvailable) role?.let { addWithPin(name, it, local = true) } else Unit
+             AddMethod.QrWithPairing    -> role?.let { addWithQr(name, it) }
+             AddMethod.QrNightscoutOnly -> addWithQr(name, null)
+         }
+@@ -293,7 +297,8 @@ class AuthorizedClientsViewModel(
+      * sees something while the publish runs; status flips to Published / Failed when the
+      * publish completes so the UI can offer a retry instead of silently showing a non-working PIN.
+      */
+-    private fun addWithPin(name: String, role: ClientRole) {
++    private fun addWithPin(name: String, role: ClientRole, local: Boolean = false) {
++        if (publishJob?.isActive == true || _pairingOffer.value != null) return
+         _dialogState.value = null
+         // One coroutine for the whole thing now that addPending suspends: it takes the repository
+         // mutex across preference I/O. This stays a plain function because the screen passes it as a
+@@ -305,7 +310,8 @@ class AuthorizedClientsViewModel(
+                 return@launch
+             }
+             val now = dateUtil.now()
+-            val result = repository.addPending(name.trim(), role, PAIR_TTL_MS, now)
++            val result = if (local) repository.addLocalPending(name.trim(), role, PAIR_TTL_MS, now)
++                         else repository.addPending(name.trim(), role, PAIR_TTL_MS, now)
+             val payload = PairingPayload(
+                 masterInstallId = ownInstallId(),
+                 clientId = result.entry.clientId,
+@@ -319,9 +325,10 @@ class AuthorizedClientsViewModel(
+                 pin = pin,
+                 expiresAt = result.entry.pairExpiresAt,
+                 clientId = result.entry.clientId,
+-                publishStatus = PublishStatus.Loading
++                publishStatus = PublishStatus.Loading,
++                local = local
+             )
+-            val ok = offerPublisher.publishOffer(payload, pin)
++            val ok = if (local) localPinTransport.exchange(payload, pin) else offerPublisher.publishOffer(payload, pin)
+             // Only update if the dialog is still showing this offer — user may have dismissed already.
+             _pairingOffer.update { current ->
+                 if (current?.clientId == payload.clientId)
+@@ -337,6 +344,7 @@ class AuthorizedClientsViewModel(
+      */
+     fun retryPublish() {
+         val offer = _pairingOffer.value ?: return
++        if (offer.local) return
+         if (offer.publishStatus != PublishStatus.Failed) return
+         // Same reason as confirmAdd: findRaw and secretLookup take the repository mutex, so the body
+         // moved into the coroutine. The guards keep their order, they just return from the launch.
+@@ -378,6 +386,11 @@ class AuthorizedClientsViewModel(
+         if (offer == null) return
+         val pendingPublish = publishJob
+         publishJob = null
++        if (offer.local) {
++            pendingPublish?.cancel()
++            viewModelScope.launch { repository.discardLocalPending(offer.clientId) }
++            return
++        }
+         viewModelScope.launch {
+             pendingPublish?.join()
+             offerPublisher.deleteOffer(offer.clientId)
+@@ -407,6 +420,7 @@ class AuthorizedClientsViewModel(
+         // order is unchanged: the entry goes first, then its offer doc.
+         viewModelScope.launch {
+             repository.delete(client.clientId)
++            if (client.localCopilot) return@launch
+             // Re-check the current state from the repository, not the snapshot in DialogState — between
+             // requestDelete and confirmDelete the entry may have flipped Pending → Active (offer doc
+             // already deleted by the receiver) or already pruned.
+@@ -505,6 +519,7 @@ class AuthorizedClientsViewModel(
+
+         /** The client is set up with Nightscout already and types the PIN shown here. For phones without a camera. */
+         Pin,
++        LocalPin,
+
+         /** A QR code with Nightscout, the client's own token and the pairing: the client is ready after one scan. */
+         QrWithPairing,
+@@ -585,7 +600,8 @@ class AuthorizedClientsViewModel(
+         val pin: String,
+         val expiresAt: Long,
+         val clientId: String,
+-        val publishStatus: PublishStatus = PublishStatus.Loading
++        val publishStatus: PublishStatus = PublishStatus.Loading,
++        val local: Boolean = false
+     ) {
+
+         override fun toString(): String =
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinTransport.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinTransport.kt
+new file mode 100644
+index 0000000000..8e61f4c6f1
+--- /dev/null
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinTransport.kt
+@@ -0,0 +1,8 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++
++interface LocalPinTransport {
++    val available: Boolean
++    suspend fun exchange(pending: PairingPayload, pin: String): Boolean
++}
+diff --git a/plugins/sync/src/iosMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt b/plugins/sync/src/iosMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt
+new file mode 100644
+index 0000000000..8c9962a7cb
+--- /dev/null
++++ b/plugins/sync/src/iosMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt
+@@ -0,0 +1,13 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import dev.zacsweers.metro.AppScope
++import dev.zacsweers.metro.ContributesBinding
++import dev.zacsweers.metro.Inject
++
++@Inject
++@ContributesBinding(AppScope::class)
++class UnsupportedLocalPinTransport : LocalPinTransport {
++    override val available = false
++    override suspend fun exchange(pending: PairingPayload, pin: String) = false
++}
+diff --git a/plugins/sync/src/jvmMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt b/plugins/sync/src/jvmMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt
+new file mode 100644
+index 0000000000..8c9962a7cb
+--- /dev/null
++++ b/plugins/sync/src/jvmMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/UnsupportedLocalPinTransport.kt
+@@ -0,0 +1,13 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import dev.zacsweers.metro.AppScope
++import dev.zacsweers.metro.ContributesBinding
++import dev.zacsweers.metro.Inject
++
++@Inject
++@ContributesBinding(AppScope::class)
++class UnsupportedLocalPinTransport : LocalPinTransport {
++    override val available = false
++    override suspend fun exchange(pending: PairingPayload, pin: String) = false
++}

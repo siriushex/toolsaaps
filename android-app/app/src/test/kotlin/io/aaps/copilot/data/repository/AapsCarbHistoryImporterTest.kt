@@ -12,6 +12,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class AapsCarbHistoryImporterTest {
+    @Test fun editedAmountReplacesPreviouslyStoredCarbAliasesWithoutEditingInsulin() = runTest {
+        val original = TherapyEventEntity("linked", ROW_TS, "meal_bolus",
+            """{"aapsCarbId":43,"units":1.25,"carbs":20,"grams":20,"enteredCarbs":20,"mealCarbs":20}""")
+        val dao = RecordingTherapyDao(original)
+        AapsCarbHistoryImporter(dao.proxy).importPage(page(row(id = 43L, amount = 12.0)))
+        val updated = payload(dao.stored.getValue("linked"))
+        for (name in listOf("carbs","grams","enteredCarbs","mealCarbs")) assertThat(updated[name].asDouble).isEqualTo(12.0)
+        assertThat(updated["units"].asDouble).isEqualTo(1.25)
+        assertThat(dao.stored.keys).containsExactly("linked")
+    }
     @Test fun durableStageRunsInsideTransactionAndFailedStageRollsBackImport() = runTest {
         val dao = RecordingTherapyDao()
         val transaction = RecordingTransactionRunner()
@@ -122,7 +132,7 @@ class AapsCarbHistoryImporterTest {
 
         assertThat(transaction.calls).isEqualTo(1)
         assertThat(dao.daoCalls)
-            .containsExactly("carbCandidates", "carbCandidates", "upsertAll")
+            .containsExactly("carbCandidates", "linkedCarbCandidates", "carbCandidates", "linkedCarbCandidates", "upsertAll")
             .inOrder()
         assertThat(dao.upserted).hasSize(1)
     }
@@ -957,6 +967,15 @@ class AapsCarbHistoryImporterTest {
             arrayOf(TherapyDao::class.java)
         ) { _, method, args ->
             when (method.name) {
+                "linkedCarbCandidates" -> {
+                    daoCalls += method.name
+                    onDaoCall?.invoke(method.name)
+                    val prefix = "\"aapsCarbId\":${args[0]}"
+                    stored.values.filter {
+                        it.type in setOf("carbs", "meal_bolus") &&
+                            (it.payloadJson.contains("$prefix,") || it.payloadJson.contains("$prefix}"))
+                    }.sortedBy { it.id }.take(args[1] as Int)
+                }
                 "carbCandidates" -> {
                     daoCalls += method.name
                     onDaoCall?.invoke(method.name)

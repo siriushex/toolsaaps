@@ -107,6 +107,20 @@ class LocalNightscoutV3SettingsApiTest {
         assertEquals(501, call("DELETE", "/ordinary-settings", query = mapOf("permanent" to listOf("true"))).status)
     }
 
+    @Test fun permanentExchangeDeletionErasesOnlyTheAnswerAndKeepsRevision() = runBlocking {
+        val keyId = offerId.replace("_offer_", "_key_")
+        val keyDoc = doc().dropLast(1) + ",\"key\":{\"token\":\"synthetic-ciphertext\"}}"
+        val first = call("PUT", "/$keyId", keyDoc)
+        assertEquals(201, first.status)
+        val erased = call("DELETE", "/$keyId", query = mapOf("permanent" to listOf("true")))
+        assertEquals(200, erased.status)
+        assertEquals(404, call(suffix = "/$keyId").status)
+        val receipt = rows(call(suffix = "/history/${first.revision}")).single()
+        assertFalse(receipt.containsKey("key"))
+        assertFalse(receipt.toString().contains("synthetic-ciphertext"))
+        assertEquals(410, call("PUT", "/$keyId", keyDoc).status)
+    }
+
     @Test fun invalidCommonFieldsTypesFiltersAndRawPairingSecretsNeverWrite() = runBlocking {
         listOf("{}", "[]", "{\"date\":1,\"date\":2}",
             doc().replace("946684800001", "946684800000"),

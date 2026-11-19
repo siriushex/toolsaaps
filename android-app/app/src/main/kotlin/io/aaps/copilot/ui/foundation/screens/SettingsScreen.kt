@@ -133,6 +133,8 @@ fun SettingsScreen(
     forecastTestState: io.aaps.copilot.service.ForecastTestState = io.aaps.copilot.service.ForecastTestState(),
     onForecastTestToggle: (Boolean) -> Unit = {},
     onOpenSetup: () -> Unit = {},
+    commandsArmed: Boolean? = null,
+    onReviewCommandPermission: (() -> Unit)? = null,
     serverAiConnectionState: ServerAiConnectionState = ServerAiConnectionState(),
     onServerAiActivate: (String) -> Unit = {},
     onServerAiResume: () -> Unit = {},
@@ -165,7 +167,11 @@ fun SettingsScreen(
     onLocalNightscoutCertificateExport: () -> Unit = {},
     onLocalNightscoutIdentityReset: (Boolean) -> Unit = {},
     nativeAapsConnectionState: io.aaps.copilot.service.AapsV3ConnectionState = io.aaps.copilot.service.AapsV3ConnectionState(),
-    onNativeAapsPair: (CharArray) -> Unit = { it.fill('\u0000') },
+    nativeAapsInbound: io.aaps.copilot.service.AapsV3InboundSummary? = null,
+    onNativeAapsInboundCheck: () -> Unit = {},
+    localAapsV3Upload: Boolean = false,
+    onLocalAapsV3Upload: (Boolean) -> Unit = {},
+    onNativeAapsPair: (CharArray, io.aaps.copilot.service.AapsV3PairingRoute) -> Unit = { pin, _ -> pin.fill('\u0000') },
     onNativeAapsCheck: () -> Unit = {},
     onNativeAapsRevoke: () -> Unit = {},
     onLocalBroadcastIngestToggle: (Boolean) -> Unit = {},
@@ -426,7 +432,9 @@ fun SettingsScreen(
                         )
                     }
                     item {
-                        NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck, onNativeAapsRevoke)
+                        NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck,
+                            onNativeAapsRevoke, nativeAapsInbound, onNativeAapsInboundCheck,
+                            localAapsV3Upload, onLocalAapsV3Upload, commandsArmed, onReviewCommandPermission)
                     }
                     item {
                         UamSettingsCard(
@@ -1015,9 +1023,10 @@ private fun IsfCrSettingsCard(
                 color = if (midnightGlass) Color(0xFF8DB6FF) else MaterialTheme.colorScheme.primary
             )
         } else if (!state.sensitivitySourceApplyError.isNullOrBlank()) {
+            val label = sensitivitySourceErrorLabel(state.sensitivitySourceApplyError.orEmpty())
             Text(
-                text = state.sensitivitySourceApplyError.orEmpty(),
-                modifier = Modifier.issueHelp(state.sensitivitySourceApplyError.orEmpty(), UiIssueKind.GENERIC_ERROR),
+                text = label,
+                modifier = Modifier.issueHelp(label, UiIssueKind.GENERIC_ERROR),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )

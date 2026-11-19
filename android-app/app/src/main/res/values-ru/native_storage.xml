@@ -1,0 +1,4 @@
+<resources>
+    <string name="native_storage_seen">При проверке: клиент подписан на канал настроек /storage. Сопряжение ещё не выполнено.</string>
+    <string name="native_storage_not_seen">При проверке: нет активной подписки на настройки в /storage. Глюкоза может поступать отдельно.</string>
+</resources>

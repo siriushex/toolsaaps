@@ -19,6 +19,20 @@ changes are made. Counts describe the retained snapshot, not a clinical interval
 An empty matched archive is not proof that no insulin was delivered. A reader
 acknowledgement confirms a history block, not insulin delivery to the body.
 
+The warning-category count includes locally detected contradictory remaining-event
+headers. `DECLARED_HISTORY_TAIL` means a terminal flag still declares more entries
+than the block carries. `REMAINING_COUNT_DISCONTINUITY` means the next block cannot
+account for the prior declared remainder, even counting unknown raw events. These
+are source inconsistencies, not a measured amount of missing insulin. A clean
+later catalog cannot erase the retained observations. Original bytes stay intact.
+
+Each validated read also retains EVENT_COUNTER_GAP for a forward event-counter
+jump, including across raw blocks and after unknown or clock-change events.
+A later read can supply missing counter values to the combined archive without
+erasing that earlier per-read finding. The displayed current missing-counter
+count may therefore be zero while a retained warning remains. Neither finding
+provides a missing-insulin amount or a historical pump-to-UTC mapping.
+
 Ordinary signed-probe renewal and target preemption may retain the dated last
 audit. A pending or failed attempt has its own status, never a fresh success label.
 Stop/restart, revocation, storage/connection failure and control disable clear the
@@ -35,6 +49,13 @@ All diagnostic actions remain outside the clinical-admission path.
    receipt time or later pump-clock correction cannot supply missing old epochs.
 4. Validate forecast uncertainty and the proposed meal-time policy separately,
    including missed food, delayed user response, fresh CGM and hypoglycemia guards.
+
+Pinned RC1 `Pump.connectInternal` loads one current UTC offset, and
+`scanHistoryDeltaForBolusToEmit` uses it for event conversion. The present raw
+journal retains local pump times and separate reader times, not a dated series
+of verified UTC epochs. Do not infer old epochs from the current phone timezone
+or from the time a file was downloaded. Complete ordinary/suspended basal history
+also cannot be established by bolus/clock events alone.
 
 `MealTimingDecision.notificationAllowed` remains false; diagnostic fields cannot
 enable it. A successful unit test, matching catalog or user observation cannot

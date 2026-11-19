@@ -127,9 +127,10 @@ internal class RoomAiHistorySource(private val db: CopilotDatabase) {
             RoomAiHistoryPage(last, lastTime, scanned, output, scanned - accepted.size)
         }
 
-    private fun origin(value: String) = when (value) {
-        "aaps_broadcast" -> ServerAiHistorySource.AAPS
-        "xdrip_broadcast" -> ServerAiHistorySource.CGM
+    private fun origin(value: String) = when {
+        value == "aaps_broadcast" || value == LocalAapsLoopInputSync.SOURCE ||
+            value.startsWith(LocalAapsCgmSync.PREFIX) -> ServerAiHistorySource.AAPS
+        value == "xdrip_broadcast" -> ServerAiHistorySource.CGM
         else -> ServerAiHistorySource.COPILOT
     }
 

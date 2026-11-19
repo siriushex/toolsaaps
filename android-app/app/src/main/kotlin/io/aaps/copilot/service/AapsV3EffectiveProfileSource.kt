@@ -1,7 +1,6 @@
 package io.aaps.copilot.service
 
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
-import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.LocalV3RetainedSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -54,15 +53,11 @@ internal class AapsV3EffectiveProfileSource(
             return@withLock unavailable(AapsV3ObservedProfileStatus.INVALID, AapsV3ObservedInsulinStatus.INVALID, AapsV3ComboHistoryStatus.INVALID)
         }
         try {
-            val heads = store.lastModified()
-            val head = heads.getValue(LocalV3Collection.TREATMENTS)
-            val index = cached?.takeIf { it.revision == head } ?: Index(
-                store.retainedSnapshot(LocalV3Collection.TREATMENTS, maxRows, maxPayloadBytes)
-            ).also { cached = it }
-            val comboHead = heads.getValue(LocalV3Collection.DEVICE_STATUS)
-            val combo = cachedCombo?.takeIf { it.revision == comboHead } ?: AapsV3ComboHistoryTimeline(
-                store.retainedSnapshot(LocalV3Collection.DEVICE_STATUS, maxRows, maxPayloadBytes)
-            ).also { cachedCombo = it }
+            val changes = store.retainedClinicalChanges(cached?.revision, cachedCombo?.revision, maxRows, maxPayloadBytes)
+            val index = changes.treatments?.let(::Index) ?: checkNotNull(cached)
+            val combo = changes.deviceStatus?.let(::AapsV3ComboHistoryTimeline) ?: checkNotNull(cachedCombo)
+            cached = index
+            cachedCombo = combo
             currentCoroutineContext().ensureActive()
             val insulin = index.insulin.read(fromMs, atMs, knownAtMs)
             val history = index.profile.readWindow(fromMs, atMs, knownAtMs)

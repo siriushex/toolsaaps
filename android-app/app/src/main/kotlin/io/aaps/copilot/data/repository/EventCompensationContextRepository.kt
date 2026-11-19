@@ -62,7 +62,9 @@ class EventCompensationContextRepository(private val db: CopilotDatabase, privat
                     telemetry.any { it.key in setOf("sensor_quality_blocked", "sensor_quality_suspect_false_low") &&
                     it.ts >= start - 10 * EventCompensationReview.MINUTE &&
                     it.value?.let { value -> value.isFinite() && value >= 0.5 } == true }
-                val glucose = if (sensorConcern || glucoseRows.any { it.quality != "OK" || it.source !in CGM_SOURCES }) null else
+                val glucose = if (sensorConcern || glucoseRows.any {
+                    it.quality != "OK" || (it.source !in CGM_SOURCES && !it.source.startsWith(LocalAapsCgmSync.PREFIX))
+                }) null else
                     EventCompensationReview.glucose(start, through,
                         glucoseRows.map { EventContextSample(it.ts, it.mmol, it.source) })
                 val isfRows = telemetry.filter { it.key == "isf_value" && it.ts <= start }

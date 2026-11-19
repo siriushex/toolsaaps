@@ -1,0 +1,401 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index f3a8a19f64df16d457c785df5fa35501829c8190..386fb0eeb7be92d74bc31d1261a2c42165b97965 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -2,6 +2,9 @@
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:tools="http://schemas.android.com/tools">
+ 
++    <permission
++        android:name="${applicationId}.permission.READ_LOCAL_OBSERVATION"
++        android:protectionLevel="signature" />
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+     <uses-permission
+@@ -177,6 +180,13 @@
+                 android:value="Keeps AndroidAPS alive for continuous automated insulin delivery (artificial pancreas loop)." />
+         </service>
+ 
++        <provider
++            android:name="app.aaps.localobservation.LocalObservationProvider"
++            android:authorities="${applicationId}.localobservation"
++            android:exported="true"
++            android:grantUriPermissions="false"
++            android:permission="${applicationId}.permission.READ_LOCAL_OBSERVATION" />
++
+         <provider
+             android:name="androidx.core.content.FileProvider"
+             android:authorities="${applicationId}.fileprovider"
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 2c101fa0e75dc2de04464296ee52abcad14260ce..9512d3b3f59d78380a779b515d5fa8a2c5e06d52 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -147,6 +147,10 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     private val plugins get() = metroGraphs.allPlugins(aapsLogger)
+     private val persistenceLayer get() = metroGraphs.persistenceLayer
+     private val dateUtil get() = metroGraphs.dateUtil
++    internal suspend fun readLocalObservation(now: Long): ByteArray {
++        check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
++        return app.aaps.localobservation.readLocalObservation(persistenceLayer, dateUtil, now)
++    }
+     private val uiInteraction get() = metroGraphs.uiInteraction
+     private val processLifecycleListener get() = metroGraphs.processLifecycleListener
+     private val localAlertUtils get() = metroGraphs.localAlertUtils
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..ffce2b8343ae4048a5b8230c83b51271f2183671
+--- /dev/null
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -0,0 +1,96 @@
++package app.aaps.localobservation
++
++import android.content.ContentProvider
++import android.content.ContentValues
++import android.content.pm.PackageManager
++import android.database.Cursor
++import android.net.Uri
++import android.os.Binder
++import android.os.Bundle
++import android.os.SystemClock
++import app.aaps.MainApp
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withTimeoutOrNull
++import java.util.concurrent.atomic.AtomicBoolean
++import java.util.concurrent.atomic.AtomicLong
++
++/** Same-phone observation only. No command or arbitrary query surface. */
++class LocalObservationProvider : ContentProvider() {
++    private val reading = AtomicBoolean(false)
++    private val lastRead = AtomicLong(-5_000L)
++    private val uploading = AtomicBoolean(false)
++    private val lastUpload = AtomicLong(-30_000L)
++    private val upload = LocalObservationUpload()
++
++    override fun onCreate() = true
++
++    override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
++        val app = checkNotNull(context).applicationContext as MainApp
++        val callerUid = Binder.getCallingUid()
++        val caller = callingPackage
++        val permission = "${app.packageName}.permission.READ_LOCAL_OBSERVATION"
++        // ContentProvider.call does not enforce the manifest read/write permissions.
++        if (app.packageName != "info.nightscout.androidaps" ||
++            caller != "io.aaps.predictivecopilot" ||
++            app.checkCallingPermission(permission) != PackageManager.PERMISSION_GRANTED ||
++            app.packageManager.checkSignatures(callerUid, android.os.Process.myUid()) != PackageManager.SIGNATURE_MATCH) {
++            throw SecurityException("local_observation_denied")
++        }
++        if (method == "upload_v3" && arg == null && extras != null) return upload(app, extras)
++        require(method == "snapshot_v1" && arg == null && extras == null)
++        if (!reading.compareAndSet(false, true)) return Bundle()
++        try {
++            val nowElapsed = SystemClock.elapsedRealtime()
++            if (nowElapsed - lastRead.get() < 5_000L) return Bundle()
++            lastRead.set(nowElapsed)
++            val identity = Binder.clearCallingIdentity()
++            try {
++                val snapshot = runBlocking(Dispatchers.IO) {
++                    withTimeoutOrNull(2_500L) { app.readLocalObservation(System.currentTimeMillis()) }
++                } ?: return Bundle()
++                return Bundle().apply { putByteArray("snapshot", snapshot) }
++            } catch (_: Exception) {
++                return Bundle()
++            } finally {
++                Binder.restoreCallingIdentity(identity)
++            }
++        } finally {
++            reading.set(false)
++        }
++    }
++
++    private fun upload(app: MainApp, ticket: Bundle): Bundle {
++        require(ticket.keySet() == setOf("port", "root", "leaf", "bearer"))
++        if (!uploading.compareAndSet(false, true)) return Bundle()
++        try {
++            val elapsed = SystemClock.elapsedRealtime()
++            if (elapsed - lastUpload.get() < 30_000L) return Bundle()
++            lastUpload.set(elapsed)
++            val identity = Binder.clearCallingIdentity()
++            try {
++                val accepted = runBlocking(Dispatchers.IO) {
++                    withTimeoutOrNull(20_000L) {
++                        upload.run(ticket, app.readLocalObservation(System.currentTimeMillis()))
++                    }
++                } == true
++                return Bundle().apply { putBoolean("accepted", accepted) }
++            } catch (_: Exception) {
++                return Bundle()
++            } finally {
++                Binder.restoreCallingIdentity(identity)
++            }
++        } finally {
++            uploading.set(false)
++        }
++    }
++
++    override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
++                       selectionArgs: Array<out String>?, sortOrder: String?): Cursor = unsupported()
++    override fun insert(uri: Uri, values: ContentValues?): Uri = unsupported()
++    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = unsupported()
++    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = unsupported()
++    override fun getType(uri: Uri): String? = null
++
++    private fun unsupported(): Nothing = throw UnsupportedOperationException("local_observation_snapshot_only")
++}
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationSnapshot.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationSnapshot.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..53be4b7e389180afddd4245ed8d5f9b80ff9d7f4
+--- /dev/null
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationSnapshot.kt
+@@ -0,0 +1,104 @@
++package app.aaps.localobservation
++
++import app.aaps.core.data.model.ICfg
++import app.aaps.core.data.model.IDs
++import app.aaps.core.data.model.BS
++import app.aaps.core.interfaces.db.PersistenceLayer
++import app.aaps.core.interfaces.utils.DateUtil
++import app.aaps.core.objects.profile.ProfileSealed
++import kotlinx.serialization.json.JsonObjectBuilder
++import kotlinx.serialization.json.buildJsonArray
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.put
++
++internal suspend fun readLocalObservation(db: PersistenceLayer, dateUtil: DateUtil, now: Long): ByteArray {
++    val from = now - 86_400_000L
++    val samples = db.getBgReadingsDataFromTimeToTime(now - 30 * 60_000L, now, false)
++    val profile = db.getEffectiveProfileSwitchActiveAt(now)
++    val boluses = db.getBolusesFromTimeToTime(from, now, true).filter { it.type != BS.Type.PRIMING && it.amount > 0 }
++    val basals = db.getTemporaryBasalsStartingFromTimeToTime(from, now, true)
++    val extended = db.getExtendedBolusesStartingFromTimeToTime(from, now, true)
++    val count = boluses.size + basals.size + extended.size
++    check(samples.size <= 256 && count <= 512)
++    return buildJsonObject {
++        put("version", 1)
++        put("at", now)
++        put("glucose", buildJsonArray {
++            samples.filter { it.isValid }.forEach { sample ->
++                add(buildJsonObject {
++                    put("date", sample.timestamp)
++                    put("sgv", sample.value)
++                    put("sensor", sample.sourceSensor.name)
++                })
++            }
++        })
++        if (profile != null && profile.isValid) {
++            put("profile", buildJsonObject {
++                put("date", profile.timestamp)
++                put("utcOffset", profile.utcOffset / 60_000L)
++                put("eventType", "Note")
++                put("originalProfileName", profile.originalProfileName)
++                put("originalCustomizedName", profile.originalCustomizedName)
++                put("originalTimeshift", profile.originalTimeshift)
++                put("originalPercentage", profile.originalPercentage)
++                put("originalDuration", profile.originalDuration)
++                put("originalEnd", profile.originalEnd)
++                put("profileJson", ProfileSealed.EPS(profile, null).toPureNsJson(dateUtil).toString())
++                put("icfg", profile.iCfg.observationJson())
++            })
++        }
++        put("insulin", buildJsonArray {
++            boluses.filter { it.isValid }.forEach { bolus ->
++                add(buildJsonObject {
++                    put("eventType", "Correction Bolus")
++                    put("date", bolus.timestamp)
++                    put("utcOffset", bolus.utcOffset / 60_000L)
++                    put("insulin", bolus.amount)
++                    put("type", bolus.type.name)
++                    put("isBasalInsulin", bolus.isBasalInsulin)
++                    put("icfg", bolus.iCfg.observationJson())
++                    pumpIdentity(bolus.ids)
++                })
++            }
++            basals.filter { it.isValid }.forEach { basal ->
++                add(buildJsonObject {
++                    put("eventType", "Temp Basal")
++                    put("date", basal.timestamp)
++                    put("utcOffset", basal.utcOffset / 60_000L)
++                    put("durationInMilliseconds", basal.duration)
++                    put("type", basal.type.name)
++                    if (basal.isAbsolute) put("absolute", basal.rate) else put("percent", basal.rate - 100)
++                    pumpIdentity(basal.ids)
++                })
++            }
++            extended.filter { it.isValid }.forEach { bolus ->
++                add(buildJsonObject {
++                    put("eventType", "Combo Bolus")
++                    put("date", bolus.timestamp)
++                    put("utcOffset", bolus.utcOffset / 60_000L)
++                    put("durationInMilliseconds", bolus.duration)
++                    put("enteredinsulin", bolus.amount)
++                    put("isEmulatingTempBasal", bolus.isEmulatingTempBasal)
++                    pumpIdentity(bolus.ids)
++                })
++            }
++        })
++    }.toString().encodeToByteArray().also { check(it.size <= 196_608) }
++}
++
++private fun ICfg.observationJson() = buildJsonObject {
++    put("insulinLabel", insulinLabel)
++    put("insulinEndTime", insulinEndTime)
++    put("insulinPeakTime", insulinPeakTime)
++    put("concentration", concentration)
++}
++
++private fun JsonObjectBuilder.pumpIdentity(ids: IDs) {
++    val id = ids.pumpId ?: return
++    val type = ids.pumpType ?: return
++    val serial = ids.pumpSerial?.takeIf { it.isNotBlank() } ?: return
++    put("pumpId", id)
++    put("pumpType", type.name)
++    put("pumpSerial", serial)
++    ids.endId?.let { put("endId", it) }
++}
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationUpload.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationUpload.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..9371069522d4d7a2312f2c5206b1ddd346100264
+--- /dev/null
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationUpload.kt
+@@ -0,0 +1,82 @@
++package app.aaps.localobservation
++
++import android.os.Bundle
++import app.aaps.core.nssdk.networking.NsLocalObservationUpload
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.JsonPrimitive
++import kotlinx.serialization.json.jsonArray
++import kotlinx.serialization.json.jsonObject
++import java.security.MessageDigest
++
++internal class LocalObservationUpload {
++    private val acknowledged = LinkedHashSet<String>()
++    private var destination: String? = null
++
++    // The provider holds its non-queuing lease for this entire call.
++    suspend fun run(ticket: Bundle, snapshot: ByteArray): Boolean {
++        val port = ticket.getInt("port")
++        val root = checkNotNull(ticket.getByteArray("root"))
++        val leaf = checkNotNull(ticket.getByteArray("leaf"))
++        val bearer = checkNotNull(ticket.getString("bearer"))
++        val peer = "$port:${digest(leaf)}"
++        if (destination != peer) {
++            acknowledged.clear()
++            destination = peer
++        }
++        val entries = records(snapshot)
++        val pending = entries.map { it to digest(it.body.toString().encodeToByteArray()) }
++            .filterNot { (_, key) -> key in acknowledged }
++        val client = NsLocalObservationUpload(port, NsLoopbackUploadIdentity(root, leaf), bearer)
++        try {
++            if (!client.ready()) return false
++            var rejected = false
++            pending.take(MAX_PER_CYCLE).forEach { (row, key) ->
++                if (client.store(row.glucose, row.body)) {
++                    if (acknowledged.size >= MAX_ACKNOWLEDGED) acknowledged.remove(acknowledged.first())
++                    acknowledged.add(key)
++                } else {
++                    rejected = true
++                }
++            }
++            return !rejected && pending.size <= MAX_PER_CYCLE
++        } finally {
++            client.close()
++        }
++    }
++
++    companion object {
++        private const val MAX_PER_CYCLE = 64
++        private const val MAX_ACKNOWLEDGED = 2_048
++
++        internal data class Row(val glucose: Boolean, val body: JsonObject)
++
++        internal fun records(snapshot: ByteArray): List<Row> {
++            val json = Json.parseToJsonElement(snapshot.decodeToString()).jsonObject
++            return buildList {
++                val glucose = json.getValue("glucose").jsonArray.map { it.jsonObject }
++                    .sortedByDescending { it.getValue("date").toString().toLong() }
++                fun addGlucose(sample: JsonObject) {
++                    val values = sample - "sensor" + mapOf(
++                        "type" to JsonPrimitive("sgv"), "units" to JsonPrimitive("mg/dl"),
++                        "device" to sample.getValue("sensor"), "app" to JsonPrimitive("AAPS-local")
++                    )
++                    add(Row(true, JsonObject(values)))
++                }
++                glucose.firstOrNull()?.let(::addGlucose)
++                json["profile"]?.let { add(Row(false, withSource(it.jsonObject))) }
++                val insulin = json.getValue("insulin").jsonArray.map { it.jsonObject }
++                    .sortedByDescending { it.getValue("date").toString().toLong() }
++                insulin.firstOrNull()?.let { add(Row(false, withSource(it))) }
++                glucose.drop(1).forEach(::addGlucose)
++                insulin.drop(1).forEach { add(Row(false, withSource(it))) }
++            }
++        }
++
++        private fun withSource(body: JsonObject) = JsonObject(body + ("app" to JsonPrimitive("AAPS-local")))
++
++        private fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
++            .digest(bytes).joinToString("") { "%02x".format(it) }
++    }
++}
+diff --git a/app/src/test/kotlin/app/aaps/localobservation/LocalObservationSnapshotTest.kt b/app/src/test/kotlin/app/aaps/localobservation/LocalObservationSnapshotTest.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..850ff76e28568e5b8035a11b60dbf40bcdd8a0eb
+--- /dev/null
++++ b/app/src/test/kotlin/app/aaps/localobservation/LocalObservationSnapshotTest.kt
+@@ -0,0 +1,52 @@
++package app.aaps.localobservation
++
++import app.aaps.core.data.model.BS
++import app.aaps.core.data.model.ICfg
++import app.aaps.core.data.model.IDs
++import app.aaps.core.data.model.TB
++import app.aaps.core.data.pump.defs.PumpType
++import app.aaps.core.interfaces.db.PersistenceLayer
++import app.aaps.core.interfaces.utils.DateUtil
++import kotlinx.coroutines.test.runTest
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.jsonArray
++import kotlinx.serialization.json.jsonObject
++import kotlinx.serialization.json.jsonPrimitive
++import org.junit.jupiter.api.Assertions.assertEquals
++import org.junit.jupiter.api.Assertions.assertFalse
++import org.junit.jupiter.api.Test
++import org.mockito.kotlin.mock
++import org.mockito.kotlin.verify
++import org.mockito.kotlin.whenever
++import org.mockito.kotlin.verifyNoMoreInteractions
++
++class LocalObservationSnapshotTest {
++    @Test
++    fun onlyReadsBoundedHistoryAndRetainsPumpProvenanceWithoutPriming() = runTest {
++        val now = 1_800_000_000_000L
++        val from = now - 86_400_000L
++        val db = mock<PersistenceLayer>()
++        val config = ICfg("synthetic insulin", 18_000_000L, 4_500_000L)
++        val basal = TB(timestamp = now - 600_000L, utcOffset = 0, type = TB.Type.NORMAL,
++            isAbsolute = false, rate = 80.0, duration = 1_800_000L,
++            ids = IDs(pumpType = PumpType.ACCU_CHEK_COMBO, pumpSerial = "synthetic", pumpId = 7))
++        whenever(db.getBgReadingsDataFromTimeToTime(now - 30 * 60_000L, now, false)).thenReturn(emptyList())
++        whenever(db.getBolusesFromTimeToTime(from, now, true)).thenReturn(listOf(
++            BS(timestamp = now - 60_000L, amount = 0.5, type = BS.Type.PRIMING, iCfg = config)))
++        whenever(db.getTemporaryBasalsStartingFromTimeToTime(from, now, true)).thenReturn(listOf(basal))
++        whenever(db.getExtendedBolusesStartingFromTimeToTime(from, now, true)).thenReturn(emptyList())
++        val dateUtil = mock<DateUtil>()
++        val snapshot = Json.parseToJsonElement(readLocalObservation(db, dateUtil, now).decodeToString()).jsonObject
++        val insulin = snapshot.getValue("insulin").jsonArray.single().jsonObject
++        assertEquals("-20.0", insulin.getValue("percent").jsonPrimitive.content)
++        assertEquals("7", insulin.getValue("pumpId").jsonPrimitive.content)
++        assertFalse(snapshot.containsKey("profile"))
++        assertFalse(insulin.containsKey("insulin"))
++        verify(db).getBgReadingsDataFromTimeToTime(now - 30 * 60_000L, now, false)
++        verify(db).getEffectiveProfileSwitchActiveAt(now)
++        verify(db).getBolusesFromTimeToTime(from, now, true)
++        verify(db).getTemporaryBasalsStartingFromTimeToTime(from, now, true)
++        verify(db).getExtendedBolusesStartingFromTimeToTime(from, now, true)
++        verifyNoMoreInteractions(db, dateUtil)
++    }
++}

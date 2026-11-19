@@ -1249,10 +1249,7 @@ class BroadcastIngestRepository internal constructor(
 
     private suspend fun isGlucoseOutlier(sample: GlucoseSampleEntity): Boolean {
         val latest = db.glucoseDao().latestOne() ?: return false
-        val deltaTs = abs(sample.timestamp - latest.timestamp)
-        if (deltaTs > GLUCOSE_OUTLIER_WINDOW_MS) return false
-        val deltaMmol = abs(sample.mmol - latest.mmol)
-        return deltaMmol >= GLUCOSE_OUTLIER_DELTA_MMOL
+        return GlucoseSanitizer.isInputOutlier(sample, latest)
     }
 
     private fun findStringByToken(extras: Map<String, String>, keys: List<String>): String? {
@@ -1444,8 +1441,6 @@ class BroadcastIngestRepository internal constructor(
 
         private val lastMaintenanceAtMs = AtomicLong(0L)
         private const val MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000L
-        private const val GLUCOSE_OUTLIER_WINDOW_MS = 10 * 60_000L
-        private const val GLUCOSE_OUTLIER_DELTA_MMOL = 8.0
         private const val GLUCOSE_REPLACE_EPSILON = 0.01
 
         private val STATUS_EXCLUDED_CANONICAL_KEYS = setOf(

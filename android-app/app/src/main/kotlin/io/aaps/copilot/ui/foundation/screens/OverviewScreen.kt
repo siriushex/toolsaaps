@@ -371,6 +371,16 @@ fun OverviewScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Spacing.xs)
                 ) {
+                    if (state.aapsV3Observation) {
+                        val observed = state.aapsLocalMetrics
+                        Text(stringResource(R.string.overview_aaps_net_iob))
+                        Text(stringResource(R.string.overview_iob_net_value,
+                            observed?.netIobUnits?.let { UiFormatters.formatUnits(it, 1) } ?: unavailable))
+                        observed?.iobAt?.let {
+                            Text(stringResource(R.string.overview_iob_sample_timestamp_value, UiFormatters.formatTimestamp(it)))
+                        }
+                        return@Column
+                    }
                     Text(
                         stringResource(
                             R.string.overview_iob_current_value,
@@ -489,7 +499,8 @@ fun OverviewScreen(
     ScreenStateLayout(
         loadState = state.loadState,
         isStale = state.isStale,
-        errorText = state.errorText,
+        errorText = if (state.errorText == "forecast_tuple_snapshot_unavailable")
+            stringResource(R.string.forecast_waiting_for_inputs) else state.errorText,
         emptyText = stringResource(id = R.string.overview_empty)
     ) {
         if (LocalUiStyle.current == UiStyle.CLARITY) {
@@ -506,6 +517,9 @@ fun OverviewScreen(
                 onBaseTarget = { showTargetDialog = true },
                 onOpenClinicalReport = onOpenClinicalReport,
                 warningContent = {
+                    if (state.aapsV3Observation) {
+                        Text(stringResource(R.string.aaps_v3_overview_source), style = MaterialTheme.typography.bodySmall)
+                    }
                     state.warning?.let { warning ->
                         OverviewWarningBanner(warning, state, false, onDisablePowerSave, onOpenSensorLagAnalytics)
                     }
@@ -529,6 +543,9 @@ fun OverviewScreen(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs)
         ) {
+            if (state.aapsV3Observation) {
+                item { Text(stringResource(R.string.aaps_v3_overview_source), style = MaterialTheme.typography.bodySmall) }
+            }
             state.warning?.let { warning ->
                 item {
                     OverviewWarningBanner(
@@ -579,8 +596,13 @@ fun OverviewScreen(
                 )
             }
             item {
+                if (state.aapsLocalTargetMode) {
+                    Text(stringResource(R.string.clarity_aaps_observed_target, observedAapsTargetRange(state.aapsLocalTarget)))
+                    Text(observedAapsTargetSource(state.aapsLocalTarget), style = MaterialTheme.typography.bodySmall)
+                }
                 TargetManagerLiveStatusSection(
-                    status = state.targetManagerLiveStatus,
+                    status = if (state.aapsLocalTargetMode) state.targetManagerLiveStatus.copy(currentTargetMmol = null)
+                    else state.targetManagerLiveStatus,
                     midnightGlass = midnightGlass
                 )
             }
@@ -1224,23 +1246,25 @@ private fun OverviewClinicalMatrix(
         displayHighMmol = state.chart.displayRangeHighMmol
     )
     val iob = overviewIobPresentation(state.currentIobUnits, state.iobDetails.signedNetIobUnits)
+    val observing = state.aapsV3Observation
+    val observed = state.aapsLocalMetrics
     val metrics = listOf(
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_iob),
-            value = iob.value,
+            label = stringResource(if (observing) R.string.overview_aaps_net_iob else R.string.metric_iob),
+            value = if (observing) UiFormatters.formatUnits(observed?.netIobUnits, 1) else iob.value,
             unit = stringResource(id = R.string.unit_u),
             onClick = onIob,
-            contentDescription = stringResource(R.string.overview_iob_pair_description,
+            contentDescription = if (observing) null else stringResource(R.string.overview_iob_pair_description,
                 iob.current, iob.signedNet, stringResource(R.string.unit_u)),
             testTag = "overviewIobMetric",
-            iobPair = iob
+            iobPair = iob.takeUnless { observing }
         ),
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_cob_copilot),
-            value = UiFormatters.formatGrams(state.currentCobGrams, 1),
+            label = stringResource(if (observing) R.string.clarity_aaps_cob else R.string.metric_cob_copilot),
+            value = UiFormatters.formatGrams(if (observing) observed?.cobGrams else state.currentCobGrams, 1),
             unit = stringResource(id = R.string.unit_g),
-            onClick = onCob,
-            contentDescription = stringResource(R.string.overview_edit_cob)
+            onClick = onCob.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_cob)
         ),
         OverviewClinicalMetric(
             label = stringResource(id = R.string.metric_base_target),
@@ -1258,20 +1282,22 @@ private fun OverviewClinicalMatrix(
             testTag = "overviewSampleAgeMetric"
         ),
         OverviewClinicalMetric(
-            label = "${stringResource(id = R.string.overview_model_isf_now)} · " +
+            label = if (observing) stringResource(R.string.clarity_aaps_profile_metric, "ISF")
+            else "${stringResource(id = R.string.overview_model_isf_now)} · " +
                 metricActualSourceLabel(state.isfRuntime),
-            value = UiFormatters.formatMmol(state.currentIsfMmolPerUnit, 1),
+            value = UiFormatters.formatMmol(if (observing) observed?.profileIsfMmol else state.currentIsfMmolPerUnit, 1),
             unit = stringResource(id = R.string.unit_mmol_u),
-            onClick = onIsf,
-            contentDescription = stringResource(R.string.overview_edit_isf)
+            onClick = onIsf.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_isf)
         ),
         OverviewClinicalMetric(
-            label = "${stringResource(id = R.string.overview_model_cr_now)} · " +
+            label = if (observing) stringResource(R.string.clarity_aaps_profile_metric, "CR")
+            else "${stringResource(id = R.string.overview_model_cr_now)} · " +
                 metricActualSourceLabel(state.crRuntime),
-            value = UiFormatters.formatGrams(state.currentCrGramsPerUnit, 1),
+            value = UiFormatters.formatGrams(if (observing) observed?.profileCr else state.currentCrGramsPerUnit, 1),
             unit = stringResource(id = R.string.unit_g_u),
-            onClick = onCr,
-            contentDescription = stringResource(R.string.overview_edit_cr)
+            onClick = onCr.takeUnless { observing },
+            contentDescription = if (observing) null else stringResource(R.string.overview_edit_cr)
         ),
         OverviewClinicalMetric(
             label = stringResource(id = R.string.overview_model_uam),
@@ -1327,11 +1353,11 @@ private fun OverviewClinicalMatrix(
 
 @Composable
 internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
+    val error = state.sensitivitySourceApplyError?.takeIf(String::isNotBlank)?.let { sensitivitySourceErrorLabel(it) }
     val status = when {
         state.sensitivitySourceApplying -> "${state.sensitivitySourcePendingMetric.orEmpty()}: applying " +
             state.sensitivitySourcePendingValue.orEmpty()
-        !state.sensitivitySourceApplyError.isNullOrBlank() -> state.sensitivitySourceApplyError
-        else -> null
+        else -> error
     } ?: return
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Text(status, modifier = Modifier.fillMaxWidth()
@@ -1339,6 +1365,13 @@ internal fun OverviewSensitivitySourceStatus(state: OverviewUiState) {
         .padding(horizontal = 8.dp, vertical = 5.dp).testTag("overviewSensitivitySourceStatus"),
         style = MaterialTheme.typography.labelSmall,
         color = if (state.sensitivitySourceApplying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+}
+
+@Composable
+internal fun sensitivitySourceErrorLabel(error: String): String = when (error) {
+    "sensitivity candidates require active ISF/CR model and profile revisions" ->
+        stringResource(R.string.sensitivity_requires_profile_and_model)
+    else -> error
 }
 
 internal fun metricSourceSelectionShortLabel(sourceRaw: String): String = when (sourceRaw.trim().uppercase()) {

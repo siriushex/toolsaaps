@@ -1,0 +1,257 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/ClientControlPinOffer.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/ClientControlPinOffer.kt
+new file mode 100644
+index 0000000000..100c7fc6c3
+--- /dev/null
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/utils/ClientControlPinOffer.kt
+@@ -0,0 +1,23 @@
++package app.aaps.core.nssdk.utils
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import kotlinx.serialization.json.Json
++import kotlin.io.encoding.Base64
++import kotlin.io.encoding.ExperimentalEncodingApi
++
++/** Same wire document for Nightscout and an explicitly selected same-phone handoff. */
++@OptIn(ExperimentalEncodingApi::class)
++object ClientControlPinOffer {
++    private val codec = Json { encodeDefaults = true }
++
++    fun wrap(payload: PairingPayload, pin: String): PairingOffer {
++        val salt = ClientControlPairingCrypto.newSalt()
++        val iv = ClientControlPairingCrypto.newIv()
++        val plain = codec.encodeToString(PairingPayload.serializer(), payload).encodeToByteArray()
++        val wrapped = try { ClientControlPairingCrypto.wrap(plain, pin, salt, iv) } finally { plain.fill(0) }
++        return PairingOffer(clientId = payload.clientId, expiresAt = payload.expiresAt,
++            kdfSaltB64 = Base64.Default.encode(salt), ivB64 = Base64.Default.encode(iv),
++            wrappedB64 = Base64.Default.encode(wrapped))
++    }
++}
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+new file mode 100644
+index 0000000000..935d9c300d
+--- /dev/null
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -0,0 +1,71 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import android.content.Context
++import android.content.pm.PackageManager
++import android.net.Uri
++import android.os.Bundle
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
++import app.aaps.core.nssdk.utils.ClientControlPinOffer
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import kotlinx.serialization.json.Json
++import java.util.UUID
++
++/** One explicit local enrollment. No Nightscout settings, global TLS or stored session changes. */
++internal class LocalCopilotPinEnrollment(private val context: Context) {
++    suspend fun exchange(pending: PairingPayload, pin: String, acceptHello: suspend (SignedEnvelope) -> Boolean): Boolean =
++        withContext(Dispatchers.IO) {
++            val pm = context.packageManager
++            fun trusted(): Boolean {
++                val provider = pm.resolveContentProvider(AUTHORITY, 0) ?: return false
++                return context.packageName == MASTER && provider.packageName == PEER &&
++                    provider.exported && !provider.grantUriPermissions && provider.readPermission == PERMISSION &&
++                    provider.writePermission == PERMISSION && pm.checkSignatures(MASTER, PEER) == PackageManager.SIGNATURE_MATCH
++            }
++            try {
++                if (!trusted() || !pin.matches(Regex("[0-9]{8}"))) return@withContext false
++                val wrapped = codec.encodeToString(PairingOffer.serializer(), ClientControlPinOffer.wrap(pending, pin)).encodeToByteArray()
++                try {
++                    context.contentResolver.acquireUnstableContentProviderClient(Uri.parse("content://$AUTHORITY"))?.use { provider ->
++                        if (!trusted() || wrapped.size !in 1..4096) return@use false
++                        val receipt = provider.call("local_pin_offer_v1", null, Bundle().apply { putByteArray("wrapped", wrapped) })
++                            ?: return@use false
++                        val handle = receipt.getString("handle")?.takeIf { it.length == 36 && UUID.fromString(it).toString() == it }
++                            ?: return@use false
++                        try {
++                            if (receipt.keySet() != setOf("ticket", "handle") || !trusted()) return@use false
++                            val ticket = receipt.getBundle("ticket") ?: return@use false
++                            if (ticket.keySet() != setOf("root", "leaf", "port", "bearer")) return@use false
++                            val root = ticket.getByteArray("root")?.takeIf { it.size in 1..8192 } ?: return@use false
++                            val leaf = ticket.getByteArray("leaf")?.takeIf { it.size in 1..8192 } ?: return@use false
++                            val port = ticket.getInt("port").takeIf { it in 1..65535 } ?: return@use false
++                            val bearer = ticket.getString("bearer") ?: return@use false
++                            LocalPinHelloPeer.exchange(port, NsLoopbackUploadIdentity(root, leaf), bearer, pending, acceptHello)
++                        } finally {
++                            // Same acquired peer and offer only. Unknown IPC outcomes are never retried.
++                            try {
++                                if (trusted()) provider.call("withdraw_local_pin_v1", null, Bundle().apply {
++                                    putString("client", pending.clientId); putString("handle", handle)
++                                })
++                            } catch (_: android.os.RemoteException) {
++                                // The short ticket expires on the peer. Do not replace an accepted result or cancellation.
++                            }
++                        }
++                    } == true
++                } finally { wrapped.fill(0) }
++            } catch (e: CancellationException) { throw e }
++            catch (_: Exception) { false }
++        }
++
++    private companion object {
++        const val MASTER = "info.nightscout.androidaps"
++        const val PEER = "io.aaps.predictivecopilot"
++        const val AUTHORITY = "$PEER.localclient"
++        const val PERMISSION = "$PEER.permission.ISSUE_LOCAL_CLIENT_TOKEN"
++        val codec = Json { encodeDefaults = true }
++    }
++}
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/PairingOfferPublisher.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/PairingOfferPublisher.kt
+index 5e4d91981f..d915a14c75 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/PairingOfferPublisher.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/PairingOfferPublisher.kt
+@@ -5,7 +5,7 @@ import app.aaps.core.interfaces.logging.LTag
+ import app.aaps.core.interfaces.nsclient.NSClientRepository
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingOffer
+ import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
+-import app.aaps.core.nssdk.utils.ClientControlPairingCrypto
++import app.aaps.core.nssdk.utils.ClientControlPinOffer
+ import app.aaps.plugins.sync.nsclientV3.NSClientV3Plugin
+ import dev.zacsweers.metro.AppScope
+ import dev.zacsweers.metro.Inject
+@@ -17,8 +17,6 @@ import kotlinx.serialization.json.Json
+ import kotlinx.serialization.json.JsonObject
+ import kotlinx.serialization.json.buildJsonObject
+ import kotlinx.serialization.json.put
+-import kotlin.io.encoding.Base64
+-import kotlin.io.encoding.ExperimentalEncodingApi
+
+ /**
+  * Master-side publisher for PIN-wrapped pairing offers.
+@@ -34,7 +32,6 @@ import kotlin.io.encoding.ExperimentalEncodingApi
+  * The wrap + upload runs on [Dispatchers.Default] — PBKDF2 is ~200ms; on Main it freezes the
+  * dialog as it opens.
+  */
+-@OptIn(ExperimentalEncodingApi::class)
+ @SingleIn(AppScope::class)
+ @Inject
+ class PairingOfferPublisher(
+@@ -107,17 +104,7 @@ class PairingOfferPublisher(
+     }
+
+     private fun buildOfferDoc(payload: PairingPayload, pin: String): JsonObject {
+-        val payloadBytes = json.encodeToString(PairingPayload.serializer(), payload).encodeToByteArray()
+-        val salt = ClientControlPairingCrypto.newSalt()
+-        val iv = ClientControlPairingCrypto.newIv()
+-        val wrapped = ClientControlPairingCrypto.wrap(payloadBytes, pin, salt, iv)
+-        val offer = PairingOffer(
+-            clientId = payload.clientId,
+-            expiresAt = payload.expiresAt,
+-            kdfSaltB64 = Base64.Default.encode(salt),
+-            ivB64 = Base64.Default.encode(iv),
+-            wrappedB64 = Base64.Default.encode(wrapped)
+-        )
++        val offer = ClientControlPinOffer.wrap(payload, pin)
+         return buildJsonObject {
+             // Same placeholder convention as ClientControlPublisher.uploadEnvelope — `date` is
+             // immutable on subsequent PUTs, so a constant placeholder is the only safe value.
+diff --git a/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt
+new file mode 100644
+index 0000000000..0d5c0e7f9c
+--- /dev/null
++++ b/plugins/sync/src/jvmSharedMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalPinHelloPeer.kt
+@@ -0,0 +1,81 @@
++package app.aaps.plugins.sync.nsclientV3.localpin
++
++import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
++import app.aaps.core.nssdk.localmodel.clientcontrol.PairingPayload
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import app.aaps.core.nssdk.networking.NsLocalSettingsPolling
++import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
++import app.aaps.core.nssdk.utils.ClientControlCrypto
++import io.socket.client.Ack
++import io.socket.client.IO
++import io.socket.client.Socket
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.withTimeoutOrNull
++import kotlinx.serialization.json.Json
++import org.json.JSONArray
++import org.json.JSONObject
++import java.util.Base64
++
++/** Enrollment only: never executes a command or marks an AAPS client active. */
++internal object LocalPinHelloPeer {
++    suspend fun exchange(port: Int, identity: NsLoopbackUploadIdentity, bearer: String,
++                         pending: PairingPayload, accept: suspend (SignedEnvelope) -> Boolean): Boolean {
++        require(Regex("ls1\\.[A-Za-z0-9_-]{43}").matches(bearer))
++        val initial = System.currentTimeMillis()
++        val remaining = pending.expiresAt - initial
++        if (remaining !in 1..600_000) return false
++        val key = ClientControlCrypto.hexToBytes(pending.secretHex)
++        return try {
++            NsLocalSettingsPolling(identity, port).use { calls ->
++                val socket = IO.socket("https://127.0.0.1:$port/storage", IO.Options().apply {
++                    callFactory = calls; forceNew = true; multiplex = false
++                    transports = arrayOf("polling"); upgrade = false; reconnection = false
++                })
++                val subscribed = CompletableDeferred<Boolean>()
++                val received = CompletableDeferred<SignedEnvelope?>()
++                fun lost() { subscribed.complete(false); received.complete(null) }
++                try {
++                    socket.on(Socket.EVENT_CONNECT_ERROR) { lost() }
++                    socket.on(Socket.EVENT_DISCONNECT) { lost() }
++                    socket.on(Socket.EVENT_CONNECT) {
++                        socket.emit("subscribe", JSONObject().put("accessToken", bearer)
++                            .put("collections", JSONArray(listOf("settings"))), Ack { args ->
++                            val reply = args.singleOrNull() as? JSONObject
++                            subscribed.complete(reply?.optBoolean("success") == true && reply.optJSONArray("collections")?.let {
++                                it.length() == 1 && it.optString(0) == "settings"
++                            } == true)
++                        })
++                    }
++                    // A hello may update a retained identifier. Only accept one, and never accept a control frame here.
++                    for (event in listOf("create", "update")) socket.on(event) { args ->
++                        val frame = args.singleOrNull() as? JSONObject ?: return@on
++                        val doc = frame.optJSONObject("doc") ?: return@on
++                        if (frame.optString("colName") != "settings" ||
++                            doc.optString("identifier") != "aaps_clientcontrol_hello_${pending.clientId}") return@on
++                        val raw = doc.optJSONObject("envelope")?.toString() ?: return@on
++                        val env = if (raw.length <= 4096) runCatching { Json.decodeFromString(SignedEnvelope.serializer(), raw) }.getOrNull() else null
++                        received.complete(env)
++                    }
++                    withTimeoutOrNull(minOf(120_000L, remaining)) {
++                        socket.connect()
++                        if (!subscribed.await()) return@withTimeoutOrNull false
++                        val env = received.await() ?: return@withTimeoutOrNull false
++                        val now = System.currentTimeMillis()
++                        socket.connected() && env.clientId == pending.clientId && env.type == "hello" && env.counter == 1L && !env.wantsAck &&
++                            env.validUntil == pending.expiresAt && now in initial until pending.expiresAt &&
++                            env.timestamp in initial..now && ClientControlCrypto.verifyEnvelope(key, env) &&
++                            hasKeyExchangeHello(env.payload) && accept(env)
++                    } == true
++                } finally { socket.off(); socket.close() }
++            }
++        } finally { key.fill(0) }
++    }
++
++    private fun hasKeyExchangeHello(raw: String): Boolean = runCatching {
++        val hello = Json.decodeFromString(ClientControlMessage.serializer(), raw) as? ClientControlMessage.Hello
++        val point = hello?.publicKey ?: return false
++        val bytes = Base64.getDecoder().decode(point)
++        hello.protocolVersion == 1 && bytes.size == 65 && bytes[0] == 4.toByte() &&
++            Base64.getEncoder().encodeToString(bytes) == point
++    }.getOrDefault(false)
++}
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 386fb0eeb7..a00d931dda 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -5,6 +5,10 @@
+     <permission
+         android:name="${applicationId}.permission.READ_LOCAL_OBSERVATION"
+         android:protectionLevel="signature" />
++    <uses-permission android:name="io.aaps.predictivecopilot.permission.ISSUE_LOCAL_CLIENT_TOKEN" />
++    <queries>
++        <package android:name="io.aaps.predictivecopilot" />
++    </queries>
+     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+     <uses-permission

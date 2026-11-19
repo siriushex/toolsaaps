@@ -19,21 +19,8 @@ class AapsV3PairingProtocolTest {
         put("v", 1); put("clientId", client); put("masterInstallId", master)
         put("secretHex", secret.joinToString("") { "%02x".format(it.toInt() and 255) }); put("expiresAt", at + 120_000)
     }
-    private fun offer(inside: JsonObject = payload(), outerId: String = client): JsonObject {
-        val salt = ByteArray(16) { (it + 1).toByte() }; val iv = ByteArray(12) { (it + 2).toByte() }
-        val spec = PBEKeySpec("12345678".toCharArray(), salt, 200_000, 256)
-        val key = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        val ciphertext = try { Cipher.getInstance("AES/GCM/NoPadding").run {
-            init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            doFinal(inside.toString().toByteArray())
-        } } finally { key.fill(0); spec.clearPassword() }
-        return buildJsonObject {
-            put("schemaVersion", 1); put("clientId", outerId); put("expiresAt", at + 120_000)
-            put("kdfSaltB64", Base64.getEncoder().encodeToString(salt))
-            put("ivB64", Base64.getEncoder().encodeToString(iv))
-            put("wrappedB64", Base64.getEncoder().encodeToString(ciphertext))
-        }
-    }
+    private fun offer(inside: JsonObject = payload(), outerId: String = client) =
+        syntheticPairingOffer(inside, outerId, at + 120_000)
     @Test fun nativePinEnvelopeUnwrapsWithoutRetainingPinOrPrintingSecret() {
         val pin = "12345678".toCharArray()
         AapsV3PairingProtocol.unwrap(offer(), pin, at).use { credential ->
@@ -91,5 +78,22 @@ class AapsV3PairingProtocolTest {
         val credential = AapsV3PairingProtocol.unwrap(offer(), "12345678".toCharArray(), at)
         credential.close()
         assertThrows(IllegalStateException::class.java) { credential.withSecret { fail("closed key") } }
+    }
+}
+
+internal fun syntheticPairingOffer(inside: JsonObject, outerId: String, expiresAt: Long): JsonObject {
+    val salt = ByteArray(16) { (it + 1).toByte() }
+    val iv = ByteArray(12) { (it + 2).toByte() }
+    val spec = PBEKeySpec("12345678".toCharArray(), salt, 200_000, 256)
+    val key = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    val ciphertext = try { Cipher.getInstance("AES/GCM/NoPadding").run {
+        init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        doFinal(inside.toString().toByteArray())
+    } } finally { key.fill(0); spec.clearPassword() }
+    return buildJsonObject {
+        put("schemaVersion", 1); put("clientId", outerId); put("expiresAt", expiresAt)
+        put("kdfSaltB64", Base64.getEncoder().encodeToString(salt))
+        put("ivB64", Base64.getEncoder().encodeToString(iv))
+        put("wrappedB64", Base64.getEncoder().encodeToString(ciphertext))
     }
 }

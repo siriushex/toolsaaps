@@ -1,0 +1,178 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
+index 4a52b6f1f9..2817734ddd 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3PluginTest.kt
+@@ -176,9 +176,10 @@ internal class NSClientV3PluginTest : TestBaseWithProfile() {
+
+     // ---- storing the client-control switch for clients paired before it was stored at pairing ----
+
+-    private fun pluginWithClients(vararg states: ClientState): NSClientV3Plugin {
++    private fun pluginWithClients(vararg states: ClientState, local: Boolean = false): NSClientV3Plugin {
+         val repository = mock<AuthorizedClientsRepository>()
+-        val clients = states.mapIndexed { i, state -> AuthorizedClient(clientId = "c$i", name = "c$i", encryptedSecret = "enc", state = state, createdAt = 1_000L) }
++        val clients = states.mapIndexed { i, state -> AuthorizedClient(clientId = "c$i", name = "c$i", encryptedSecret = "enc",
++            state = state, createdAt = 1_000L, localCopilot = local) }
+         runBlocking { whenever(repository.current(any())).thenReturn(clients) }
+         return NSClientV3Plugin(
+             aapsLogger, text, preferences, rxBus,
+@@ -207,6 +208,13 @@ internal class NSClientV3PluginTest : TestBaseWithProfile() {
+         verify(preferences, never()).put(eq(BooleanKey.HardenedMode), any<Boolean>())
+     }
+
++    @Test
++    fun `an active local client does not migrate the remote control switch`() = runTest {
++        whenever(preferences.getIfExists(BooleanKey.HardenedMode)).thenReturn(null)
++        pluginWithClients(ClientState.Active, local = true).storeClientControlSwitchForPairedClients()
++        verify(preferences, never()).put(eq(BooleanKey.HardenedMode), any<Boolean>())
++    }
++
+     @Test
+     fun `a stored switch is not changed`() = runTest {
+         whenever(preferences.getIfExists(BooleanKey.HardenedMode)).thenReturn(false)
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index 8e42a7be09..753e566608 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -105,9 +105,10 @@ internal class AuthorizedClientsRepositoryTest {
+                 MasterSigningKey.Signed(body(1_006), "fixture-signature")
+             }
+             sut.setRole(entry.clientId, ClientRole.ReadOnly)
+-            val receipt = sut.localEnrollmentRole(offer, ping, handle, signer) { 1_006 }
++            var now = 1_006L
++            val receipt = sut.localEnrollmentRole(offer, ping, handle, signer) { now }
+             assertThat(receipt != null).isEqualTo(local)
+-            if (local) assertThat(receipt!!.text).contains("\"role\":\"ReadOnly\"")
++            if (local) assertThat(receipt!!.signed.text).contains("\"role\":\"ReadOnly\"")
+             assertThat(sut.localEnrollmentRole(offer, ping.copy(signature = ""), handle, signer) { 1_006 }).isNull()
+             assertThat(sut.localEnrollmentRole(offer, ping, handle, signer) { 9_004 }).isNull()
+             whenever(preferences.hardenedMode).thenReturn(false)
+@@ -115,6 +116,28 @@ internal class AuthorizedClientsRepositoryTest {
+             whenever(preferences.hardenedMode).thenReturn(true)
+             assertThat(sut.answerLocalProbe(offer, ping, signingPoint) { 1_006 }).isNull()
+             assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
++            if (receipt != null) {
++                now = ping.validUntil
++                assertThat(receipt.confirmPeerAccepted()).isFalse()
++                now = 1_007
++                whenever(preferences.hardenedMode).thenReturn(false)
++                assertThat(receipt.confirmPeerAccepted()).isFalse()
++                whenever(preferences.hardenedMode).thenReturn(true)
++                sut.setRole(entry.clientId, ClientRole.MealAssistant)
++                assertThat(receipt.confirmPeerAccepted()).isFalse()
++                assertThat(sut.findRaw(entry.clientId)?.state).isEqualTo(ClientState.Pending)
++                val updated = checkNotNull(sut.localEnrollmentRole(offer, ping, handle, signer) { now })
++                assertThat(updated.confirmPeerAccepted()).isTrue()
++                assertThat(updated.confirmPeerAccepted()).isFalse()
++                assertThat(sut.current(entry.pairExpiresAt + 1).single { it.clientId == entry.clientId }.state).isEqualTo(ClientState.Active)
++                val active = checkNotNull(sut.findRaw(entry.clientId))
++                assertThat(active.role).isEqualTo(ClientRole.MealAssistant.name)
++                assertThat(active.counterReceived).isEqualTo(2L)
++                assertThat(active.pendingSecret).isNull()
++                assertThat(checkNotNull(sut.secretLookup(entry.clientId)).secretBytes.contentEquals(key)).isTrue()
++                sut.delete(entry.clientId)
++                assertThat(updated.confirmPeerAccepted()).isFalse()
++            }
+         }
+     }
+
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisherTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisherTest.kt
+index 77f0d21746..c548a9eef8 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisherTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisherTest.kt
+@@ -128,7 +128,8 @@ class RunningConfigurationPublisherTest {
+         whenever(runningConfiguration.hotConfiguration()).thenReturn(JsonObject(emptyMap()))
+         whenever(authorizedRepository.observe()).thenReturn(emptyFlow())
+         whenever(authorizedRepository.current(any())).thenReturn(
+-            listOf(client("active", ClientState.Active), client("meals", ClientState.Active, ClientRole.MealAssistant), client("pending", ClientState.Pending))
++            listOf(client("active", ClientState.Active), client("meals", ClientState.Active, ClientRole.MealAssistant),
++                client("pending", ClientState.Pending), client("local", ClientState.Active).copy(localCopilot = true))
+         )
+         whenever(nsAndroidClient.updateSettings(any(), any()))
+             .thenReturn(CreateUpdateResponse(response = 200, identifier = null, isDeduplication = false, deduplicatedIdentifier = null, lastModified = null, errorResponse = null))
+diff --git a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+index b5a00a6a1b..8f4aa0fe9f 100644
+--- a/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
++++ b/plugins/sync/src/androidMain/kotlin/app/aaps/plugins/sync/nsclientV3/localpin/LocalCopilotPinEnrollment.kt
+@@ -94,12 +94,14 @@ class LocalCopilotPinEnrollment(private val context: Context, private val client
+                                 val role = clients.localEnrollmentRole(pending, ping, handle, signingKey, System::currentTimeMillis)
+                                 if (role != null && trusted()) {
+                                     val roleBytes = buildJsonObject {
+-                                        put("signed", role.text); put("signature", role.signature)
++                                        put("signed", role.signed.text); put("signature", role.signed.signature)
+                                     }.toString().encodeToByteArray()
+                                     try {
+-                                        provider.call("local_pin_role_v1", null, Bundle().apply {
++                                        val response = provider.call("local_pin_role_v1", null, Bundle().apply {
+                                             putString("client", pending.clientId); putString("handle", handle); putByteArray("role", roleBytes)
+                                         })
++                                        if (response?.keySet() == setOf("accepted") && response.getBoolean("accepted") && trusted())
++                                            role.confirmPeerAccepted()
+                                     } catch (_: android.os.RemoteException) {
+                                         // The verified contact remains valid, but no role is assumed.
+                                     } catch (_: IllegalArgumentException) {
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
+index 62716f2d09..2faf331465 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/NSClientV3Plugin.kt
+@@ -411,7 +411,7 @@ class NSClientV3Plugin(
+      */
+     @VisibleForTesting
+     internal suspend fun storeClientControlSwitchForPairedClients() {
+-        if (authorizedClientsRepository.current(dateUtil.now()).any { it.state == ClientState.Active })
++        if (authorizedClientsRepository.current(dateUtil.now()).any { it.state == ClientState.Active && !it.localCopilot })
+             preferences.storeClientControlSwitchIfUnset()
+     }
+
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 7e6b4765ce..7d312cc89a 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -174,9 +174,11 @@ class AuthorizedClientsRepository(
+         ack
+     }
+
+-    /** Read the role under the same lock as setRole and deletion. No state transition. */
++    internal class LocalRoleReceipt(val signed: MasterSigningKey.Signed, val confirmPeerAccepted: suspend () -> Boolean)
++
++    /** Signing alone does not enroll. Only the private peer's positive reply can finish this offer. */
+     internal suspend fun localEnrollmentRole(pending: PairingPayload, ping: SignedEnvelope, handle: String,
+-                                            signer: MasterSigningKey, clock: () -> Long): MasterSigningKey.Signed? = mutex.withLock {
++                                            signer: MasterSigningKey, clock: () -> Long): LocalRoleReceipt? = mutex.withLock {
+         val entry = decode().singleOrNull { it.clientId == pending.clientId } ?: return@withLock null
+         val role = ClientRole.entries.singleOrNull { it.name == entry.role } ?: return@withLock null
+         val deadline = minOf(entry.pairExpiresAt, ping.validUntil)
+@@ -193,7 +195,20 @@ class AuthorizedClientsRepository(
+         val signed = signer.sign(LocalEnrollmentRole.identifier(entry.clientId)) { at ->
+             LocalEnrollmentRole.body(entry.clientId, pending.masterInstallId, handle, role.name, ping.counter, at, deadline)
+         }
+-        signed.takeIf { it.signature != null && valid() }
++        if (signed.signature == null || !valid()) return@withLock null
++        LocalRoleReceipt(signed) {
++            mutex.withLock finish@{
++                val list = decode()
++                val current = list.singleOrNull { it.clientId == entry.clientId }
++                if (current != entry || !valid()) return@finish false
++                // Re-check after IPC: expiry, disable, deletion or a role/key change invalidates the receipt.
++                val at = clock()
++                if (at !in maxOf(ping.timestamp, entry.createdAt) until deadline) return@finish false
++                write(list.map { if (it == entry) entry.copy(state = ClientState.Active, encryptedSecret = checkNotNull(entry.pendingSecret),
++                    pendingSecret = null, lastSeenAt = at) else it })
++                true
++            }
++        }
+     }
+
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisher.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisher.kt
+index 892995d54e..0853f82697 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisher.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/services/RunningConfigurationPublisher.kt
+@@ -201,7 +201,7 @@ class RunningConfigurationPublisher(
+         // AuthorizedClientsRepository without a new inter-module dependency, so we attach
+         // this master-local block here instead. Only Active entries are exposed.
+         val activeClients = authorizedRepository.current(dateUtil.now())
+-            .filter { it.state == ClientState.Active }
++            .filter { it.state == ClientState.Active && !it.localCopilot }
+         // kotlinx JsonObject is immutable, so the doc is rebuilt instead of edited in place: the original
+         // keys in their original order, and authorizedClients appended last. The client-control switch
+         // travels in syncedPrefs like every other cold key; nothing here changes it. Hardened mode keeps

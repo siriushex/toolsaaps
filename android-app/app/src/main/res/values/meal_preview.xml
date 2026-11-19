@@ -1,0 +1,5 @@
+<resources>
+    <string name="meal_checked_not_saved">AAPS checked the portion but did not record it. Enter the carbs in AAPS.</string>
+    <string name="meal_not_verified">AAPS did not confirm the portion. No carbs were recorded.</string>
+    <string name="meal_whole_grams">The AAPS 4 meal channel accepts whole grams. This portion was not rounded or recorded.</string>
+</resources>

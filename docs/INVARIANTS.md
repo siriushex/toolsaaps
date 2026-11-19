@@ -1,5 +1,29 @@
 # INVARIANTS
 
+## Per-Read Counter Discontinuities
+
+- Every adjacent raw-event pair in one validated read participates in counter
+  continuity checks, including unknown events and pairs spanning blocks.
+- Preserve a forward jump as EVENT_COUNTER_GAP before aggregate reconciliation.
+  Later reads may fill current interior gaps but cannot erase the earlier warning.
+- Preserve the original gap through damaged tails, local reopen and newer clean
+  catalogs; never rewrite raw bytes to close a gap or infer a missing dose.
+- Clock-change warnings and unsigned counter boundaries remain independent.
+  Neither continuous counters nor a matching catalog grants UTC mapping,
+  complete basal/delivery history or meal-time notification authority.
+
+## Combo Remaining-Event Evidence
+
+- A returned/acknowledged read may still declare an unconsumed tail. Preserve
+  DECLARED_HISTORY_TAIL; never turn its count into missing insulin or a UTC time.
+- Compare consecutive validated block headers using all raw events, including
+  unmapped types. A final zero count may still carry events. New arrivals can
+  increase the count; they must not be rejected as missing history.
+- Preserve REMAINING_COUNT_DISCONTINUITY and earlier clock/unknown/failed-read
+  hazards through later blocks, damaged tails, private reopen and clean catalogs.
+- Do not rewrite raw bytes, change native reader termination, add pump requests
+  or grant clinical/meal-notification permission from this diagnostic audit.
+
 ## Meal Timing Causality
 
 - When present, the last posterior sample must be strictly after the meal record
@@ -515,6 +539,8 @@
 - Storage namespace authentication cannot authorize root or mark READY. Root
   authorization cannot release storage events; its reauthorization preserves
   separately authorized storage packets. Failed storage resubscribe revokes it.
+- Command liveness requires a live authenticated `settings` subscription.
+  Reading glucose or other storage collections is not command readiness.
 - Storage notifications read postcommit persistent revisions, including internal
   outbox writes. No rolled-back event, cursor regression or silent backlog skip.
   Overflow/read failure closes the session; reconnect catch-up remains HTTP-owned.
@@ -531,6 +557,12 @@
 - Hello/Ping/target commands share one durable counter. Active post-Hello roster,
   current storage subscription and new signed Pong are separate requirements.
   Native whole-client permissions must not be described as a target-only grant.
+- New AAPS 4 PIN enrollment never falls back to an unsigned roster. The pinned
+  master key and last verified signing time survive restart. Check the current
+  signed role again just before each target write, including commit.
+- Final enrollment cannot probe or dispatch with the secret from the PIN offer. Only
+  the bound, timely, authenticated key answer can rotate it. Old final records
+  without rotation do not acquire command authority by upgrading the app.
 - PIN never enters saved UI state/logs; attempt budget survives restart. Revocation
   cannot clear unknown commands or silently reset/reuse a retired identity.
 - Enrollment cannot overlap a pending legacy target. Paired routing never falls
@@ -538,8 +570,9 @@
 - Settings HTTP success is wire persistence, not target application. Only the
   target codec's correlated signed Done/Ok COMMIT is an application receipt;
   signed preparation remains a preview. Durable dispatch admission is separate.
-- The one-use pairing-offer cleanup may erase its wrapped payload while keeping
-  a non-secret tombstone; no other wire payload is purged or clock regressed.
+- The one-use pairing-offer and key-answer cleanup may erase their payloads
+  while keeping a non-secret tombstone; no other wire payload is purged or
+  clock regressed.
 - Native target-only commit cannot carry advisor correction, bolus/carbs,
   profile or running-mode actions. Existing clinical/armed ownership gates remain.
 
@@ -550,6 +583,24 @@
   treatment extension. Package-manager failure cannot become permission to send.
 - A rejected local relay cannot create a treatment row, claim application by
   AAPS or clear uncertain command ownership. Existing reconciliation remains.
+- For a manual meal addressed to the app-owned v1 endpoint, check the selected
+  relay receiver before the first POST. If unavailable, record a definite block.
+  A lost response after dispatch stays uncertain; neither case is automatically resent.
+- A manual local meal routed to an AAPS with a verified observation provider
+  needs an authoritative carb record, not a local echo or HTTP response.
+  Require one current valid zero-duration record with exact marker, grams and
+  epoch milliseconds. A historic revision is not a second meal; duplicate
+  current identities, absence, edits, invalidation and unreadable results do
+  not confirm. A late confirmation retains the original submission timestamp.
+  Awaiting readback consumes the ordinary carb cooldown without asserting
+  delivery. It never permits replay, nor proves consumption or insulin delivery.
+- A native manual meal preview describes one constraint-checked, immediate
+  carb entry in whole grams. Reject mixed actions, changed quantities, insulin,
+  advisor mode, mismatched signatures or expired replies. Localized confirmation
+  text is not a quantity. A preview is not persistence and cannot use the
+  target commit path. In the native carbs-only path AAPS timestamps the entry
+  at confirmation, not when Copilot prepared it; the v1 POST receipt invariant
+  above must not be relaxed or reused as proof of this different operation.
 - API v3 compatibility requires authentication, durable modification history,
   exact filters and stock-client verification, not merely matching route names.
 - Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.

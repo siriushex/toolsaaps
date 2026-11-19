@@ -10,6 +10,27 @@ internal object AapsTreatmentBroadcastCapability {
     private const val GLUCOSE_ACTION = "com.eveningoutpost.dexdrip.NS_EMULATOR"
     private const val TREATMENT_ACTION = "info.nightscout.androidaps.action.LOCAL_TREATMENTS"
 
+    fun localRelayPackage(context: Context): String? = try {
+        listOf("info.nightscout.androidaps", "app.aaps").firstOrNull { name ->
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.packageManager.getPackageInfo(name, PackageManager.PackageInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.packageManager.getPackageInfo(name, 0)
+                }
+                true
+            } catch (_: PackageManager.NameNotFoundException) {
+                false
+            }
+        }
+    } catch (_: SecurityException) {
+        null
+    }
+
+    fun canSendLocalRelay(context: Context): Boolean =
+        localRelayPackage(context)?.let { canSend(context, Intent(GLUCOSE_ACTION).setPackage(it)) } == true
+
     fun canSend(context: Context, intent: Intent): Boolean {
         val destination = intent.`package`?.takeIf { it.isNotBlank() } ?: return false
         if (intent.action.isNullOrBlank()) return false

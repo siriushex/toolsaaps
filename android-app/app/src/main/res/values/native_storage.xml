@@ -1,0 +1,4 @@
+<resources>
+    <string name="native_storage_seen">Last check: a client subscribed to settings on /storage. Pairing is still required.</string>
+    <string name="native_storage_not_seen">Last check: no active settings subscription on /storage. Glucose can arrive separately.</string>
+</resources>

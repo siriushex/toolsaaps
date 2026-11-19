@@ -13,7 +13,11 @@ class SensitivitySettingsProductionWiringTest {
             "io/aaps/copilot/service/AppContainer.kt"
         ).readText()
 
-        assertThat(container).contains("val aapsCr = telemetryCandidate(")
+        assertThat(container).contains("LocalLoopForecastSelection.capture(db,")
+        assertThat(container).contains("settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource), now")
+        assertThat(container).contains("localLoopInputs = localInputs")
+        assertThat(container).contains("val aapsIsf = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.ISF)")
+        assertThat(container).contains("val aapsCr = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.CR)")
         assertThat(container).contains(
             "crCandidates = SensitivityCandidates(\n" +
                 "                    aaps = aapsCr,"

@@ -5,6 +5,14 @@
     <string name="clarity_cgm_age">CGM · %1$s</string>
     <string name="clarity_sync_age">Sync · %1$s</string>
     <string name="clarity_aaps_target">AAPS target</string>
+    <string name="clarity_aaps_observed_target">AAPS target: %1$s mmol/L</string>
+    <string name="clarity_aaps_target_profile">From AAPS profile</string>
+    <string name="clarity_aaps_target_adjusted">Adjusted by AAPS</string>
+    <string name="clarity_aaps_target_temporary">Temporary AAPS target</string>
+    <string name="clarity_aaps_target_temporary_until">Temporary until %1$s</string>
+    <string name="clarity_aaps_target_unavailable">Not received from AAPS</string>
+    <string name="clarity_aaps_profile_metric">%1$s · AAPS profile</string>
+    <string name="clarity_aaps_cob">COB · AAPS</string>
     <string name="clarity_target_proposal">Proposal %1$s</string>
     <string name="clarity_mode_shadow">Observe</string>
     <string name="clarity_mode_active">Auto</string>

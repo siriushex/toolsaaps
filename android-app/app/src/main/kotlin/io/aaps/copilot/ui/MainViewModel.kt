@@ -173,6 +173,13 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.scheduler.WorkScheduler
 import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.service.LocalNightscoutServiceController
+import io.aaps.copilot.service.AapsLocalObservation
+import io.aaps.copilot.service.AapsObservedMetrics
+import io.aaps.copilot.service.AapsObservedCircadian
+import io.aaps.copilot.data.repository.toEntity
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import io.aaps.copilot.service.AapsObservedTarget
+import io.aaps.copilot.service.AapsV3ForecastPreview
 import io.aaps.copilot.service.ClinicalAiProviderCredentialState
 import io.aaps.copilot.service.LocalNightscoutIdentityResetResult
 import io.aaps.copilot.service.LocalNightscoutRuntimeReason
@@ -198,6 +205,7 @@ import io.aaps.copilot.ui.foundation.screens.AuditUiState
 import io.aaps.copilot.ui.foundation.screens.BaseTargetBannerUiState
 import io.aaps.copilot.ui.foundation.screens.BaseTargetSchedulePresentation
 import io.aaps.copilot.ui.foundation.screens.CircadianPatternSectionUi
+import io.aaps.copilot.ui.foundation.screens.ScreenLoadState
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayBucketUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayMetricUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplaySummaryUi
@@ -235,6 +243,8 @@ import io.aaps.copilot.ui.foundation.screens.withClinicalReport
 import io.aaps.copilot.ui.foundation.screens.toAppHealthUiState
 import io.aaps.copilot.ui.foundation.screens.toAuditUiState
 import io.aaps.copilot.ui.foundation.screens.toForecastUiState
+import io.aaps.copilot.ui.foundation.screens.withAapsV3ForecastPreview
+import io.aaps.copilot.ui.foundation.screens.withAapsV3ObservedGlucose
 import io.aaps.copilot.ui.foundation.screens.toOverviewUiState
 import io.aaps.copilot.ui.foundation.screens.withSensitivityApplyPresentation
 import io.aaps.copilot.ui.foundation.screens.toSafetyUiState
@@ -277,6 +287,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -1822,8 +1833,28 @@ class MainViewModel(application: Application) :
 
     private val container = (application as CopilotApp).container
     val nativeAapsConnectionState get() = container.nativeAapsConnectionState
-    fun pairNativeAaps(pin: CharArray) {
-        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin) }
+    private val mutableNativeAapsInbound = MutableStateFlow<io.aaps.copilot.service.AapsV3InboundSummary?>(null)
+    val nativeAapsInbound = mutableNativeAapsInbound.asStateFlow()
+    val localAapsV3Upload = container.settingsStore.settings.map { it.localAapsV3Upload }
+        .distinctUntilChanged()
+    fun setLocalAapsV3Upload(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.update { current ->
+                current.copy(localAapsV3Upload = enabled && current.localNightscoutEnabled &&
+                    current.localObservationEnabled)
+            }
+            mutableNativeAapsInbound.value = null
+        }
+    }
+    private var nativeAapsInboundJob: kotlinx.coroutines.Job? = null
+    fun checkNativeAapsInbound() {
+        if (nativeAapsInboundJob?.isActive == true) return
+        nativeAapsInboundJob = viewModelScope.launch {
+            mutableNativeAapsInbound.value = withContext(Dispatchers.IO) { container.checkNativeAapsInbound() }
+        }
+    }
+    fun pairNativeAaps(pin: CharArray, route: io.aaps.copilot.service.AapsV3PairingRoute) {
+        viewModelScope.launch(Dispatchers.IO) { container.pairNativeAaps(pin, route) }
             .invokeOnCompletion { pin.fill('\u0000') }
     }
     fun checkNativeAapsConnection() { viewModelScope.launch(Dispatchers.IO) { container.checkNativeAapsConnection() } }
@@ -1842,6 +1873,7 @@ class MainViewModel(application: Application) :
         },
         sendEatingSoon = container::submitManualEatingSoon,
         readCarbBlockReason = container.actionRepository::manualCarbBlockReason,
+        reconcileCarbs = container.actionRepository::reconcileLocalMeal,
         onMealInput = { container.mealStateIngestion.offerInput(it) }
     )
     private val clinicalReportCommands = ClinicalReportUiCommands(
@@ -2102,7 +2134,8 @@ class MainViewModel(application: Application) :
                 .collect(clinicalReportPdfExportCoordinator::onReportIdentityChanged)
         }
         viewModelScope.launch(Dispatchers.IO) {
-            container.aapsCarbHistorySyncRepository.sync()
+            // The local AAPS 4 runtime owns startup and periodic imports.
+            if (!container.settingsStore.settings.first().localAapsV3Upload) container.syncConfiguredCarbHistory()
         }
         runAutoConnectNow(silent = true)
         normalizeLegacyActionStatusesAsync()
@@ -4129,6 +4162,87 @@ class MainViewModel(application: Application) :
 
     private val standaloneEatingSoonState = MutableStateFlow<io.aaps.copilot.ui.foundation.screens.EatingSoonUiState?>(null)
     private var acceptedFoodDisplayForOverview: io.aaps.copilot.ui.foundation.screens.AcceptedFoodDisplaySnapshot? = null
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsV3ForecastPreview = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload to
+            (settings.localObservationEnabled && settings.localNightscoutEnabled &&
+                !PowerSaveController.isActive(settings))
+    }.distinctUntilChanged().flatMapLatest { (enabled, allowSignedSnapshot) ->
+        flow<AapsV3ForecastPreview?> {
+            emit(null)
+            if (!enabled) return@flow
+            var signedFallback: AapsV3ForecastPreview? = null
+            var lastSnapshotAt: Long? = null
+            var lastStatus: String? = null
+            while (currentCoroutineContext().isActive) {
+                val now = System.currentTimeMillis()
+                val preview = try {
+                    val dao = db.localNightscoutV3Dao()
+                    val model = AapsV3ForecastPreview
+                    model.from(dao.recentOwnerGlucose(now - model.WINDOW_MS, now, model.MAX_ROWS + 1), now)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                val v3Fresh = preview?.takeIf { now - it.lastSampleAt in 0..AapsV3ForecastPreview.FRESH_MS }
+                if (v3Fresh == null && allowSignedSnapshot) {
+                    val elapsed = android.os.SystemClock.elapsedRealtime()
+                    if (lastSnapshotAt?.let { elapsed - it >= 60_000L } != false) {
+                        lastSnapshotAt = elapsed
+                        val points = AapsLocalObservation.readDisplayGlucose(getApplication())
+                        signedFallback = AapsV3ForecastPreview.displayFromSignedSnapshot(points, System.currentTimeMillis())
+                    }
+                }
+                val fallback = signedFallback?.takeIf {
+                    System.currentTimeMillis() - it.lastSampleAt in 0..AapsV3ForecastPreview.FRESH_MS
+                }
+                val status = when {
+                    v3Fresh != null -> "local_v3_fresh"
+                    fallback != null -> "signed_snapshot_fresh"
+                    else -> "no_fresh_observation"
+                }
+                if (status != lastStatus) {
+                    android.util.Log.i("AapsObservation", status)
+                    lastStatus = status
+                }
+                emit(v3Fresh ?: fallback ?: preview)
+                delay(15_000L)
+            }
+        }
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, 0), null)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsLocalTarget = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload to (settings.localObservationEnabled && settings.localNightscoutEnabled &&
+            !PowerSaveController.isActive(settings))
+    }.distinctUntilChanged().flatMapLatest { (local, allowed) ->
+        flow<Pair<Boolean, AapsObservedTarget?>> {
+            emit(local to null)
+            if (local && allowed) {
+                while (currentCoroutineContext().isActive) {
+                    val observed = AapsLocalObservation.readTarget(getApplication())
+                    emit(true to observed)
+                    val remaining = observed?.expiresAt?.minus(System.currentTimeMillis())
+                    delay(remaining?.coerceIn(1L, 15_000L) ?: 15_000L)
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val aapsLocalMetrics = container.settingsStore.settings.map { settings ->
+        settings.localAapsV3Upload && settings.localObservationEnabled && settings.localNightscoutEnabled &&
+            !PowerSaveController.isActive(settings)
+    }.distinctUntilChanged().flatMapLatest { allowed ->
+        flow<AapsObservedMetrics?> {
+            emit(null)
+            if (allowed) while (currentCoroutineContext().isActive) {
+                emit(AapsLocalObservation.readMetrics(getApplication()))
+                delay(30_000L)
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     val overviewUiState: StateFlow<OverviewUiState> = combine(
         timedOverviewRuntime,
@@ -4196,6 +4310,15 @@ class MainViewModel(application: Application) :
         .combine(container.pumpLinkMonitor.state) { state, pumpLink -> state.copy(pumpLinkStatus = pumpLink) }
         .combine(container.infusionSetReminder.state) { state, infusion -> state.copy(infusionSetStatus = infusion) }
         .combine(container.deliveryDiagnosticDisplay) { state, delivery -> state.copy(deliveryDiagnosticEvidence = delivery) }
+        .combine(aapsV3ForecastPreview) { state, preview ->
+            withAapsV3ObservedGlucose(state, preview, System.currentTimeMillis())
+        }
+        .combine(aapsLocalTarget) { state, (local, observed) ->
+            state.copy(aapsLocalTargetMode = local, aapsLocalTarget = observed)
+        }
+        .combine(aapsLocalMetrics) { state, observed ->
+            state.copy(aapsLocalMetrics = observed.takeIf { state.aapsV3Observation })
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -4247,9 +4370,13 @@ class MainViewModel(application: Application) :
         uiState,
         forecastRangeState,
         forecastLayersState,
-        proModeState
-    ) { state, range, layers, isProMode ->
-        state.toForecastUiState(range = range, layers = layers, isProMode = isProMode)
+        proModeState,
+        aapsV3ForecastPreview
+    ) { state, range, layers, isProMode, preview ->
+        withAapsV3ForecastPreview(
+            state.toForecastUiState(range = range, layers = layers, isProMode = isProMode),
+            preview, System.currentTimeMillis()
+        )
     }
         .stateIn(
             scope = viewModelScope,
@@ -4361,16 +4488,48 @@ class MainViewModel(application: Application) :
             initialValue = null
         )
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val observedCircadianSections = combine(
+        container.settingsStore.settings,
+        uiState.map { it.circadianPatternSections.isEmpty() }.distinctUntilChanged()
+    ) { settings, needsHistory ->
+        settings.takeIf { needsHistory && it.localAapsV3Upload && it.localObservationEnabled &&
+            it.localNightscoutEnabled && !PowerSaveController.isActive(it) }
+    }.distinctUntilChangedBy { s -> s?.let { listOf(it.baseTargetMmol, it.circadianStableLookbackDays,
+        it.circadianRecencyLookbackDays, it.patternMinSamplesPerWindow, it.circadianUseWeekendSplit,
+        it.circadianUseReplayResidualBias) } }.flatMapLatest { settings ->
+        flow {
+            emit(emptyList<CircadianPatternSectionUi>())
+            if (settings == null) return@flow
+            while (currentCoroutineContext().isActive) {
+                val now = System.currentTimeMillis()
+                val sections = try {
+                    val points = AapsObservedCircadian.read(container.db, now)
+                    val fitted = container.analyticsRepository.fitCircadianPatterns(points, emptyList(), emptyList(), settings, now)
+                    CircadianPatternUiResolver.buildSections(fitted.slotStats.map { it.toEntity() },
+                        fitted.transitionStats.map { it.toEntity() }, fitted.snapshots.map { it.toEntity() }, emptyList(), now)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList() }
+                emit(sections)
+                delay(15 * 60_000L)
+            }
+        }
+    }.flowOn(Dispatchers.Default)
+
     val analyticsUiState: StateFlow<AnalyticsUiState> = combine(
         uiState,
         circadianReplaySummaryState,
-        probableMealWindowsState
-    ) { state, circadianReplaySummary, probableMealSnapshot ->
-        state.toAnalyticsUiState(
+        probableMealWindowsState,
+        observedCircadianSections
+    ) { state, circadianReplaySummary, probableMealSnapshot, observed ->
+        val analytics = state.toAnalyticsUiState(
             circadianReplaySummary = circadianReplaySummary,
             probableMealWindows = probableMealSnapshot?.stable?.windows.orEmpty(),
             recentProbableMealWindows = probableMealSnapshot?.recent?.windows.orEmpty()
         )
+        if (analytics.circadianSections.isNotEmpty() || observed.isEmpty()) analytics
+        else analytics.copy(circadianSections = observed, circadianFromObservedAaps = true,
+            loadState = if (analytics.loadState == ScreenLoadState.EMPTY) ScreenLoadState.READY else analytics.loadState)
     }
         .stateIn(
             scope = viewModelScope,
@@ -7575,7 +7734,7 @@ class MainViewModel(application: Application) :
                 )
             }.onSuccess {
                 messageState.value =
-                    "TLS certificates exported (root CA + server). Install root CA in Android, then reconnect AAPS NSClient."
+                    "TLS certificates exported (root CA + server). Exporting does not configure AAPS NSClientV3."
             }.onFailure {
                 messageState.value = "Certificate export failed: ${it.message}"
             }
@@ -8101,7 +8260,7 @@ class MainViewModel(application: Application) :
 
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
-            container.aapsCarbHistorySyncRepository.sync()
+            container.syncConfiguredCarbHistory()
             val nowTs = System.currentTimeMillis()
             val coverageHours = loadAiCoverageHours(nowTs = nowTs)
             container.auditLogger.info(

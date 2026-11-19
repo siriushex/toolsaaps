@@ -140,7 +140,12 @@ class LocalNightscoutV3DeviceStatusApiTest {
             assertEquals(405, call(it, "devicestatus/${id(first)}", sample(iob = 2.0)).status)
         }
         assertEquals(405, call(path = "devicestatus").status)
-        assertEquals(400, call(query = mapOf("limit" to listOf("1"))).status)
+        assertEquals(first.revision, call(query = mapOf("limit" to listOf("1"))).revision)
+        for (invalid in listOf("0", "-1", "1001", "01", "1e0")) {
+            assertEquals(400, call(query = mapOf("limit" to listOf(invalid))).status)
+        }
+        assertEquals(400, call(query = mapOf("limit" to listOf("1", "2"))).status)
+        assertEquals(400, call(query = mapOf("limit" to listOf("1"), "other" to listOf("true"))).status)
         assertEquals(400, call(path = "devicestatus/history/0/extra").status)
         assertEquals(400, call(path = "devicestatus/history/-1").status)
         assertEquals(405, call("POST", "devicestatus/history/0", sample()).status)
@@ -149,6 +154,20 @@ class LocalNightscoutV3DeviceStatusApiTest {
         assertEquals("cr", permissions["devicestatus"]!!.jsonPrimitive.content)
         assertEquals("crud", permissions["settings"]!!.jsonPrimitive.content)
         assertEquals(400, call("POST", "settings", "{}").status)
+    }
+
+    @Test fun explicitStatusLimitRefusesPartialHistoryWithoutChangingTheStream() = runBlocking {
+        val first = call("POST", "devicestatus", sample())
+        api = LocalNightscoutV3EntriesApi(db) { now + 1 }
+        val second = call("POST", "devicestatus", sample(time = at + 1))
+        val limit = mapOf("limit" to listOf("1"))
+        val overflow = call(query = limit)
+        assertEquals(507, overflow.status)
+        assertNull(overflow.revision)
+        assertEquals(2, rows(call()).size)
+        val tail = call(path = "devicestatus/history/${first.revision}", query = limit)
+        assertEquals(listOf(at + 1), rows(tail).map { it.getValue("date").jsonPrimitive.long })
+        assertEquals(second.revision, tail.revision)
     }
 
     @Test fun malformedIdentityTimeTypesAndServerFieldsNeverWrite() = runBlocking {

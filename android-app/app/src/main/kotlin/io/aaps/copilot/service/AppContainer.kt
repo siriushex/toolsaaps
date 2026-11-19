@@ -22,6 +22,16 @@ import io.aaps.copilot.data.repository.ActionCommandUamExportReservationStore
 import io.aaps.copilot.data.repository.AapsBolusLauncher
 import io.aaps.copilot.data.repository.AapsCarbImportTransactionRunner
 import io.aaps.copilot.data.repository.AapsCarbHistoryImporter
+import io.aaps.copilot.data.repository.AapsCarbHistoryRequest
+import io.aaps.copilot.data.repository.AapsCarbHistoryResult
+import io.aaps.copilot.data.repository.AapsCarbHistorySyncResult
+import io.aaps.copilot.config.SetupProgress
+import io.aaps.copilot.config.SetupGlucoseSource
+import io.aaps.copilot.data.repository.LocalAapsCgmSync
+import io.aaps.copilot.data.repository.LocalAapsLoopInputSync
+import io.aaps.copilot.data.repository.LocalLoopForecastSelection
+import io.aaps.copilot.config.SetupInsulinSource
+import kotlinx.coroutines.withContext
 import io.aaps.copilot.data.repository.AapsCarbHistorySource
 import io.aaps.copilot.data.repository.AapsCarbHistorySyncRepository
 import io.aaps.copilot.data.repository.AapsClinicalSummarySource
@@ -117,6 +127,7 @@ import io.aaps.copilot.data.repository.UamExportCoordinator
 import io.aaps.copilot.data.repository.toDomain
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.predict.SensitivityCandidate
+import io.aaps.copilot.domain.predict.SensitivityMetricKind
 import io.aaps.copilot.domain.predict.SensitivityCandidates
 import io.aaps.copilot.domain.predict.SensitivityRuntimeContract
 import io.aaps.copilot.domain.predict.PatternAnalyzer
@@ -186,6 +197,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class ClinicalAiProviderCredentialState(
@@ -523,6 +536,9 @@ class AppContainer(context: Context) {
     @Volatile
     private var runtimeControllersActive = false
     private var localNightscoutSettingsJob: Job? = null
+    private var localAapsUploadJob: Job? = null
+    private var localAapsCarbHistoryJob: Job? = null
+    private var localAapsCgmJob: Job? = null
     private var powerSaveSettingsJob: Job? = null
 
     val syncRepository = SyncRepository(
@@ -582,6 +598,41 @@ class AppContainer(context: Context) {
             clinicalInputInvalidationCoordinator.invalidatePersistedInput(source)
         }
     )
+
+    private fun nativeCarbHistoryEnabled(settings: AppSettings, setup: SetupProgress) =
+        settings.nativeInsulinInputEnabled(setup.insulinSource)
+
+    private val localAapsLoopInputs by lazy { LocalAapsLoopInputSync(
+        db, { nonce -> AapsLocalObservation.readLoopInputs(appContext, nonce) },
+        { nativeCarbHistoryEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+    ) }
+
+    private fun localCgmEnabled(settings: AppSettings, setup: SetupProgress) =
+        settings.localAapsV3Upload && settings.localNightscoutEnabled && settings.localObservationRuntimeAllowed() &&
+            settings.localBroadcastIngestEnabled && !PowerSaveController.isActive(settings) &&
+            setup.glucoseSource == SetupGlucoseSource.SENSOR
+
+    private val localAapsCgm by lazy { LocalAapsCgmSync(
+        db, { from, through, nonce -> AapsLocalObservation.readCgmWindow(appContext, from, through, nonce) },
+        { localCgmEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+    ) }
+
+    internal suspend fun syncConfiguredCarbHistory(): AapsCarbHistorySyncResult = withContext(Dispatchers.IO) {
+        if (settingsStore.settings.first().localAapsV3Upload) syncNativeCarbHistory()
+        else aapsCarbHistorySyncRepository.sync()
+    }
+
+    private suspend fun syncNativeCarbHistory() =
+        aapsCarbHistorySyncRepository.syncFromLocalAaps { from, through, ts, id, limit ->
+            if (!nativeCarbHistoryEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first())) {
+                AapsCarbHistoryResult.Unavailable
+            } else {
+                AapsLocalObservation.readCarbPage(appContext,
+                    AapsCarbHistoryRequest(UUID.randomUUID().toString(), from, through, ts, id, limit))
+            }
+        }
 
     val glucoseCalibrationRepository = GlucoseCalibrationRepository(
         db = db,
@@ -872,8 +923,12 @@ class AppContainer(context: Context) {
 
     private val acceptedSensitivityTupleRoomLoader = AcceptedSensitivityTupleRoomLoader(db)
 
-    val sensitivityRuntimeRepository = SensitivityRuntimeRepository(
-        loadedCandidates = {
+    internal class RuntimeSensitivityInputs(
+        private val db: CopilotDatabase,
+        private val settingsStore: AppSettingsStore,
+        private val isfCrRepository: IsfCrRepository
+    ) {
+        suspend fun load(): SensitivityRuntimeLoadedCandidates {
             val settings = settingsStore.settings.first()
             val now = System.currentTimeMillis()
             val telemetry = db.telemetryDao().latestBySourceAndKeySinceForKeys(
@@ -883,47 +938,9 @@ class AppContainer(context: Context) {
                     "cr_value", "raw_cr", "aaps_cr", "cr"
                 ).toList()
             )
-            val acceptedTelemetryQualities = setOf("TRUSTED", "GOOD", "OK")
-            fun latestMetric(
-                source: String,
-                keys: Set<String>,
-                minimum: Double,
-                maximum: Double
-            ) = telemetry
-                .asSequence()
-                .filter {
-                        it.source.equals(source, ignoreCase = true) &&
-                        it.key in keys &&
-                        it.quality.trim().uppercase() in acceptedTelemetryQualities
-                }
-                .mapNotNull { row ->
-                    val value = row.valueDouble?.takeIf { it.isFinite() && it in minimum..maximum }
-                        ?: return@mapNotNull null
-                    row to value
-                }
-                .maxWithOrNull(
-                    compareBy<Pair<io.aaps.copilot.data.local.entity.TelemetrySampleEntity, Double>> { it.first.timestamp }
-                        .thenBy { it.first.id }
-                )
-
-            fun telemetryCandidate(
-                source: String,
-                keys: Set<String>,
-                minimum: Double,
-                maximum: Double,
-                missingReason: String
-            ): SensitivityCandidate {
-                val selected = latestMetric(source, keys, minimum, maximum)
-                return SensitivityCandidate(
-                    value = selected?.second,
-                    timestamp = selected?.first?.timestamp ?: 0L,
-                    confidence = if (selected == null) 0.0 else 1.0,
-                    qualityPassed = selected != null,
-                    sampleCount = if (selected == null) 0 else 1,
-                    coverage = if (selected == null) 0.0 else 1.0,
-                    unavailableReason = if (selected == null) missingReason else null
-                )
-            }
+            val localInputs = LocalLoopForecastSelection.capture(db,
+                settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource), now)
+            val nativeFactors = localInputs.samples
 
             val candidateInput = db.withTransaction {
                 val activeProfile = db.profileEstimateDao().active()
@@ -980,23 +997,11 @@ class AppContainer(context: Context) {
                     profileRevision = currentInputGeneration.profileRevision
                 )
             } ?: SensitivityCandidate(null, 0L, 0.0, false, 0, 0.0, "evidence_snapshot_missing")
-            val aapsIsf = telemetryCandidate(
-                "aaps_broadcast",
-                setOf("isf_value", "raw_isf", "aaps_isf", "isf"),
-                SensitivityRuntimeContract.isf.diagnosticMin,
-                SensitivityRuntimeContract.isf.maximum,
-                "aaps_candidate_missing"
-            ).copy(
+            val aapsIsf = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.ISF).copy(
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
-            val aapsCr = telemetryCandidate(
-                "aaps_broadcast",
-                setOf("cr_value", "raw_cr", "aaps_cr", "cr"),
-                SensitivityRuntimeContract.cr.diagnosticMin,
-                SensitivityRuntimeContract.cr.maximum,
-                "aaps_candidate_missing"
-            ).copy(
+            val aapsCr = aapsLoopFactorCandidate(telemetry, nativeFactors, now, SensitivityMetricKind.CR).copy(
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
@@ -1057,7 +1062,8 @@ class AppContainer(context: Context) {
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
-            SensitivityRuntimeLoadedCandidates(
+            return SensitivityRuntimeLoadedCandidates(
+                localLoopInputs = localInputs,
                 settingsRevision = settings.sensitivitySettingsRevision,
                 isfPreference = settings.isfSourcePreference,
                 crPreference = settings.crSourcePreference,
@@ -1072,7 +1078,11 @@ class AppContainer(context: Context) {
                     copilot = copilotCr
                 )
             )
-        },
+        }
+    }
+
+    val sensitivityRuntimeRepository = SensitivityRuntimeRepository(
+        loadedCandidates = RuntimeSensitivityInputs(db, settingsStore, isfCrRepository)::load,
         persistence = { entity: SensitivityRuntimeSnapshotEntity ->
             db.sensitivityRuntimeSnapshotDao().upsert(entity)
         },
@@ -1099,7 +1109,10 @@ class AppContainer(context: Context) {
         gson = gson,
         auditLogger = auditLogger,
         isfCrRepository = isfCrRepository,
-        glucoseCalibrationRepository = glucoseCalibrationRepository
+        glucoseCalibrationRepository = glucoseCalibrationRepository,
+        nativeProfileInputsEnabled = {
+            settingsStore.settings.first().nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)
+        }
     )
 
     private val carbsSendThrottle = CarbsSendThrottle(
@@ -1126,10 +1139,18 @@ class AppContainer(context: Context) {
     )
 
     private val retainedComboDatabase by lazy { io.aaps.copilot.data.local.ComboJournalDatabase.create(context) }
+    internal val localEnrollmentOffers = LocalEnrollmentOffers(appScope, localNightscoutServer::openLocalSettingsTicket)
     private val nativeAapsTargetChannel = AapsV3TargetChannel(
         db = db,
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
+        localOffers = localEnrollmentOffers,
+        localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },
+        localSettingsPeer = { master, nonce, request ->
+            localNightscoutServer.openLocalWitnessTicket(master, nonce, request)?.use {
+                AapsLocalSessionPeer.checkSettings(appContext, master, nonce, it)
+            }
+        },
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
@@ -1139,9 +1160,27 @@ class AppContainer(context: Context) {
                 verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }, block = publish)
         }
     )
+    private val nativeAapsInboundDiagnostics = AapsV3InboundDiagnostics(
+        io.aaps.copilot.data.repository.LocalNightscoutV3Store(db)
+    )
     val nativeAapsConnectionState get() = nativeAapsTargetChannel.state
-    suspend fun pairNativeAaps(pin: CharArray) = nativeAapsTargetChannel.pair(pin)
-    suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
+    suspend fun checkNativeAapsInbound(): AapsV3InboundSummary {
+        val settings = settingsStore.settings.first()
+        val inbound = if (settings.localAapsV3Upload) nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        else AapsLocalObservation.read(appContext) ?: nativeAapsInboundDiagnostics.check(System.currentTimeMillis())
+        val local = AapsLocalObservation.readComboJournal(appContext) ?: return inbound
+        return if (local == AapsV3ComboHistoryStatus.ADVERSE ||
+            inbound.comboHistory in setOf(AapsV3ComboHistoryStatus.UNCHECKED, AapsV3ComboHistoryStatus.NOT_OBSERVED))
+            inbound.copy(comboHistory = local) else inbound
+    }
+    suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
+    internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentPong(id, handle, bytes)
+    internal suspend fun acceptLocalEnrollmentRole(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentRole(id, handle, bytes)
+    internal suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray) =
+        nativeAapsTargetChannel.acceptLocalEnrollmentKey(id, handle, bytes)
+    suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection(checkSettings = true)
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()
 
     val actionRepository = NightscoutActionRepository(
@@ -1153,7 +1192,15 @@ class AppContainer(context: Context) {
         tempTargetSendThrottle = tempTargetSendThrottle,
         gson = gson,
         auditLogger = auditLogger,
-        nativeTargetTransport = nativeAapsTargetChannel
+        nativeTargetTransport = nativeAapsTargetChannel,
+        submitNativeMeal = { id -> if (!AapsLocalSessionPeer.hasMealPreview(appContext)) io.aaps.copilot.data.repository.NativeMealSubmission.UNAVAILABLE
+        else nativeAapsTargetChannel.submitManualMeal(id, if (AapsLocalSessionPeer.hasMealRecord(appContext))
+            { master, request -> AapsLocalSessionPeer.requestMealRecord(appContext, master, request) } else null) { master, request ->
+            AapsLocalSessionPeer.previewMeal(appContext, master, request)
+        } },
+        verifyNativeMealRow = { row, grams -> nativeAapsTargetChannel.verifyMealRow(row, grams) { key, at, amount ->
+            AapsLocalMealRecord.recordedDuring(appContext, key, at, amount)
+        } }
     )
 
     suspend fun submitManualEatingSoon(mealKey: String): EatingSoonResult {
@@ -1995,6 +2042,62 @@ class AppContainer(context: Context) {
                 }
             }
         }
+        if (localAapsCarbHistoryJob == null) {
+            localAapsCarbHistoryJob = appScope.launch(Dispatchers.IO) {
+                combine(settingsStore.settings, settingsStore.setupProgress, ::nativeCarbHistoryEnabled)
+                    .distinctUntilChanged().collectLatest { enabled ->
+                        if (!enabled) return@collectLatest
+                        while (isActive) {
+                            try {
+                                localAapsLoopInputs.sync()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                auditLogger.warn("aaps_local_loop_input_sync_failed")
+                            }
+                            syncNativeCarbHistory()
+                            delay(5 * 60_000L)
+                        }
+                    }
+            }
+        }
+        if (localAapsCgmJob == null) {
+            localAapsCgmJob = appScope.launch(Dispatchers.IO) {
+                combine(settingsStore.settings, settingsStore.setupProgress, ::localCgmEnabled)
+                    .distinctUntilChanged().collectLatest { enabled ->
+                        if (!enabled) return@collectLatest
+                        while (isActive) {
+                            try {
+                                localAapsCgm.sync()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                auditLogger.warn("aaps_local_cgm_sync_failed")
+                            }
+                            delay(5 * 60_000L)
+                        }
+                    }
+            }
+        }
+        if (localAapsUploadJob == null) {
+            localAapsUploadJob = appScope.launch(Dispatchers.IO) {
+                settingsStore.settings.map { it.localAapsV3Upload && it.localNightscoutEnabled }
+                    .distinctUntilChanged().collectLatest { enabled ->
+                        if (!enabled) return@collectLatest
+                        while (isActive) {
+                            localNightscoutServer.withLocalUploadTicket { AapsLocalUpload.send(appContext, it) }
+                            try {
+                                actionRepository.reconcilePendingLocalMeal()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Leave the receipt pending. Do not interrupt glucose sync or repeat the POST.
+                            }
+                            delay(60_000L)
+                        }
+                    }
+            }
+        }
     }
 
     internal suspend fun resetLocalNightscoutIdentity(
@@ -2002,7 +2105,7 @@ class AppContainer(context: Context) {
     ): LocalNightscoutIdentityResetResult = LocalNightscoutIdentityResetCoordinator(
         stopServer = localNightscoutServer::stop,
         disableIntegration = {
-            settingsStore.update { current -> current.copy(localNightscoutEnabled = false) }
+            settingsStore.update { current -> current.copy(localNightscoutEnabled = false, localAapsV3Upload = false) }
         },
         resetIdentity = { LocalNightscoutTls.resetIdentity(appContext) },
         runtimeState = LocalNightscoutRuntimeState
@@ -2012,11 +2115,18 @@ class AppContainer(context: Context) {
         reason: LocalNightscoutRuntimeReason = LocalNightscoutRuntimeReason.SERVICE_STOPPED
     ) {
         nativeAapsTargetChannel.stop()
+        localEnrollmentOffers.clear()
         localNightscoutServer.stop(reason)
         if (!runtimeControllersActive) return
         runtimeControllersActive = false
         localNightscoutSettingsJob?.cancel()
         localNightscoutSettingsJob = null
+        localAapsUploadJob?.cancel()
+        localAapsUploadJob = null
+        localAapsCarbHistoryJob?.cancel()
+        localAapsCarbHistoryJob = null
+        localAapsCgmJob?.cancel()
+        localAapsCgmJob = null
         stopLocalActivitySensors()
         if (healthConnectEnabled) {
             stopHealthConnectCollection()

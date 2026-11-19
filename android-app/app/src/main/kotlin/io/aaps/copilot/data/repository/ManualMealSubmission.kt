@@ -24,7 +24,8 @@ internal class ManualMealSubmission(
     private val stageSelection: suspend (ActionCommand, MealAbsorptionSelection, Double?) -> Unit,
     private val sendEatingSoon: suspend (String) -> EatingSoonResult,
     private val readCarbBlockReason: suspend (ActionCommand) -> String? = { null },
-    private val onMealInput: suspend (ActionCommand) -> Unit = {}
+    private val onMealInput: suspend (ActionCommand) -> Unit = {},
+    private val reconcileCarbs: suspend (ActionCommand) -> Boolean = { false }
 ) {
     private data class Input(
         val params: Map<String, String>,
@@ -55,6 +56,11 @@ internal class ManualMealSubmission(
             put("mealPortionProvenance", selection.portionMetadata?.provenance?.name.orEmpty())
             put("mealEnergyKcal", mealEnergyKcal?.toString().orEmpty())
             put("mealEatingSoon", eatingSoon.toString())
+            selection.glycemicIndex?.let { index ->
+                put("mealGlycemicIndex", index.value.toString())
+                put("mealGlycemicIndexSource", index.source.name)
+                index.reference?.let { put("mealGlycemicIndexReference", it) }
+            }
         }
         val reservedCommand = command.copy(params = Collections.unmodifiableMap(frozenParams))
         val key = reservedCommand.idempotencyKey
@@ -77,7 +83,26 @@ internal class ManualMealSubmission(
             completed[key] = reserved
             reserved to true
         }
-        if (!owner) return entry.completion.await()
+        if (!owner) {
+            val initial = entry.completion.await()
+            if (initial.carbs != MealDeliveryStatus.UNKNOWN) return initial
+            return carbDeliveryMutex.withLock {
+                if (entry.result.carbs == MealDeliveryStatus.UNKNOWN) {
+                    val recorded = try { reconcileCarbs(reservedCommand) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { false }
+                    if (recorded) {
+                        entry.result = entry.result.copy(carbs = MealDeliveryStatus.SENT)
+                        try {
+                            stageSelection(reservedCommand, selection, mealEnergyKcal)
+                            entry.result = entry.result.copy(profileSaved = true)
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* The receipt remains valid even if the local profile was not saved. */ }
+                    }
+                }
+                entry.result
+            }
+        }
         try {
             // Reserve the target before waiting for any other meal's carbohydrate I/O.
             if (eatingSoon) {

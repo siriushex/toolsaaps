@@ -25,6 +25,25 @@ class AapsV3EffectiveProfileSourceTest {
     private lateinit var db: CopilotDatabase
     private lateinit var name: String
     private val at = 1_800_000_000_000L
+    @Test fun exactNativeSubhourProfileSurvivesRetainedStorage() = runBlocking {
+        val native = javaClass.getResource("/fixtures/effective-profile-subhour.json")!!.readText().trim()
+        val row = input("subhour")
+        val config = Json.parseToJsonElement(native).jsonObject.getValue("iCfg").jsonObject
+        val body = JsonObject(Json.parseToJsonElement(row.payloadJson).jsonObject + mapOf(
+            "profileJson" to JsonPrimitive(native), "icfg" to JsonObject(config - "insulinNickname")))
+        val stored = store()
+        stored.create(row.copy(payloadJson = body.toString()))
+        val observation = requireNotNull(AapsV3EffectiveProfileSource(stored).read(at).observation)
+        val expected = mapOf(observation.profile.sensitivity to listOf(42.5, 53.5, 38.5),
+            observation.profile.carbRatio to listOf(10.5, 12.5, 15.5), observation.profile.basal to listOf(0.5, 0.7, 0.9),
+            observation.profile.targetLow to listOf(84.5, 90.5, 92.5), observation.profile.targetHigh to listOf(100.5, 105.5, 107.5))
+        for ((schedule, values) in expected) {
+            assertEquals(listOf(0, 27030, 51300), schedule.map { it.seconds })
+            for ((i, second) in listOf(27029, 27030, 51299, 51300, 86399).withIndex()) {
+                assertEquals(values[listOf(0, 1, 1, 2, 2)[i]], schedule.last { it.seconds <= second }.value, 0.0)
+            }
+        }
+    }
     private fun open() = Room.databaseBuilder(context, CopilotDatabase::class.java, name).allowMainThreadQueries().build()
     private fun store() = LocalNightscoutV3Store(db, { at + 100_000 })
     private fun input(id: String, time: Long = at, value: Double = 5.5) = LocalV3DocumentInput(
@@ -61,6 +80,94 @@ class AapsV3EffectiveProfileSourceTest {
         db = open()
     }
     @After fun tearDown() { db.close(); context.deleteDatabase(name) }
+
+    @Test fun samePhoneObservationValidatesAllThreeStreamsWithoutWritingClinicalData() {
+        val now = at + 60_000L
+        val packet = buildJsonObject {
+            put("version", 1); put("at", now)
+            put("glucose", buildJsonArray {
+                add(buildJsonObject { put("date", at); put("sgv", 111.0); put("sensor", "LIBRE_3") })
+            })
+            put("profile", Json.parseToJsonElement(input("fixture").payloadJson))
+            put("insulin", buildJsonArray {
+                add(buildJsonObject {
+                    put("date", at); put("utcOffset", 0); put("eventType", "Temp Basal")
+                    put("durationInMilliseconds", 1_800_000L); put("percent", -20)
+                    put("pumpType", "ACCU_CHEK_COMBO"); put("pumpId", 7); put("pumpSerial", "synthetic")
+                })
+            })
+        }
+        fun parse(value: JsonObject, time: Long = now) = AapsLocalObservation.decode(value.toString().encodeToByteArray(), time)
+        assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
+            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("version" to JsonPrimitive(2)))).glucose)
+        val original = packet.getValue("insulin").jsonArray.single().jsonObject
+        val from = now - 86_400_000L
+        fun carry(kind: String, duration: Long, start: Long = from - 60_000L): AapsV3InboundSummary {
+            val row = JsonObject(original + mapOf("eventType" to JsonPrimitive(kind), "date" to JsonPrimitive(start),
+                "durationInMilliseconds" to JsonPrimitive(duration)))
+            val payload = JsonObject(packet + mapOf("version" to JsonPrimitive(2), "insulin" to JsonArray(listOf(row))))
+            return AapsLocalObservation.decode(payload.toString().encodeToByteArray(), now, version = 2)
+        }
+        assertEquals(parse(packet), carry("Temp Basal", 120_000L))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Temp Basal", 60_000L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Correction Bolus", 120_000L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Temp Basal", Long.MAX_VALUE).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("command" to JsonPrimitive("unknown")))).glucose)
+        val sample = packet.getValue("glucose").jsonArray.single()
+        assertEquals(AapsV3InboundGlucose.CONFLICTING,
+            parse(JsonObject(packet + ("glucose" to JsonArray(listOf(sample, sample))))).glucose)
+        val record = packet.getValue("insulin").jsonArray.single()
+        assertEquals(AapsV3ObservedInsulinStatus.CONFLICTING,
+            parse(JsonObject(packet + ("insulin" to JsonArray(listOf(record, record))))).insulin)
+        runBlocking {
+            assertTrue(db.glucoseDao().since(0).isEmpty())
+            assertTrue(db.therapyDao().since(0).isEmpty())
+            assertEquals(0, db.localNightscoutV3Dao().count())
+        }
+    }
+
+    @Test fun inboundCheckDoesNotRequirePairingOrProjectClinicalData() = runBlocking {
+        val store = store()
+        val check = AapsV3InboundDiagnostics(store)
+        val now = at + 200_000L
+        assertEquals(AapsV3InboundGlucose.NOT_OBSERVED, check.check(now).glucose)
+        store.create(input("effective"))
+        val dose = store.create(LocalV3DocumentInput(LocalV3Collection.TREATMENTS, "dose", "local-v3-owner", at,
+            """{"eventType":"Correction Bolus","date":$at,"insulin":1.1}""")).document
+        val sample = store.create(LocalV3DocumentInput(LocalV3Collection.ENTRIES, "sample", "local-v3-owner", at,
+            """{"type":"sgv","date":$at,"sgv":112}""")).document
+        val received = check.check(now)
+        assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
+            AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT, 1, comboHistory = AapsV3ComboHistoryStatus.NOT_OBSERVED), received)
+        assertEquals(AapsV3InboundGlucose.STALE, check.check(at + 300_001L).glucose)
+        store.delete(LocalV3Collection.ENTRIES, "sample", sample.modifiedRevision)
+        store.delete(LocalV3Collection.TREATMENTS, "dose", dose.modifiedRevision)
+        val after = check.check(now)
+        assertEquals(AapsV3InboundGlucose.NOT_OBSERVED, after.glucose)
+        assertEquals(AapsV3ObservedInsulinStatus.NOT_OBSERVED, after.insulin)
+        assertEquals(0, after.insulinRecordCount)
+        assertTrue(db.glucoseDao().since(0).isEmpty())
+        assertTrue(db.therapyDao().since(0).isEmpty())
+        assertEquals(0L, store.lastModified()[LocalV3Collection.SETTINGS])
+    }
+
+    @Test fun inboundCheckExcludesFingersticksAndRejectsAmbiguousOrFutureSgv() = runBlocking {
+        val store = store()
+        val check = AapsV3InboundDiagnostics(store)
+        fun add(id: String, type: String, time: Long) = LocalV3DocumentInput(
+            LocalV3Collection.ENTRIES, id, "local-v3-owner", time,
+            """{"type":"$type","date":$time,"$type":120}""")
+        val now = at + 200_000
+        store.create(add("fingerstick", "mbg", now))
+        assertEquals(AapsV3InboundGlucose.NOT_OBSERVED, check.check(now).glucose)
+        store.create(add("first", "sgv", at))
+        store.create(add("second", "sgv", at))
+        assertEquals(AapsV3InboundGlucose.CONFLICTING, check.check(now).glucose)
+        store.create(add("future", "sgv", now + 1))
+        assertEquals(AapsV3InboundGlucose.CLOCK, check.check(now).glucose)
+    }
 
     @Test fun selectsByEffectiveEventTimeNotUploadRevisionAndNeverRevertsAtOriginalEnd() = runBlocking {
         val later = store().create(input("later", at + 10_000, 6.5)).document

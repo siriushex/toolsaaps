@@ -13,7 +13,8 @@ internal enum class AapsV3ComboHistoryHazard {
     STORAGE_FAILED, UNCLOSED_READ, CORRUPT_READ, UNSCOPED_CORRUPTION, ADVERSE_READ, FAILED_READ,
     FIFO_GAP, CLOCK_CHANGE, UNMAPPED_EVENT, INTERRUPTED_READ, MALFORMED_BLOCK, UNCONFIRMED_BLOCK,
     EVENT_DUPLICATE, EVENT_COUNTER_REUSED, EVENT_COUNTER_REWIND, EVENT_TIME_REWIND, EVENT_COUNTER_GAP,
-    POST_CLOCK_CHANGE_REWIND, READER_TIME_INCONSISTENT
+    POST_CLOCK_CHANGE_REWIND, READER_TIME_INCONSISTENT,
+    DECLARED_HISTORY_TAIL, REMAINING_COUNT_DISCONTINUITY
 }
 
 /** These are retained uploader diagnostics, not current-pump identity or delivery receipts. */
@@ -67,7 +68,7 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
                         observation.finishedAtMs?.let { end -> end > at } == true)
                         hazards += AapsV3ComboHistoryHazard.READER_TIME_INCONSISTENT
                 }
-                journal?.let { journalStatus(HistoryJson.obj(it), hazards) }
+                journal?.let { hazards += comboJournalHazards(HistoryJson.obj(it)) }
                 Entry(at, hazards.toSet())
             } catch (_: Exception) {
                 // An unparsed clock cannot establish that damaged evidence is outside the query.
@@ -97,40 +98,53 @@ internal class AapsV3ComboHistoryTimeline(snapshot: LocalV3RetainedSnapshot) {
         }, revision, retained.size, hazards)
     }
 
-    private fun journalStatus(body: JsonObject, hazards: MutableSet<AapsV3ComboHistoryHazard>) {
-        require(body.keys.all { it in JOURNAL_FIELDS })
-        version(body)
-        val state = HistoryJson.string(body.getValue("state"))
-        require(state in setOf("STORED", "WRITING", "FAILED"))
-        if (state == "FAILED") hazards += AapsV3ComboHistoryHazard.STORAGE_FAILED
-        // Plugin storage failures can report only this minimal, scoped failure snapshot.
-        if (state == "FAILED" && body.keys == setOf("version", "coverage", "state")) return
-        val retained = count(body, "retainedReads", 4096)
-        val counts = listOf("unclosedReads", "corruptReads", "adverseReads", "failedReads").associateWith {
-            count(body, it, retained)
-        }
-        val unscoped = count(body, "unscopedCorruptReads", 4096)
-        require(retained + unscoped <= 4096)
-        require(counts.getValue("corruptReads") <= counts.getValue("adverseReads"))
-        if (state == "WRITING") require(counts.getValue("unclosedReads") > 0)
-        for ((key, hazard) in listOf(
-            "unclosedReads" to AapsV3ComboHistoryHazard.UNCLOSED_READ,
-            "corruptReads" to AapsV3ComboHistoryHazard.CORRUPT_READ,
-            "adverseReads" to AapsV3ComboHistoryHazard.ADVERSE_READ,
-            "failedReads" to AapsV3ComboHistoryHazard.FAILED_READ
-        )) if (counts.getValue(key) > (if (key == "unclosedReads" && state == "WRITING") 1 else 0)) hazards += hazard
-        if (unscoped > 0) hazards += AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION
-    }
+}
 
-    private fun version(body: JsonObject) {
-        require(HistoryJson.long(body.getValue("version")) == 1L)
-        require(HistoryJson.string(body.getValue("coverage")) == "unverified")
+private fun comboJournalHazards(body: JsonObject): Set<AapsV3ComboHistoryHazard> = buildSet {
+    require(body.keys.all { it in JOURNAL_FIELDS })
+    require(HistoryJson.long(body.getValue("version")) == 1L)
+    require(HistoryJson.string(body.getValue("coverage")) == "unverified")
+    val state = HistoryJson.string(body.getValue("state"))
+    require(state in setOf("STORED", "WRITING", "FAILED"))
+    if (state == "FAILED") add(AapsV3ComboHistoryHazard.STORAGE_FAILED)
+    // Plugin storage failures can report only this minimal, scoped failure snapshot.
+    if (state == "FAILED" && body.keys == setOf("version", "coverage", "state")) return@buildSet
+    val retained = count(body, "retainedReads", 4096)
+    val counts = listOf("unclosedReads", "corruptReads", "adverseReads", "failedReads").associateWith {
+        count(body, it, retained)
     }
-    private fun count(body: JsonObject, key: String, max: Long = Int.MAX_VALUE.toLong()) =
-        HistoryJson.long(body.getValue(key)).also { require(it in 0..max) }
+    val unscoped = count(body, "unscopedCorruptReads", 4096)
+    require(retained + unscoped <= 4096)
+    require(counts.getValue("corruptReads") <= counts.getValue("adverseReads"))
+    if (state == "WRITING") require(counts.getValue("unclosedReads") > 0)
+    for ((key, hazard) in listOf(
+        "unclosedReads" to AapsV3ComboHistoryHazard.UNCLOSED_READ,
+        "corruptReads" to AapsV3ComboHistoryHazard.CORRUPT_READ,
+        "adverseReads" to AapsV3ComboHistoryHazard.ADVERSE_READ,
+        "failedReads" to AapsV3ComboHistoryHazard.FAILED_READ
+    )) if (counts.getValue(key) > (if (key == "unclosedReads" && state == "WRITING") 1 else 0)) add(hazard)
+    if (unscoped > 0) add(AapsV3ComboHistoryHazard.UNSCOPED_CORRUPTION)
+}
 
-    companion object {
-        private val JOURNAL_FIELDS = setOf("version", "coverage", "state", "retainedReads", "unclosedReads", "corruptReads",
-            "adverseReads", "failedReads", "unscopedCorruptReads")
+private fun count(body: JsonObject, key: String, max: Long) =
+    HistoryJson.long(body.getValue(key)).also { require(it in 0..max) }
+
+private val JOURNAL_FIELDS = setOf("version", "coverage", "state", "retainedReads", "unclosedReads", "corruptReads",
+    "adverseReads", "failedReads", "unscopedCorruptReads")
+
+/** Trusted same-phone summary only. No raw blocks or clinical coverage decision cross Binder. */
+internal fun readLocalComboJournalSummary(bytes: ByteArray, now: Long): AapsV3ComboHistoryStatus = try {
+    val body = HistoryJson.parse(bytes, 2_048)
+    HistoryJson.fields(body, setOf("at", "journal"))
+    val at = HistoryJson.long(body.getValue("at"))
+    require(now in 1..HistoryJson.maxTime && at in maxOf(1L, now - 10_000L)..now)
+    val journal = HistoryJson.obj(body.getValue("journal"))
+    val hazards = comboJournalHazards(journal)
+    when {
+        hazards.isNotEmpty() -> AapsV3ComboHistoryStatus.ADVERSE
+        count(journal, "retainedReads", 4096) == 0L -> AapsV3ComboHistoryStatus.NOT_OBSERVED
+        else -> AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED
     }
+} catch (_: Exception) {
+    AapsV3ComboHistoryStatus.INVALID
 }
