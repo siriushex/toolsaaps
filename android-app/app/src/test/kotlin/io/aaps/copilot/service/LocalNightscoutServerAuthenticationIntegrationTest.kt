@@ -385,6 +385,21 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(journal.pairingSnapshot()?.phase).isEqualTo(AapsV3PairingPhase.WAITING)
             assertThat(db.localNightscoutV3Dao().pairingOffers()).isEmpty()
             assertThat(db.therapyDao().since(0)).isEmpty()
+            // An uncommitted meal check must yield to a guarded target; late cleanup cannot clear the target.
+            val laterMeal = "manual:meal:later"
+            db.actionCommandDao().upsert(mealRow.copy(id = "later", idempotencyKey = laterMeal))
+            checkNotNull(reopened.reserveLocalMealPreview(laterMeal, { afterPin + 4 }) {})
+            reopened.withTargetProtocol { protocol ->
+                val target = AapsV3TargetSpec(110.0, 110.0, 30, "Activity")
+                assertThat(runCatching { reopened.prepare("priority-target", target, protocol, afterPin + 5) {
+                    error("target guard denied")
+                } }.isFailure).isTrue()
+                assertThat(reopened.status(laterMeal)).isEqualTo(AapsV3TargetPhase.PREPARED)
+                assertThat(reopened.prepare("priority-target", target, protocol, afterPin + 5) {}.publication).isNotNull()
+                reopened.retireLocalMealPreview(laterMeal)
+                assertThat(reopened.status(laterMeal)).isEqualTo(AapsV3TargetPhase.EXPIRED_NO_COMMIT)
+                assertThat(reopened.pending()?.phase).isEqualTo(AapsV3TargetPhase.PREPARED)
+            }
         } finally {
             channel.stop()
             offers.clear()
@@ -1812,6 +1827,23 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             .isEqualTo(NightscoutActionRepository.STATUS_PENDING)
         assertThat(shadowOf(context as android.app.Application).broadcastIntents
             .filter { it.action == "com.eveningoutpost.dexdrip.NS_EMULATOR" }).isEmpty()
+    }
+
+    @Test fun missingLegacyReceiverUsesPrivateMealPreviewOnceWithoutReportingDelivery() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        val calls = mutableListOf<String>()
+        val command = managerTempTargetCommand("meal-form").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12"), idempotencyKey = "manual:meal:form")
+        val repository = NightscoutActionRepository(context, db, settings, ApiFactory { error("no HTTP fallback") },
+            CarbsSendThrottle(db.actionCommandDao()), TempTargetSendThrottle(db.actionCommandDao()),
+            Gson(), AuditLogger(db.auditLogDao(), Gson()), nativeMealPreview = { calls.add(it); true })
+        repeat(2) { assertThat(repository.submitCarbs(command)).isFalse() }
+        assertThat(calls).containsExactly(command.idempotencyKey)
+        assertThat(repository.manualCarbBlockReason(command)).isEqualTo("local_meal_checked_not_saved")
+        assertThat(db.therapyDao().since(0)).isEmpty()
+        settings.setTherapyActionsArmed(false)
+        assertThat(repository.submitCarbs(command.copy(id = "other", idempotencyKey = "manual:meal:other"))).isFalse()
+        assertThat(calls).hasSize(1)
     }
 
     @Test fun localMealPostAndItsEchoDoNotSubstituteForAapsRecordReadback() = runBlocking {

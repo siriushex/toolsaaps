@@ -462,6 +462,18 @@ internal class AapsV3TargetJournal(
         true
     }
 
+    suspend fun retireLocalMealPreview(operationId: String) = transaction {
+        val root = root()
+        val id = commandKey(operationId)
+        if (root.pending == id) {
+            val meal = record(id)
+            check(meal.mealGrams != null && meal.commit == null &&
+                meal.phase in setOf(AapsV3TargetPhase.PREPARED, AapsV3TargetPhase.PREVIEW))
+            put(id, json.encodeToString(meal.copy(phase = AapsV3TargetPhase.EXPIRED_NO_COMMIT)))
+            put(ROOT, json.encodeToString(root.copy(pending = null)))
+        }
+    }
+
     /** Binding is not pairing authorization. Secure enrollment must verify owner proof separately. */
     suspend fun bind(clientId: String) = transaction {
         require(CLIENT_ID.matches(clientId))
@@ -486,7 +498,13 @@ internal class AapsV3TargetJournal(
             check(previous.fingerprint == fingerprint)
             return@transaction previous.snapshot()
         }
-        check(root.pending == null && nowMs >= root.lastIssuedAt)
+        check(nowMs >= root.lastIssuedAt)
+        root.pending?.let { priorId ->
+            val prior = record(priorId)
+            check(prior.mealGrams != null && prior.commit == null &&
+                prior.phase in setOf(AapsV3TargetPhase.PREPARED, AapsV3TargetPhase.PREVIEW))
+            put(priorId, json.encodeToString(prior.copy(phase = AapsV3TargetPhase.EXPIRED_NO_COMMIT)))
+        }
         checkGuard()
         val issuedAt = currentTime().also { check(it >= maxOf(nowMs, root.lastIssuedAt)) }
         candidate = protocol.prepare(root.clientId, next(root.counter), issuedAt, target.copy(notes = marker))

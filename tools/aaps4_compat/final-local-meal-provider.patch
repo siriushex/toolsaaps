@@ -1,0 +1,181 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 09e88fbe65..6cff9627cd 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -10,2 +10,3 @@
+     <permission android:name="${applicationId}.permission.CHECK_LOCAL_CLIENT_SESSION" android:protectionLevel="signature" />
++    <permission android:name="${applicationId}.permission.PREVIEW_LOCAL_MEAL" android:protectionLevel="signature" />
+     <queries>
+@@ -76,2 +77,7 @@
+
++        <provider android:name="app.aaps.localsession.LocalMealPreviewProvider"
++            android:authorities="${applicationId}.localmealpreview"
++            android:permission="${applicationId}.permission.PREVIEW_LOCAL_MEAL"
++            android:exported="true" android:grantUriPermissions="false" />
++
+         <provider android:name="app.aaps.localsession.LocalSessionProvider"
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 11496df7a8..48037f2500 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -156,2 +156,9 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     }
++    internal suspend fun previewLocalMeal(master: String, request: app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope):
++        app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope? {
++        if (config.AAPSCLIENT || config.PUMPCONTROL || AndroidStorage.failure != null || !config.initProgressFlow.value.done) return null
++        val graph = metroGraphs.rootGraph
++        return graph.authorizedClientsRepository.previewLocalMeal(master, request, graph.masterActionExecutor, System::currentTimeMillis)
++    }
++
+     internal suspend fun matchesLocalMeal(key: String, at: Long, grams: Double): Boolean {
+diff --git a/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt b/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt
+new file mode 100644
+index 0000000000..ba132fa297
+--- /dev/null
++++ b/app/src/main/kotlin/app/aaps/localsession/LocalMealPreviewProvider.kt
+@@ -0,0 +1,54 @@
++package app.aaps.localsession
++
++import android.content.ContentProvider
++import android.content.ContentValues
++import android.content.pm.PackageManager
++import android.database.Cursor
++import android.net.Uri
++import android.os.Binder
++import android.os.Bundle
++import android.os.Process
++import app.aaps.MainApp
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
++import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withTimeoutOrNull
++import kotlinx.serialization.json.Json
++import java.util.concurrent.atomic.AtomicBoolean
++
++class LocalMealPreviewProvider : ContentProvider() {
++    private val busy = AtomicBoolean(false)
++    override fun onCreate() = true
++    override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
++        val app = checkNotNull(context).applicationContext as MainApp
++        val uid = Binder.getCallingUid()
++        val peer = "io.aaps.predictivecopilot"
++        if (app.packageName != "info.nightscout.androidaps" || callingPackage != peer ||
++            app.packageManager.getPackagesForUid(uid)?.singleOrNull() != peer ||
++            app.checkCallingPermission(app.packageName + ".permission.PREVIEW_LOCAL_MEAL") != PackageManager.PERMISSION_GRANTED ||
++            app.packageManager.checkSignatures(uid, Process.myUid()) != PackageManager.SIGNATURE_MATCH) throw SecurityException("denied")
++        require(method == "preview_meal_v1" && arg == null && extras?.keySet() == setOf("master", "request"))
++        val master = extras?.getString("master")?.takeIf { it.length in 1..128 } ?: return Bundle()
++        val bytes = extras.getByteArray("request")?.takeIf { it.size in 1..3072 } ?: return Bundle()
++        if (!busy.compareAndSet(false, true)) return Bundle()
++        val token = Binder.clearCallingIdentity()
++        return try {
++            val ack = runBlocking(Dispatchers.IO) {
++                withTimeoutOrNull(4_000L) {
++                    app.previewLocalMeal(master, Json.decodeFromString(SignedEnvelope.serializer(), bytes.decodeToString(throwOnInvalidSequence = true)))
++                }
++            } ?: return Bundle()
++            Bundle().apply { putByteArray("preview", Json.encodeToString(AckEnvelope.serializer(), ack).encodeToByteArray()) }
++        } catch (_: Exception) { Bundle() } finally {
++            Binder.restoreCallingIdentity(token)
++            bytes.fill(0)
++            busy.set(false)
++        }
++    }
++    override fun getType(uri: Uri): String? = null
++    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? = null
++    override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
++    override fun delete(uri: Uri, selection: String?, args: Array<out String>?): Int = throw UnsupportedOperationException()
++    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?): Int = throw UnsupportedOperationException()
++}
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+index e3b3bf3e61..74bafdc92c 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepositoryTest.kt
+@@ -156,2 +156,21 @@ internal class AuthorizedClientsRepositoryTest {
+                 whenever(preferences.hardenedMode).thenReturn(true)
++                val executor = org.mockito.kotlin.mock<app.aaps.core.interfaces.bolus.MasterActionExecutor>()
++                val payload = """{"type":"batch_prepare","actions":[{"type":"bolus","carbs":12,"notes":"copilot:manual:meal:sample"}]}"""
++                val meal = ClientControlCrypto.signEnvelope(key, SignedEnvelope(entry.clientId, 3L, now, "batch_prepare", payload, "", now + 8_000, true))
++                assertThat(sut.previewLocalMeal(master, meal, executor) { now }).isNull()
++                sut.setRole(entry.clientId, ClientRole.MealAssistant)
++                assertThat(sut.previewLocalMeal(master, meal.copy(signature = ""), executor) { now }).isNull()
++                assertThat(sut.previewLocalMeal(master, meal, executor) { now + 8_000 }).isNull()
++                assertThat(sut.previewLocalMeal("other", meal, executor) { now }).isNull()
++                val extra = meal.copy(payload = payload.replace("\"carbs\":12", "\"carbs\":12,\"insulin\":1"))
++                assertThat(sut.previewLocalMeal(master, ClientControlCrypto.signEnvelope(key, extra), executor) { now }).isNull()
++                org.mockito.kotlin.verifyNoInteractions(executor)
++                whenever(executor.prepareBatch(any(), any())).thenReturn(app.aaps.core.interfaces.bolus.MasterActionExecutor.PrepareResult.Preview(0.0, 12, 79))
++                val ack = checkNotNull(sut.previewLocalMeal(master, meal, executor) { now })
++                assertThat(ClientControlCrypto.verifyAck(key, ack)).isTrue()
++                assertThat(ack.payload).contains("copilot:manual:meal:sample")
++                assertThat(sut.previewLocalMeal(master, meal, executor) { now }).isNull()
++                org.mockito.kotlin.verify(executor).prepareBatch(any(), any())
++                org.mockito.kotlin.verify(executor).discard(79)
++                org.mockito.kotlin.verifyNoMoreInteractions(executor)
+                 sut.delete(entry.clientId)
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+index 30ceec4248..469ad616b0 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/AuthorizedClientsRepository.kt
+@@ -13,2 +13,10 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope
+ import app.aaps.core.nssdk.localmodel.clientcontrol.AckEnvelope
++import app.aaps.core.interfaces.bolus.MasterActionExecutor
++import app.aaps.core.interfaces.bolus.RemoteCaller
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckPhase
++import app.aaps.core.nssdk.localmodel.clientcontrol.AckStatus
++import app.aaps.core.nssdk.localmodel.clientcontrol.BatchActionDto
++import app.aaps.core.nssdk.localmodel.clientcontrol.BolusPreview
++import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
++import app.aaps.core.nssdk.localmodel.clientcontrol.ManualMealPreviewDto
+ import app.aaps.core.nssdk.utils.LocalFirstPong
+@@ -236,2 +244,49 @@ class AuthorizedClientsRepository(
+
++    /** Validate one explicit meal on this master. A preview never writes carbs or delivers insulin. */
++    suspend fun previewLocalMeal(master: String, request: SignedEnvelope, executor: MasterActionExecutor,
++                                 clock: () -> Long): AckEnvelope? {
++        fun live() = preferences.hardenedMode && master.isNotBlank() &&
++            preferences.get(StringNonKey.NsClientControlOwnInstallId) == master &&
++            request.timestamp > 0 && request.validUntil > request.timestamp &&
++            request.validUntil - request.timestamp == 8_000L && clock() in request.timestamp until request.validUntil
++        if (request.type != "batch_prepare" || !request.wantsAck || !live()) return null
++        val msg = Json.decodeFromString(ClientControlMessage.serializer(), request.payload) as? ClientControlMessage.BatchPrepare ?: return null
++        val one = msg.actions.singleOrNull() ?: return null
++        if (one.carbs !in 1..120 || !Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}").matches(one.notes) ||
++            one != BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = one.carbs, notes = one.notes) ||
++            Json.encodeToString(ClientControlMessage.serializer(), msg) != request.payload) return null
++        val action = one.toDomain() ?: return null
++        val (owner, role) = mutex.withLock {
++            val list = decode()
++            val entry = list.singleOrNull { it.clientId == request.clientId } ?: return null
++            val role = ClientRole.entries.singleOrNull { it.name == entry.role } ?: return null
++            if (!entry.localCopilot || entry.state != ClientState.Active || entry.pendingSecret != null ||
++                !role.allows(ClientRole.MealAssistant) || entry.counterReceived < 2 || request.counter <= entry.counterReceived ||
++                request.timestamp < entry.lastSeenAt || !secureEncrypt.isValidDataString(entry.encryptedSecret)) return null
++            val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(entry.encryptedSecret))
++            val verified = try { key.size == 32 && ClientControlCrypto.verifyEnvelope(key, request) } finally { key.fill(0) }
++            if (!verified || !live()) return null
++            val next = entry.copy(counterReceived = request.counter, lastSeenAt = clock())
++            write(list.map { if (it == entry) next else it })
++            next to role
++        }
++        val preview = executor.prepareBatch(listOf(action), RemoteCaller(owner.clientId, role)) as? MasterActionExecutor.PrepareResult.Preview ?: return null
++        try {
++            if (preview.bolusId <= 0 || preview.insulin != 0.0 || preview.carbs != one.carbs ||
++                preview.advisorApplies || preview.advisorLines.isNotEmpty()) return null
++            return mutex.withLock {
++                if (!live() || decode().singleOrNull { it.clientId == owner.clientId } != owner) return@withLock null
++                val lines = preview.lines.map { app.aaps.core.nssdk.localmodel.clientcontrol.ConfirmationLineDto(it.role.name, it.text) }
++                val body = BolusPreview(preview.bolusId, lines, manualMeal = ManualMealPreviewDto(one.notes, preview.carbs, 0.0))
++                val key = ClientControlCrypto.hexToBytes(secureEncrypt.decrypt(owner.encryptedSecret))
++                try {
++                    val at = clock()
++                    if (key.size != 32 || at !in request.timestamp until request.validUntil) return@withLock null
++                    ClientControlCrypto.signAck(key, AckEnvelope(owner.clientId, request.counter, AckPhase.Done, AckStatus.Ok,
++                        payload = Json.encodeToString(BolusPreview.serializer(), body), timestamp = at, signature = ""))
++                } finally { key.fill(0) }
++            }
++        } finally { executor.discard(preview.bolusId) }
++    }
++
+     /** The client signs with the secret from the key exchange: from now on it is the only one. */

@@ -1178,7 +1178,11 @@ class AppContainer(context: Context) {
         tempTargetSendThrottle = tempTargetSendThrottle,
         gson = gson,
         auditLogger = auditLogger,
-        nativeTargetTransport = nativeAapsTargetChannel
+        nativeTargetTransport = nativeAapsTargetChannel,
+        nativeMealPreview = { id -> if (!AapsLocalSessionPeer.hasMealPreview(appContext)) null
+        else nativeAapsTargetChannel.previewManualMeal(id) { master, request ->
+            AapsLocalSessionPeer.previewMeal(appContext, master, request)
+        } }
     )
 
     suspend fun submitManualEatingSoon(mealKey: String): EatingSoonResult {

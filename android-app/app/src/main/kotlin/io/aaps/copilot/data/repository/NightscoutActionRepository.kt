@@ -52,7 +52,8 @@ class NightscoutActionRepository(
     private val nativeTargetTransport: NativeTargetTransport? = null,
     private val localMealReadbackAvailable: () -> Boolean = { AapsLocalMealRecord.available(context) },
     private val readLocalMealRecord: suspend (String, Long, Double) -> Boolean =
-        { key, at, grams -> AapsLocalMealRecord.recorded(context, key, at, grams) }
+        { key, at, grams -> AapsLocalMealRecord.recorded(context, key, at, grams) },
+    private val nativeMealPreview: (suspend (String) -> Boolean?)? = null
 ) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
@@ -694,7 +695,20 @@ class NightscoutActionRepository(
             if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
             if (guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) &&
                 !AapsTreatmentBroadcastCapability.canSendLocalRelay(context)) {
-                markBlocked(command, "local_carb_relay_unavailable")
+                val peer = nativeMealPreview
+                val reason = try {
+                    val checked = if (peer == null) null else TherapyActionTransportGate.withArmedLease(
+                        verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }
+                    ) { peer(command.idempotencyKey) }
+                    when (checked) {
+                        true -> "local_meal_checked_not_saved"
+                        false -> "local_meal_not_verified"
+                        null -> "local_carb_relay_unavailable"
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (_: TherapyActionsNotArmedException) { "therapy_actions_not_armed" }
+                catch (_: Exception) { "local_meal_not_verified" }
+                markBlocked(command, reason)
                 return false
             }
             val needsReadback = guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) && localMealReadbackAvailable()
@@ -1274,7 +1288,8 @@ class NightscoutActionRepository(
         const val ACTION_NS_EMULATOR = "com.eveningoutpost.dexdrip.NS_EMULATOR"
         const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
         private val MANUAL_CARB_BLOCK_REASONS =
-            setOf("carbs_rate_limit_30m", "therapy_actions_not_armed", "local_carb_relay_unavailable")
+            setOf("carbs_rate_limit_30m", "therapy_actions_not_armed", "local_carb_relay_unavailable",
+                "local_meal_checked_not_saved", "local_meal_not_verified")
         private const val LOCAL_MEAL_READBACK_PENDING = "local_meal_pending_readback"
         private const val LOCAL_MEAL_RECORDED = "aaps_meal_record"
         const val AAPS_PACKAGE_MODERN = "app.aaps"

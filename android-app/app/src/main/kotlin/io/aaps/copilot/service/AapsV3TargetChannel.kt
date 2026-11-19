@@ -60,6 +60,24 @@ internal class AapsV3TargetChannel(
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
+    suspend fun previewManualMeal(id: String, peer: (String, ByteArray) -> ByteArray?): Boolean = withContext(Dispatchers.IO) {
+        val epoch = generation.get()
+        val pair = journal.pairingSnapshot() ?: return@withContext false
+        fun guard() = check(runtimeAllowed && generation.get() == epoch && pair.localEnrollment)
+        val prepared = journal.reserveLocalMealPreview(id, clock, ::guard) ?: return@withContext false
+        val bytes = prepared.envelope.json.toString().encodeToByteArray()
+        try {
+            guard()
+            val reply = peer(pair.masterInstallId, bytes) ?: return@withContext false
+            try {
+                guard()
+                journal.acceptLocalMealPreview(id, HistoryJson.parse(reply, 16_384), clock())
+            } finally { reply.fill(0) }
+        } finally {
+            bytes.fill(0)
+            withContext(NonCancellable) { journal.retireLocalMealPreview(id) }
+        }
+    }
     private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long,
                                   val receipt: AapsLocalRoleReceipt?, val settings: Boolean?)
     // Accessed under refreshMutex; never used for command admission.

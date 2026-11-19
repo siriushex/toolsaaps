@@ -22,16 +22,28 @@ internal object AapsLocalSessionPeer {
             putString("master", masterId); putString("nonce", nonce); putBundle("ticket", ticket.extras)
         })
 
-    private fun call(context: Context, method: String, extras: Bundle): ByteArray? {
+    fun hasMealPreview(context: Context): Boolean =
+        trustedProvider(context, "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL")
+
+    fun previewMeal(context: Context, master: String, request: ByteArray): ByteArray? =
+        call(context, "preview_meal_v1", Bundle().apply { putString("master", master); putByteArray("request", request) },
+            "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL", "preview", 16_384)
+
+    private fun trustedProvider(context: Context, authority: String, permission: String): Boolean {
         val pm = context.packageManager
-        val info = pm.resolveContentProvider(AUTHORITY, 0) ?: return null
-        if (info.packageName != MASTER || !info.exported || info.grantUriPermissions ||
-            info.readPermission != PERMISSION || info.writePermission != PERMISSION ||
-            pm.checkSignatures(context.packageName, MASTER) != PackageManager.SIGNATURE_MATCH) return null
+        val info = pm.resolveContentProvider(authority, 0) ?: return false
+        return info.packageName == MASTER && info.exported && !info.grantUriPermissions &&
+            info.readPermission == permission && info.writePermission == permission &&
+            pm.checkSignatures(context.packageName, MASTER) == PackageManager.SIGNATURE_MATCH
+    }
+
+    private fun call(context: Context, method: String, extras: Bundle, authority: String = AUTHORITY,
+                     permission: String = PERMISSION, reply: String = "witness", limit: Int = 2048): ByteArray? {
+        if (!trustedProvider(context, authority, permission)) return null
         return try {
-            context.contentResolver.acquireUnstableContentProviderClient(Uri.parse("content://$AUTHORITY"))?.use { peer ->
-                peer.call(method, null, extras)?.takeIf { it.keySet() == setOf("witness") }
-                    ?.getByteArray("witness")?.takeIf { it.size in 1..2048 }
+            context.contentResolver.acquireUnstableContentProviderClient(Uri.parse("content://$authority"))?.use { peer ->
+                peer.call(method, null, extras)?.takeIf { it.keySet() == setOf(reply) }
+                    ?.getByteArray(reply)?.takeIf { it.size in 1..limit }
             }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
     }

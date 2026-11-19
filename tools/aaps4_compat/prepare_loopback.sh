@@ -47,6 +47,9 @@ git apply --index "$meal_receipt"
 meal_preview="$root/tools/aaps4_compat/final-local-meal-preview.patch"
 git apply --check "$meal_preview"
 git apply --index "$meal_preview"
+meal_provider="$root/tools/aaps4_compat/final-local-meal-provider.patch"
+git apply --check "$meal_provider"
+git apply --index "$meal_provider"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -56,6 +59,13 @@ peer = "io.aaps.predictivecopilot"
 assert any(p.get(name) == peer for p in manifest.findall("./queries/package")), "Missing local app visibility"
 assert any(p.get(name) == peer + ".permission.ISSUE_LOCAL_CLIENT_TOKEN"
            for p in manifest.findall("./uses-permission")), "Missing local enrollment permission"
+android = "{http://schemas.android.com/apk/res/android}"
+permission = "${applicationId}.permission.PREVIEW_LOCAL_MEAL"
+assert any(p.get(name) == permission and p.get(android + "protectionLevel") == "signature"
+           for p in manifest.findall("permission"))
+assert any(p.get(android + "authorities") == "${applicationId}.localmealpreview" and
+           p.get(android + "permission") == permission and p.get(android + "grantUriPermissions") == "false" and
+           p.get(android + "exported") == "true" for p in manifest.findall("./application/provider"))
 PY
 # The final AAPS build refuses tracked changes. Commit only in this detached fixture.
 git -c user.name="Local fixture" -c user.email="fixture@example.invalid" \
