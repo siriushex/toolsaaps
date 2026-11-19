@@ -2027,6 +2027,13 @@ class AppContainer(context: Context) {
                         if (!enabled) return@collectLatest
                         while (isActive) {
                             localNightscoutServer.withLocalUploadTicket { AapsLocalUpload.send(appContext, it) }
+                            try {
+                                actionRepository.reconcilePendingLocalMeal()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Leave the receipt pending. Do not interrupt glucose sync or repeat the POST.
+                            }
                             delay(60_000L)
                         }
                     }

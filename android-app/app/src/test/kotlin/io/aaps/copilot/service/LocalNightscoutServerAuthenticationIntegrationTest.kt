@@ -1783,6 +1783,41 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             .filter { it.action == "com.eveningoutpost.dexdrip.NS_EMULATOR" }).isEmpty()
     }
 
+    @Test fun localMealPostAndItsEchoDoNotSubstituteForAapsRecordReadback() = runBlocking {
+        val port = freePort()
+        val settings = configuredLocalSettings(port)
+        installAapsRelayReceiver()
+        server = newServer(MutableLocalNightscoutRuntimeState(), settingsStore = settings)
+        assertThat(server?.update(true, port)).isEqualTo(port)
+        authorizeLocalServer(port)
+
+        val posts = AtomicInteger()
+        var receiptAvailable = false
+        val command = managerTempTargetCommand("meal-record").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12.25"), idempotencyKey = "manual:meal:stand-meal")
+        val repository = NightscoutActionRepository(context, db, settings, ApiFactory {
+            posts.incrementAndGet()
+            LocalNightscoutClientIdentity(caCertificate, apiSecretSha1)
+        }, CarbsSendThrottle(db.actionCommandDao()), TempTargetSendThrottle(db.actionCommandDao()),
+            Gson(), AuditLogger(db.auditLogDao(), Gson()), localMealReadbackAvailable = { true },
+            readLocalMealRecord = { key, at, grams ->
+                assertThat(key).isEqualTo(command.idempotencyKey)
+                assertThat(grams).isEqualTo(12.25)
+                assertThat(at).isEqualTo(db.therapyDao().since(0L).single().timestamp)
+                receiptAvailable
+            })
+        assertThat(repository.submitCarbs(command)).isFalse()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo(NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+        val reopenedMeal = command.copy(id = "second-form", idempotencyKey = "manual:meal:second-form")
+        assertThat(repository.submitCarbs(reopenedMeal)).isFalse()
+        assertThat(repository.manualCarbBlockReason(reopenedMeal)).isEqualTo("carbs_rate_limit_30m")
+        assertThat(repository.submitCarbs(command)).isFalse()
+        receiptAvailable = true
+        assertThat(repository.submitCarbs(command)).isTrue()
+        assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo("SENT")
+        assertThat(posts.get()).isEqualTo(1)
+    }
+
     @Test
     fun successfulManagedLocalRelayDoesNotDeadlockOnTransportLease() {
         runBlocking {

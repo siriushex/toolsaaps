@@ -1866,6 +1866,7 @@ class MainViewModel(application: Application) :
         },
         sendEatingSoon = container::submitManualEatingSoon,
         readCarbBlockReason = container.actionRepository::manualCarbBlockReason,
+        reconcileCarbs = container.actionRepository::reconcileLocalMeal,
         onMealInput = { container.mealStateIngestion.offerInput(it) }
     )
     private val clinicalReportCommands = ClinicalReportUiCommands(

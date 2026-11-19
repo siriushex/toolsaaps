@@ -586,6 +586,14 @@
 - For a manual meal addressed to the app-owned v1 endpoint, check the selected
   relay receiver before the first POST. If unavailable, record a definite block.
   A lost response after dispatch stays uncertain; neither case is automatically resent.
+- A manual local meal routed to an AAPS with a verified observation provider
+  needs an authoritative carb record, not a local echo or HTTP response.
+  Require one current valid zero-duration record with exact marker, grams and
+  epoch milliseconds. A historic revision is not a second meal; duplicate
+  current identities, absence, edits, invalidation and unreadable results do
+  not confirm. A late confirmation retains the original submission timestamp.
+  Awaiting readback consumes the ordinary carb cooldown without asserting
+  delivery. It never permits replay, nor proves consumption or insulin delivery.
 - API v3 compatibility requires authentication, durable modification history,
   exact filters and stock-client verification, not merely matching route names.
 - Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.

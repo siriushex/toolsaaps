@@ -1,0 +1,157 @@
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 11c6b6b866..11496df7a8 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -156,2 +156,6 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     }
++    internal suspend fun matchesLocalMeal(key: String, at: Long, grams: Double): Boolean {
++        check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
++        return persistenceLayer.matchesLocalMeal("copilot:$key", at, grams)
++    }
+     internal suspend fun readLocalObservation(now: Long): ByteArray {
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+index 2168ff22db..fcb6263bfa 100644
+--- a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -19,2 +19,4 @@ import java.util.concurrent.atomic.AtomicLong
+ class LocalObservationProvider : ContentProvider() {
++    private val readingMeal = AtomicBoolean(false)
++    private val lastMeal = AtomicLong(-2_000L)
+     private val reading = AtomicBoolean(false)
+@@ -45,2 +47,3 @@ class LocalObservationProvider : ContentProvider() {
+         }
++        if (method == "meal_receipt_v1") return mealReceipt(app, arg, extras)
+         if (method == "upload_v3" && arg == null && extras != null) return upload(app, extras)
+@@ -108,2 +111,30 @@ class LocalObservationProvider : ContentProvider() {
+
++    private fun mealReceipt(app: MainApp, key: String?, extras: Bundle?): Bundle {
++        require(key != null && key.matches(Regex("manual:meal:[A-Za-z0-9_-]{1,80}")))
++        require(extras != null && extras.keySet() == setOf("at", "grams"))
++        val at = extras.getLong("at", -1)
++        val grams = extras.getDouble("grams", Double.NaN)
++        val now = System.currentTimeMillis()
++        require(at in (now - 86_400_000L)..now && grams in 1.0..120.0)
++        if (!readingMeal.compareAndSet(false, true)) return Bundle()
++        try {
++            val elapsed = SystemClock.elapsedRealtime()
++            if (elapsed - lastMeal.get() < 2_000L) return Bundle()
++            lastMeal.set(elapsed)
++            val identity = Binder.clearCallingIdentity()
++            try {
++                val matched = runBlocking(Dispatchers.IO) {
++                    withTimeoutOrNull(2_500L) { app.matchesLocalMeal(key, at, grams) }
++                }
++                return Bundle().apply { if (matched == true) putBoolean("recorded", true) }
++            } catch (_: Exception) {
++                return Bundle()
++            } finally {
++                Binder.restoreCallingIdentity(identity)
++            }
++        } finally {
++            readingMeal.set(false)
++        }
++    }
++
+     override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
+diff --git a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+index bc2969ba09..58012ea9f8 100644
+--- a/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
++++ b/core/interfaces/src/commonMain/kotlin/app/aaps/core/interfaces/db/PersistenceLayer.kt
+@@ -290,2 +290,5 @@ interface PersistenceLayer {
+
++    /** Tests an exact local meal record without returning unrelated carbohydrate history. */
++    suspend fun matchesLocalMeal(marker: String, at: Long, grams: Double): Boolean
++
+     /**
+@@ -1835,2 +1838,2 @@ interface PersistenceLayer {
+ inline fun <reified T : Any> PersistenceLayer.observeChanges(): Flow<List<T>> =
+-    observeChanges(T::class)
+\ No newline at end of file
++    observeChanges(T::class)
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+index ee5af0e394..4e37d5f376 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+@@ -795,2 +795,5 @@ class AppRepository internal constructor(
+
++    suspend fun matchesLocalMeal(marker: String, at: Long, grams: Double): Boolean =
++        database.carbsDao.matchesLocalMeal(marker, at, grams)
++
+     // BOLUS CALCULATOR RESULT
+@@ -1033,2 +1036,2 @@ class AppRepository internal constructor(
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
+index 894076cb7c..e274d49c71 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/CarbsDao.kt
+@@ -26,2 +26,7 @@ internal interface CarbsDao : TraceableDao<Carbs> {
+
++    // Include invalid current records when checking uniqueness; historic revisions are not separate meals.
++    @Query("SELECT COUNT(*) = 1 AND COALESCE(MAX(isValid = 1 AND timestamp = :at AND amount = :grams AND duration = 0), 0) = 1 " +
++        "FROM (SELECT isValid, timestamp, amount, duration FROM $TABLE_CARBS WHERE referenceId IS NULL AND notes = :marker LIMIT 2)")
++    suspend fun matchesLocalMeal(marker: String, at: Long, grams: Double): Boolean
++
+     @Query("SELECT * FROM $TABLE_CARBS WHERE (nightscoutId = :nsId) AND (referenceId IS NULL)")
+diff --git a/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt
+new file mode 100644
+index 0000000000..d52d7cbfc5
+--- /dev/null
++++ b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalMealRecordTest.kt
+@@ -0,0 +1,44 @@
++package app.aaps.database
++
++import app.aaps.database.di.JvmAppDatabaseBuilder
++import app.aaps.database.entities.Carbs
++import kotlinx.coroutines.test.runTest
++import kotlin.io.path.createTempDirectory
++import kotlin.test.AfterTest
++import kotlin.test.Test
++import kotlin.test.assertFalse
++import kotlin.test.assertTrue
++
++class LocalMealRecordTest {
++    private val dir = createTempDirectory("meal-record-test")
++    private val db = JvmAppDatabaseBuilder().provideAppDatabase("$dir/test.db")
++    private val dao = db.carbsDao
++    private val marker = "copilot:manual:meal:test-entry"
++    private val meal = Carbs(timestamp = 100_000, duration = 0, amount = 12.25, notes = marker)
++    private suspend fun matched() = dao.matchesLocalMeal(marker, meal.timestamp, meal.amount)
++
++    @AfterTest fun close() {
++        db.close()
++        dir.toFile().deleteRecursively()
++    }
++
++    @Test fun exactCurrentRowOnly() = runTest {
++        dao.insert(meal.copy(notes = "other"))
++        assertFalse(matched())
++        val id = dao.insert(meal.copy())
++        dao.insert(meal.copy(referenceId = id, version = 1, isValid = false))
++        assertTrue(matched())
++        assertFalse(dao.matchesLocalMeal(marker, meal.timestamp + 1, meal.amount))
++        assertFalse(dao.matchesLocalMeal(marker, meal.timestamp, 12.0))
++        dao.insert(meal.copy(timestamp = meal.timestamp + 1, isValid = false))
++        assertFalse(matched())
++    }
++
++    @Test fun invalidOrExtendedRecordDoesNotConfirmImmediateMeal() = runTest {
++        dao.insert(meal.copy(isValid = false))
++        assertFalse(matched())
++        val extended = "copilot:manual:meal:extended"
++        dao.insert(meal.copy(notes = extended, duration = 60_000))
++        assertFalse(dao.matchesLocalMeal(extended, meal.timestamp, meal.amount))
++    }
++}
+diff --git a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+index 6358b57a87..aea42b61af 100644
+--- a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
++++ b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+@@ -504,2 +504,5 @@ class PersistenceLayerImpl(
+
++    override suspend fun matchesLocalMeal(marker: String, at: Long, grams: Double): Boolean =
++        withContext(aapsIoDispatcher) { repository.matchesLocalMeal(marker, at, grams) }
++
+     override suspend fun getCarbsByNSId(nsId: String): CA? = withContext(aapsIoDispatcher) {

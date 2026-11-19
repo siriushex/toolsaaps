@@ -153,6 +153,8 @@ class EatingSoonDeliveryRoomTest {
             val rejected = submission(restarted).submit(meal, corrected, null, false)
             assertThat(rejected.carbs).isEqualTo(MealDeliveryStatus.BLOCKED)
             assertThat(rejected.carbBlockReason).isEqualTo("submission_changed")
+            val revisedGi = accepted.copy(glycemicIndex = io.aaps.copilot.domain.profile.MealGlycemicIndex.fromManualInput("55"))
+            assertThat(submission(restarted).submit(meal, revisedGi, null, false).carbBlockReason).isEqualTo("submission_changed")
             assertThat(db.actionCommandDao().byIdempotencyKey(meal.idempotencyKey)).isEqualTo(stored)
             assertThat(profiles).isEqualTo(1)
             assertThat(server.requestCount).isEqualTo(1)
@@ -240,6 +242,46 @@ class EatingSoonDeliveryRoomTest {
             assertThat(repository.manualCarbBlockReason(second)).isEqualTo("carbs_rate_limit_30m")
             assertThat(repository.manualCarbBlockReason(first)).isNull()
             assertThat(server.requestCount).isEqualTo(1)
+        }
+    }
+
+    @Test fun pendingLocalMealUsesExactAapsReadbackAndNeverPostsAgain() = runBlocking {
+        MockWebServer().use { server ->
+            val meal = command("readback").copy(type = "carbs", params = mapOf("carbsGrams" to "12.25"),
+                idempotencyKey = "manual:meal:readback")
+            val at = System.currentTimeMillis() - 500
+            fun row(channel: String) = io.aaps.copilot.data.local.entity.ActionCommandEntity(
+                meal.id, at, "carbs", Gson().toJson(meal.params + ("deliveryChannel" to channel)),
+                "{}", meal.idempotencyKey, NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+            var reads = 0
+            var recorded = false
+            val repository = repository(server, mealReadback = { key, ts, grams ->
+                reads++
+                assertThat(key).isEqualTo(meal.idempotencyKey)
+                assertThat(ts).isEqualTo(at)
+                assertThat(grams).isEqualTo(12.25)
+                recorded
+            })
+            val dao = db.actionCommandDao()
+            dao.upsert(row("nightscout"))
+            assertThat(repository.submitCarbs(meal)).isFalse()
+            assertThat(reads).isEqualTo(0)
+            dao.upsert(row("local_meal_pending_readback"))
+            assertThat(repository.submitCarbs(meal.copy(params = mapOf("carbsGrams" to "12")))).isFalse()
+            assertThat(reads).isEqualTo(0)
+            assertThat(repository.submitCarbs(meal)).isFalse()
+            assertThat(dao.byIdempotencyKey(meal.idempotencyKey)?.status).isEqualTo(NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+            recorded = true
+            assertThat(repository.reconcilePendingLocalMeal(at + 86_400_001L)).isFalse()
+            assertThat(repository.reconcilePendingLocalMeal(at - 1L)).isFalse()
+            assertThat(repository.reconcilePendingLocalMeal(at + 10_000L)).isTrue()
+            assertThat(repository.reconcilePendingLocalMeal(at + 70_000L)).isFalse()
+            assertThat(repository.submitCarbs(meal)).isTrue()
+            assertThat(repository.reconcileLocalMeal(meal)).isTrue()
+            assertThat(dao.byIdempotencyKey(meal.idempotencyKey)?.timestamp).isEqualTo(at)
+            assertThat(dao.byIdempotencyKey(meal.idempotencyKey)?.status).isEqualTo("SENT")
+            assertThat(reads).isEqualTo(2)
+            assertThat(server.requestCount).isEqualTo(0)
         }
     }
 
@@ -785,7 +827,8 @@ class EatingSoonDeliveryRoomTest {
         override suspend fun reconcile(operationId: String) = outcome
     }
 
-    private suspend fun repository(server: MockWebServer, reuseSettings: Boolean = false, native: NativeTargetTransport? = null): NightscoutActionRepository {
+    private suspend fun repository(server: MockWebServer, reuseSettings: Boolean = false, native: NativeTargetTransport? = null,
+                                   mealReadback: suspend (String, Long, Double) -> Boolean = { _, _, _ -> false }): NightscoutActionRepository {
         if (!reuseSettings) settings = AppSettingsStore(context)
         settings.update {
             it.copy(nightscoutUrl = server.url("/").toString(), localNightscoutEnabled = false,
@@ -796,7 +839,8 @@ class EatingSoonDeliveryRoomTest {
             context = context, db = db, settingsStore = settings, apiFactory = ApiFactory(),
             carbsSendThrottle = CarbsSendThrottle(db.actionCommandDao()),
             tempTargetSendThrottle = TempTargetSendThrottle(db.actionCommandDao()),
-            gson = Gson(), auditLogger = AuditLogger(db.auditLogDao(), Gson()), nativeTargetTransport = native
+            gson = Gson(), auditLogger = AuditLogger(db.auditLogDao(), Gson()), nativeTargetTransport = native,
+            readLocalMealRecord = mealReadback
         )
     }
 

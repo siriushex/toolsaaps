@@ -41,6 +41,9 @@ git apply --index "$witness"
 settings_witness="$root/tools/aaps4_compat/final-settings-witness.patch"
 git apply --check "$settings_witness"
 git apply --index "$settings_witness"
+meal_receipt="$root/tools/aaps4_compat/final-local-meal-receipt.patch"
+git apply --check "$meal_receipt"
+git apply --index "$meal_receipt"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -61,5 +64,5 @@ export AAPS_INTEROP_CLASSPATH="$root/android-app/build/aaps4-loopback-interop/cl
     -I "$root/tools/aaps4_compat/interop.init.gradle" :core:nssdk:jvmTest :core:nssdk:exportInteropClasspath \
     :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest' \
     --tests '*RunningConfigurationPublisherTest' --tests '*NSClientV3PluginTest' \
-    :app:compileFullReleaseKotlin
+    :database:impl:jvmTest --tests '*LocalMealRecordTest' :app:compileFullReleaseKotlin
 test -s "$AAPS_INTEROP_CLASSPATH"

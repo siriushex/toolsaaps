@@ -1,3 +1,14 @@
+# Confirming local carbohydrate records (2026-11-19)
+
+- For a manual meal sent via the owned v1 endpoint with the same-signature
+  AAPS observation provider, retain the exact wire timestamp before POST.
+  Neither HTTP success nor the local echo confirms a meal. Only a matching
+  current AAPS carb row does. A delayed read can reconcile without re-posting
+  either carbs or Eating Soon. The original timestamp controls throttling.
+- The DB receipt is read-only; it exposes no notes, unrelated rows or delivery
+  commands. Check the real Room query and the real local HTTP path separately.
+  This does not add a sender for a stock installation without a treatment relay.
+
 # Manual meal local relay preflight (2026-11-19)
 
 - The manual carb writer checks the same package and receiver as the owned v1

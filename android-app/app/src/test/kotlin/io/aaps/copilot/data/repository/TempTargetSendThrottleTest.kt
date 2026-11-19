@@ -418,6 +418,8 @@ class TempTargetSendThrottleTest {
 
         override suspend fun latestTimestampByTypeAndStatus(type: String, status: String): Long? = null
 
+        override suspend fun pendingMealReceipts(status: String, since: Long, through: Long): List<ActionCommandEntity> = emptyList()
+
         override suspend fun byTypeAndIdempotencyPrefixSince(
             type: String,
             idempotencyPrefix: String,

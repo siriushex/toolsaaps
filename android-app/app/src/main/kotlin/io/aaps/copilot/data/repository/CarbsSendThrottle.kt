@@ -11,13 +11,15 @@ class CarbsSendThrottle(
 ) {
     private val mutex = Mutex()
 
-    suspend fun evaluate(nowMs: Long = System.currentTimeMillis()): Decision = mutex.withLock {
-        val lastSentTs = actionCommandDao.latestTimestampByTypeAndStatus(
-            type = ACTION_TYPE_CARBS,
-            status = NightscoutActionRepository.STATUS_SENT
-        )
+    suspend fun evaluate(nowMs: Long = System.currentTimeMillis()): Decision = mutex.withLock { evaluatePersisted(nowMs) }
+
+    internal suspend fun evaluatePersisted(nowMs: Long): Decision {
+        val lastSentTs = listOfNotNull(
+            actionCommandDao.latestTimestampByTypeAndStatus(ACTION_TYPE_CARBS, NightscoutActionRepository.STATUS_SENT),
+            actionCommandDao.latestTimestampByTypeAndStatus(ACTION_TYPE_CARBS, NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+        ).maxOrNull()
         if (lastSentTs == null) {
-            return@withLock Decision(
+            return Decision(
                 allowed = true,
                 waitMs = 0L,
                 waitMinutes = 0,
@@ -26,14 +28,14 @@ class CarbsSendThrottle(
         }
         val waitMs = HARD_LIMIT_INTERVAL_MS - (nowMs - lastSentTs)
         if (waitMs <= 0L) {
-            return@withLock Decision(
+            return Decision(
                 allowed = true,
                 waitMs = 0L,
                 waitMinutes = 0,
                 lastSentTs = lastSentTs
             )
         }
-        Decision(
+        return Decision(
             allowed = false,
             waitMs = waitMs,
             waitMinutes = ceil(waitMs / 60_000.0).toInt().coerceAtLeast(1),

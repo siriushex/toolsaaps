@@ -23,6 +23,7 @@ import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.security.TherapyActionTransportGate
 import io.aaps.copilot.security.TherapyActionsNotArmedException
 import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.service.AapsLocalMealRecord
 import io.aaps.copilot.service.AapsTreatmentBroadcastCapability
 import io.aaps.copilot.service.isOwnedLocalNightscoutEndpoint
 import io.aaps.copilot.util.UnitConverter
@@ -48,7 +49,10 @@ class NightscoutActionRepository(
     private val tempTargetSendThrottle: TempTargetSendThrottle,
     private val gson: Gson,
     private val auditLogger: AuditLogger,
-    private val nativeTargetTransport: NativeTargetTransport? = null
+    private val nativeTargetTransport: NativeTargetTransport? = null,
+    private val localMealReadbackAvailable: () -> Boolean = { AapsLocalMealRecord.available(context) },
+    private val readLocalMealRecord: suspend (String, Long, Double) -> Boolean =
+        { key, at, grams -> AapsLocalMealRecord.recorded(context, key, at, grams) }
 ) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
@@ -624,6 +628,7 @@ class NightscoutActionRepository(
             val prior = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
             if (prior != null && !sameManualCarbPayload(prior, command)) return false
             if (prior?.status == STATUS_SENT) return true
+            if (prior?.status == STATUS_LOCAL_MEAL_RECEIPT) return reconcileLocalMeal(command)
         }
         if (blockIfTherapyActionsNotArmed(command, settings)) return false
         when (registerPendingCommand(command).kind) {
@@ -657,7 +662,7 @@ class NightscoutActionRepository(
         }
         val reason = command.params["reason"].orEmpty().ifBlank { "copilot_carbs" }
         val nowMs = System.currentTimeMillis()
-        val nowIso = Instant.now().toString()
+        val nowIso = Instant.ofEpochMilli(nowMs).toString()
         val throttle = carbsSendThrottle.evaluate(nowMs)
         if (!throttle.allowed) {
             markBlocked(command, "carbs_rate_limit_30m")
@@ -692,6 +697,23 @@ class NightscoutActionRepository(
                 markBlocked(command, "local_carb_relay_unavailable")
                 return false
             }
+            val needsReadback = guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) && localMealReadbackAvailable()
+            if (needsReadback) {
+                val tracked = db.withTransaction {
+                    val row = db.actionCommandDao().forTargetObservationProof(command.idempotencyKey).singleOrNull()
+                        ?: return@withTransaction false
+                    if (row.id != command.id || row.status != STATUS_PENDING || !sameManualCarbPayload(row, command))
+                        return@withTransaction false
+                    if (!carbsSendThrottle.evaluatePersisted(nowMs).allowed) {
+                        markBlocked(command, "carbs_rate_limit_30m")
+                        return@withTransaction false
+                    }
+                    db.actionCommandDao().upsert(row.copy(timestamp = nowMs, status = STATUS_LOCAL_MEAL_RECEIPT, payloadJson =
+                        gson.toJson(command.params + ("deliveryChannel" to LOCAL_MEAL_READBACK_PENDING))))
+                    true
+                }
+                if (!tracked) return false
+            }
             val nsSuccess = runCatching {
                 val nsApi = apiFactory.nightscoutApi(targetUrl, deliverySettings)
                 if (isLocalNightscoutTarget(targetUrl, deliverySettings)) {
@@ -717,12 +739,14 @@ class NightscoutActionRepository(
                             "idempotencyKey" to command.idempotencyKey,
                             "failureType" to error.javaClass.simpleName
                         ))
+                        if (needsReadback) return reconcileLocalMeal(command)
                     }
                     return false
                 }
                 lastError = error.message ?: "nightscout_unknown_error"
             }.isSuccess
             if (nsSuccess) {
+                if (needsReadback) return reconcileLocalMeal(command)
                 val channel = if (isLocalNightscoutTarget(targetUrl, deliverySettings)) {
                     "nightscout_local"
                 } else {
@@ -923,6 +947,41 @@ class NightscoutActionRepository(
             stored.remove("deliveryChannel")
             stored == gson.toJsonTree(command.params)
         }.getOrDefault(false)
+
+    /** Re-check only the explicitly tracked local POST. Never publish a treatment or retry transport. */
+    internal suspend fun reconcileLocalMeal(command: ActionCommand): Boolean {
+        if (command.type != "carbs" || !command.idempotencyKey.startsWith("manual:meal:")) return false
+        val dao = db.actionCommandDao()
+        val row = dao.forTargetObservationProof(command.idempotencyKey).singleOrNull() ?: return false
+        if (!sameManualCarbPayload(row, command)) return false
+        return confirmLocalMealRow(row)
+    }
+
+    /** One read-only lookup per active sync tick, also after a process restart. */
+    internal suspend fun reconcilePendingLocalMeal(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val rows = db.actionCommandDao().pendingMealReceipts(STATUS_LOCAL_MEAL_RECEIPT, nowMs - 86_400_000L, nowMs)
+        if (rows.isEmpty()) return false
+        return confirmLocalMealRow(rows[((nowMs / 60_000L) % rows.size).toInt()])
+    }
+
+    private suspend fun confirmLocalMealRow(row: ActionCommandEntity): Boolean {
+        val dao = db.actionCommandDao()
+        val payload = gson.fromJson(row.payloadJson, JsonObject::class.java)
+        val channel = payload.get("deliveryChannel")?.asString
+        if (row.status == STATUS_SENT) return channel == LOCAL_MEAL_RECORDED
+        if (row.status != STATUS_LOCAL_MEAL_RECEIPT || channel != LOCAL_MEAL_READBACK_PENDING) return false
+        val grams = payload.get("carbsGrams")?.asString?.toDoubleOrNull()?.takeIf { it in 1.0..120.0 } ?: return false
+        if (!readLocalMealRecord(row.idempotencyKey, row.timestamp, grams)) return false
+        return db.withTransaction {
+            val current = dao.forTargetObservationProof(row.idempotencyKey).singleOrNull()
+            payload.addProperty("deliveryChannel", LOCAL_MEAL_RECORDED)
+            val confirmed = row.copy(status = STATUS_SENT, payloadJson = gson.toJson(payload))
+            if (current == confirmed) return@withTransaction true
+            if (current != row) return@withTransaction false
+            dao.upsert(confirmed)
+            true
+        }
+    }
 
     private fun isFirstAllowlistedEatingSoonRefusal(
         command: ActionCommand,
@@ -1206,6 +1265,7 @@ class NightscoutActionRepository(
         const val KEEPALIVE_IDEMPOTENCY_PREFIX = "adaptive_keepalive:"
         const val TARGET_MANAGER_IDEMPOTENCY_PREFIX = "TargetManager.v1:"
         const val STATUS_PENDING = "PENDING"
+        internal const val STATUS_LOCAL_MEAL_RECEIPT = "AWAITING_AAPS_MEAL_RECORD"
         const val STATUS_SENT = "SENT"
         const val STATUS_BLOCKED = "BLOCKED"
         const val STATUS_FAILED = "FAILED"
@@ -1215,6 +1275,8 @@ class NightscoutActionRepository(
         const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
         private val MANUAL_CARB_BLOCK_REASONS =
             setOf("carbs_rate_limit_30m", "therapy_actions_not_armed", "local_carb_relay_unavailable")
+        private const val LOCAL_MEAL_READBACK_PENDING = "local_meal_pending_readback"
+        private const val LOCAL_MEAL_RECORDED = "aaps_meal_record"
         const val AAPS_PACKAGE_MODERN = "app.aaps"
 
         internal fun automaticTargetOwnershipBlockReasonStatic(
