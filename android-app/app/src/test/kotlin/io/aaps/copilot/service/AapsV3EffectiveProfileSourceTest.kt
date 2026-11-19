@@ -98,6 +98,14 @@ class AapsV3EffectiveProfileSourceTest {
             })
         }
         fun parse(value: JsonObject, time: Long = now) = AapsLocalObservation.decode(value.toString().encodeToByteArray(), time)
+        val paired = android.os.Bundle().apply {
+            putString("nonce", "test-request")
+            putByteArray("snapshot", JsonObject(packet + ("version" to JsonPrimitive(2))).toString().encodeToByteArray())
+        }
+        assertEquals(AapsV3InboundGlucose.FRESH, AapsLocalObservation.decodePairedObservation(paired, "test-request", now, now)?.glucose)
+        assertNull(AapsLocalObservation.decodePairedObservation(paired, "other-request", now, now))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE,
+            AapsLocalObservation.decodePairedObservation(paired, "test-request", now + 1, now + 2)?.glucose)
         assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
             AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)

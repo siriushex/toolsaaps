@@ -58,7 +58,7 @@ internal class AapsV3TargetChannel(
     private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val reportTargetFailure: suspend (String) -> Unit = {},
-    private val capturePairedBaseline: (suspend (String) -> (suspend () -> Boolean))? = null
+    private val capturePairedBaseline: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -429,12 +429,12 @@ internal class AapsV3TargetChannel(
             journal.withTargetProtocol { protocol ->
                 var pairedCheck: (suspend () -> Boolean)? = null
                 var pairedMaster: String? = null
-                suspend fun capture() {
+                suspend fun capture(commit: Boolean) {
                     val read = capturePairedBaseline ?: return
                     stage = "paired_input_read"
                     val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
                     pairedMaster = master
-                    pairedCheck = read(master)
+                    pairedCheck = read(master, commit)
                 }
                 suspend fun guard() {
                     currentCoroutineContext().ensureActive()
@@ -457,7 +457,7 @@ internal class AapsV3TargetChannel(
                     stage = "journal_publication"
                 }
                 stage = "prepare"
-                capture()
+                capture(commit = false)
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
                         currentTime = clock, expectedActionId = command.id) { guard() }
@@ -468,7 +468,7 @@ internal class AapsV3TargetChannel(
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
                 stage = "commit"
-                capture()
+                capture(commit = true)
                 publicationLease {
                     commitAttempted = true
                     journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }

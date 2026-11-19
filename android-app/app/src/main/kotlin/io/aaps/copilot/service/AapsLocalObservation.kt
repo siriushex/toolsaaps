@@ -41,6 +41,21 @@ internal object AapsLocalObservation {
         return decodeDisplayGlucose(snapshot, System.currentTimeMillis())
     }
 
+    fun readPairedObservation(context: Context, nonce: String, master: String, commit: Boolean): AapsV3InboundSummary? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val args = Bundle().apply { putString("nonce", nonce); putString("master", master) }
+        val issued = System.currentTimeMillis()
+        val method = if (commit) "paired_commit_snapshot_v1" else "paired_snapshot_v1"
+        val reply = callVerified(context, provider, method, args) ?: return null
+        return decodePairedObservation(reply, nonce, issued, System.currentTimeMillis())
+    }
+
+    internal fun decodePairedObservation(reply: Bundle, nonce: String, issued: Long, received: Long): AapsV3InboundSummary? {
+        if (issued !in 1..HistoryJson.maxTime || received !in issued..minOf(HistoryJson.maxTime, issued + 10_000L)) return null
+        if (reply.keySet() != setOf("nonce", "snapshot") || reply.getString("nonce") != nonce) return null
+        return reply.getByteArray("snapshot")?.let { decode(it, received, version = 2, issued = issued) }
+    }
+
     fun recordedTarget(context: Context, master: String, query: LocalTargetReceiptQuery): Long? {
         if (!query.fresh(System.currentTimeMillis())) return null
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
@@ -162,12 +177,12 @@ internal object AapsLocalObservation {
         null
     }
 
-    fun decode(bytes: ByteArray, now: Long, version: Long = 1): AapsV3InboundSummary = try {
+    fun decode(bytes: ByteArray, now: Long, version: Long = 1, issued: Long = 1): AapsV3InboundSummary = try {
         val body = HistoryJson.parse(bytes, 196_608)
         HistoryJson.fields(body, setOf("version", "at", "glucose", "insulin"), setOf("profile"))
         require(version in 1L..2L && HistoryJson.long(body.getValue("version")) == version)
         val at = HistoryJson.long(body.getValue("at"))
-        require(now in 1..HistoryJson.maxTime && at in maxOf(1, now - 10_000L)..now)
+        require(now in 1..HistoryJson.maxTime && at in maxOf(1, issued, now - 10_000L)..now)
         val samples = HistoryJson.array(body.getValue("glucose")).also { require(it.size <= 256) }
             .map {
                 val sample = HistoryJson.obj(it)

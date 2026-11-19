@@ -1154,14 +1154,20 @@ class AppContainer(context: Context) {
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
-        capturePairedBaseline = { master ->
+        capturePairedBaseline = { master, commit ->
             val nonce = UUID.randomUUID().toString()
             val issued = System.currentTimeMillis()
             val reply = withContext(Dispatchers.IO) { AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master) }
             val received = System.currentTimeMillis()
+            val clinical = if (reply == null) null else withContext(Dispatchers.IO) {
+                AapsLocalObservation.readPairedObservation(appContext, UUID.randomUUID().toString(), master, commit)
+            }
             val verify: suspend () -> Boolean = {
                 val now = System.currentTimeMillis()
-                reply != null && now >= received && now - issued in 0..10_000L &&
+                reply != null && clinical?.glucose == AapsV3InboundGlucose.FRESH &&
+                    clinical.profile == AapsV3ObservedProfileStatus.OBSERVED &&
+                    clinical.insulin == AapsV3ObservedInsulinStatus.OBSERVED &&
+                    clinical.insulinRecordCount > 0 && now >= received && now - issued in 0..10_000L &&
                     LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received) &&
                     LocalAapsLoopInputSync.activeSamples(db, now).size == 4
             }

@@ -67,7 +67,7 @@ class AapsV3TargetChannelTest {
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
     private var reportFailure: suspend (String) -> Unit = {}
-    private fun newChannel(capture: (suspend (String) -> (suspend () -> Boolean))? = null) =
+    private fun newChannel(capture: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null) =
         AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline(it) }, { it() }, now::get, historyFactory,
             reportTargetFailure = { reportFailure(it) }, capturePairedBaseline = capture)
 
@@ -606,7 +606,8 @@ class AapsV3TargetChannelTest {
 
     @Test fun changedPairedInputsAfterPreviewCannotCommit() = runBlocking {
         var reads = 0
-        channel = newChannel {
+        channel = newChannel { _, commit ->
+            assertEquals(reads != 0, commit)
             val matches = ++reads == 1
             val verify: suspend () -> Boolean = { matches }
             verify
