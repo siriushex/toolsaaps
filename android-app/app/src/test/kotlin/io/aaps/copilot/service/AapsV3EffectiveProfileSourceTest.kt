@@ -25,6 +25,25 @@ class AapsV3EffectiveProfileSourceTest {
     private lateinit var db: CopilotDatabase
     private lateinit var name: String
     private val at = 1_800_000_000_000L
+    @Test fun exactNativeSubhourProfileSurvivesRetainedStorage() = runBlocking {
+        val native = javaClass.getResource("/fixtures/effective-profile-subhour.json")!!.readText().trim()
+        val row = input("subhour")
+        val config = Json.parseToJsonElement(native).jsonObject.getValue("iCfg").jsonObject
+        val body = JsonObject(Json.parseToJsonElement(row.payloadJson).jsonObject + mapOf(
+            "profileJson" to JsonPrimitive(native), "icfg" to JsonObject(config - "insulinNickname")))
+        val stored = store()
+        stored.create(row.copy(payloadJson = body.toString()))
+        val observation = requireNotNull(AapsV3EffectiveProfileSource(stored).read(at).observation)
+        val expected = mapOf(observation.profile.sensitivity to listOf(42.5, 53.5, 38.5),
+            observation.profile.carbRatio to listOf(10.5, 12.5, 15.5), observation.profile.basal to listOf(0.5, 0.7, 0.9),
+            observation.profile.targetLow to listOf(84.5, 90.5, 92.5), observation.profile.targetHigh to listOf(100.5, 105.5, 107.5))
+        for ((schedule, values) in expected) {
+            assertEquals(listOf(0, 27030, 51300), schedule.map { it.seconds })
+            for ((i, second) in listOf(27029, 27030, 51299, 51300, 86399).withIndex()) {
+                assertEquals(values[listOf(0, 1, 1, 2, 2)[i]], schedule.last { it.seconds <= second }.value, 0.0)
+            }
+        }
+    }
     private fun open() = Room.databaseBuilder(context, CopilotDatabase::class.java, name).allowMainThreadQueries().build()
     private fun store() = LocalNightscoutV3Store(db, { at + 100_000 })
     private fun input(id: String, time: Long = at, value: Double = 5.5) = LocalV3DocumentInput(

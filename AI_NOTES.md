@@ -1,3 +1,18 @@
+# Exact AAPS effective-profile boundaries (2026-11-19)
+
+- The local AAPS EPS serializer uses the original effective block durations,
+  values and glucose units. It no longer floors each block duration to hours.
+  Do not apply the original switch percentage or timeshift again. Malformed
+  incomplete days are unavailable profiles, not valid schedules with defaults.
+- Both direct snapshots and scoped v3 uploads preserve exact seconds. A
+  synthetic cross-project export fixture covers sensitivity, carb ratio,
+  basal, both targets and insulin configuration. Profile values are source
+  observations, not personal learned estimates or delivery receipts.
+- Only the restricted local uploader can replace a retained rounded EPS on
+  POST. The corrected schedule must reproduce the exact old rounding, with
+  all non-schedule data unchanged, in the same writable nondeleted row.
+  Other changed POSTs retain the ordinary conflict behavior.
+
 # AAPS 4 insulin observation window (2026-11-19)
 
 - The v3 uploader and same-phone snapshot_v2 now include native temporary

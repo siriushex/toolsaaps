@@ -51,7 +51,7 @@ internal class LocalNightscoutV3EntriesApi(
             path == "/api/v3/profile" || path.startsWith("/api/v3/profile/") ->
                 profiles.handle(method, path, query, readBody)
             path == "/api/v3/treatments" || path.startsWith("/api/v3/treatments/") ->
-                treatments.handle(method, path, query, readBody)
+                treatments.handle(method, path, query, readBody, uploadOnly)
             path == "/api/v3/settings" || path.startsWith("/api/v3/settings/") ->
                 settings.handle(method, path, query, readBody)
             path == "/api/v3/devicestatus" || path.startsWith("/api/v3/devicestatus/") ->

@@ -18,6 +18,42 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class LocalNightscoutV3TreatmentsApiTest {
+    @Test fun onlyExactSubhourReexportRepairsSameLocalProfileInPlace() = runBlocking {
+        val exact = Json.parseToJsonElement(javaClass.getResource("/fixtures/effective-profile-subhour.json")!!.readText()).jsonObject
+        val fields = setOf("sens", "basal", "carbratio", "target_low", "target_high")
+        val old = JsonObject(exact.mapValues { (field, value) ->
+            if (field !in fields) value else buildJsonArray {
+                for ((index, hour) in listOf(0, 7, 13).withIndex()) add(buildJsonObject {
+                    put("time", hour.toString().padStart(2, '0') + ":00"); put("timeAsSeconds", hour * 3600)
+                    put("value", value.jsonArray[listOf(0, 0, 1)[index]].jsonObject.getValue("value"))
+                })
+            }
+        })
+        fun packet(profile: JsonObject) = buildJsonObject {
+            put("app", "AAPS-local"); put("eventType", "Note"); put("date", at); put("utcOffset", 0)
+            put("originalProfileName", "sample"); put("originalCustomizedName", "adjusted")
+            put("originalTimeshift", 3_600_000); put("originalPercentage", 125); put("originalDuration", 0); put("originalEnd", 0)
+            put("profileJson", profile.toString()); put("icfg", JsonObject(exact.getValue("iCfg").jsonObject - "insulinNickname"))
+        }
+        suspend fun post(payload: JsonObject, upload: Boolean = true) =
+            api.handle("POST", "/api/v3/treatments", emptyMap(), upload) { payload.toString().toByteArray() }
+        val first = post(packet(old))
+        assertEquals(201, first.status)
+        assertEquals(409, post(packet(exact), upload = false).status)
+        assertEquals(409, post(JsonObject(packet(exact) + ("originalPercentage" to JsonPrimitive(105)))).status)
+        val changed = post(packet(exact))
+        assertEquals(200, changed.status)
+        assertEquals(id(first), id(changed))
+        assertTrue(changed.revision!! > first.revision!!)
+        assertEquals(changed.revision, post(packet(exact)).revision)
+        assertEquals(409, post(packet(old)).status)
+        val restored = rows(call()).single()
+        assertEquals(exact.toString(), restored.getValue("profileJson").jsonPrimitive.content)
+        call("DELETE", "treatments/" + id(first))
+        assertEquals(409, post(packet(exact)).status)
+        assertTrue(db.therapyDao().since(0).isEmpty())
+    }
+
     @Test fun signedNativeOffsetsRoundTripWithoutChangingIdentity() = runBlocking {
         val record = sample().replace("\"utcOffset\":0", "\"utcOffset\":-300")
         val created = call("POST", "treatments", record)
