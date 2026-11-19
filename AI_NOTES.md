@@ -1,3 +1,19 @@
+# Read back the exact AAPS target row (2026-11-19)
+
+- For new, marked NSClient targets only, the AAPS audit entry carries the
+  database ID actually returned by insertion. The read-only provider looks
+  up the unique audit entry and linked current row in one DB transaction;
+  both bounds, start window, duration and reason must agree. It never infers
+  a match from the graph or from a different row with identical values.
+- On a signed successful target commit, Copilot retains the small diagnostic
+  query in its private journal. The settings data check binds it to the same
+  local master, rechecks after IPC and distinguishes a verified stored start
+  from an ACK without verified readback. An empty answer is not absence.
+  No command, retry, change of priority or claim of continuing activity.
+- Old databases are not backfilled. Cancellation is not a created target;
+  revocation, stale commands, unbound clients, unsupported AAPS and invalidated
+  rows cannot produce a positive lookup. The existing owner schema is unchanged.
+
 # Eating Soon at the AAPS receiver (2026-11-19)
 
 - A manual meal and its separate Eating Soon target share the same marker

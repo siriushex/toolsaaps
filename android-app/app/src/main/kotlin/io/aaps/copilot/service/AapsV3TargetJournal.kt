@@ -614,6 +614,11 @@ internal class AapsV3TargetJournal(
         put(id, json.encodeToString(updated))
         if (phase in TERMINAL) put(ROOT, json.encodeToString(root.copy(pending = null)))
         if (phase == AapsV3TargetPhase.APPLIED) {
+            // Keep optional diagnostics out of the owner schema and never require a spare row to settle an ACK.
+            val target = LocalTargetReceiptQuery.from(operationId, previous.prepare, previous.commit, ack)
+            val hasPointer = dao.get(LAST_TARGET) != null
+            if (hasPointer || (target != null && dao.count() < maximumRows - 1))
+                put(LAST_TARGET, json.encodeToString(TargetPointer(root.clientId, target)))
             val action = db.actionCommandDao().forTargetObservationProof(operationId).singleOrNull()
             if (action?.type == "temp_target") db.actionCommandDao().updateStatusByIds(
                 listOf(action.id), "PENDING", "SENT")
@@ -637,6 +642,18 @@ internal class AapsV3TargetJournal(
         if (phase in TERMINAL) put(ROOT, json.encodeToString(root.copy(pending = null)))
         if (phase == AapsV3TargetPhase.EXPIRED_NO_COMMIT) settleUnsentTarget(previous)
         updated.snapshot()
+    }
+
+    suspend fun localReceiptQuery(now: Long): Pair<String, LocalTargetReceiptQuery>? = transaction {
+        val pair = pairingOrNull() ?: return@transaction null
+        if (pair.localBinding == null || !pair.secretRotated || pair.phase == AapsV3PairingPhase.REVOKED) return@transaction null
+        val root = root()
+        if (root.clientId != pair.clientId) return@transaction null
+        val pointer = read(LAST_TARGET)?.let { json.decodeFromJsonElement<TargetPointer>(it) } ?: return@transaction null
+        val target = pointer.target?.takeIf { pointer.clientId == root.clientId && it.fresh(now) } ?: return@transaction null
+        val key = target.marker.removePrefix("copilot:")
+        val record = recordOrNull(commandKey(key))
+        if (record?.operationId != key || record.phase != AapsV3TargetPhase.APPLIED) null else pair.masterInstallId to target
     }
 
     private suspend fun pendingTargetAction(key: String) =
@@ -959,6 +976,7 @@ internal class AapsV3TargetJournal(
 
     @Serializable private data class Root(val clientId: String, val counter: Long = 0,
         val lastIssuedAt: Long = 0, val pending: String? = null, val version: Int = 1)
+    @Serializable private data class TargetPointer(val clientId: String, val target: LocalTargetReceiptQuery?)
     @OptIn(ExperimentalSerializationApi::class)
     @Serializable private data class Record(val fingerprint: String, val phase: AapsV3TargetPhase,
         val counter: Long, val prepare: JsonObject? = null, val preview: JsonObject? = null,
@@ -1001,6 +1019,7 @@ internal class AapsV3TargetJournal(
         const val ROOT = "owner"
         const val PAIRING = "pairing"
         const val PROBE = "probe"
+        const val LAST_TARGET = "target-readback"
         const val COMBO_READ = "combo-read"
         const val ATTEMPTS = "pin-attempts"
         const val DOC_DATE = 946_684_800_001L

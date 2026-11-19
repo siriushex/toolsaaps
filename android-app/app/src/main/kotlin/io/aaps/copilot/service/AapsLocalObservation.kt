@@ -41,6 +41,23 @@ internal object AapsLocalObservation {
         return decodeDisplayGlucose(snapshot, System.currentTimeMillis())
     }
 
+    fun recordedTarget(context: Context, master: String, query: LocalTargetReceiptQuery): Long? {
+        if (!query.fresh(System.currentTimeMillis())) return null
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val args = Bundle().apply {
+            putString("master", master); putLong("issued", query.issued); putDouble("mgdl", query.mgdl)
+            putLong("ackAt", query.ackAt)
+            putInt("minutes", query.minutes); putString("reason", query.reason)
+        }
+        val reply = callVerified(context, provider, "target_receipt_v1", args, arg = query.marker) ?: return null
+        return decodeRecordedTarget(reply, query, System.currentTimeMillis())
+    }
+
+    internal fun decodeRecordedTarget(reply: Bundle, query: LocalTargetReceiptQuery, now: Long): Long? {
+        if (!query.fresh(now) || reply.keySet() != setOf("rowId", "startedAt") || reply.getLong("rowId", 0) <= 0) return null
+        return reply.getLong("startedAt", 0).takeIf { it in query.issued until query.issued + AapsV3TargetProtocol.TTL_MS && it <= query.ackAt }
+    }
+
     fun readTarget(context: Context): AapsObservedTarget? {
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
         val snapshot = readVerifiedSnapshot(context, provider, "target_v1") ?: return null
@@ -97,7 +114,7 @@ internal object AapsLocalObservation {
     private fun readVerifiedSnapshot(context: Context, provider: ProviderInfo, method: String = "snapshot_v1"): ByteArray? =
         callVerified(context, provider, method, null)?.getByteArray("snapshot")
 
-    private fun callVerified(context: Context, provider: ProviderInfo, method: String, extras: Bundle?): Bundle? {
+    private fun callVerified(context: Context, provider: ProviderInfo, method: String, extras: Bundle?, arg: String? = null): Bundle? {
         val pm = context.packageManager
         if (provider.packageName != AAPS || provider.readPermission != PERMISSION ||
             provider.writePermission != PERMISSION || provider.grantUriPermissions ||
@@ -105,7 +122,7 @@ internal object AapsLocalObservation {
             return null
         }
         return try {
-            context.contentResolver.call(Uri.parse("content://$AUTHORITY"), method, null, extras)
+            context.contentResolver.call(Uri.parse("content://$AUTHORITY"), method, arg, extras)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {

@@ -2147,6 +2147,8 @@
     <string name="native_aaps_local_upload_detail">Requires local Nightscout and a compatible AAPS build. No commands or imports.</string>
     <string name="native_aaps_inbound_check">Check incoming data</string>
     <string name="native_aaps_inbound_checked">v3 uploads checked: %1$s</string>
+    <string name="native_target_recorded">Last acknowledged Copilot target: recorded in AAPS at %1$s.</string>
+    <string name="native_target_record_unverified">AAPS acknowledged the target command. Its target record was not verified.</string>
     <string name="native_aaps_local_checked">AAPS on this phone checked: %1$s</string>
     <string name="native_aaps_local_cgm_missing">CGM: no recent sample in AAPS</string>
     <string name="native_aaps_inbound_cgm_fresh">CGM: sample received (up to 5 min old)</string>

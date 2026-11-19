@@ -330,6 +330,36 @@ class AapsV3TargetJournalTest {
         }
     }
 
+    @Test fun readbackDescriptorRequiresSignedCommitAndKeepsTheCommitClockAfterRestart() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val key = "manual:meal:sample:eating-soon"
+        suspend fun descriptor(): JsonObject? {
+            val id = "target-readback"
+            val row = db.aapsV3TargetJournalDao().get(id) ?: return null
+            val body = io.aaps.copilot.data.repository.HistoryJson.parse(cipher.open(id, row.revision, row.sealed), 65_000)
+            return body["target"] as? JsonObject
+        }
+        protocol.use { p ->
+            owner.prepare(key, target.copy(highMgdl = 90.0), p, at) {}
+            owner.acknowledge(key, p, ack(1, """{"bolusId":321,"lines":[{"role":"Normal","text":"target"}]}"""), at + 2)
+            owner.commit(key, p, at + 3) {}
+            journal().expire(at + 60_000)
+            assertNull(descriptor())
+            journal().acknowledge(key, p, ack(2, timestamp = at + 4, status = "Failed", reason = "ExecutionFailed"), at + 60_001)
+            assertNull(descriptor())
+            journal().acknowledge(key, p, ack(2, timestamp = at + 4), at + 60_002)
+            val receipt = checkNotNull(descriptor())
+            assertEquals(JsonPrimitive(at + 3), receipt["issued"])
+            assertEquals(JsonPrimitive(at + 4), receipt["ackAt"])
+            assertEquals(JsonPrimitive("copilot:$key"), receipt["marker"])
+            assertEquals(JsonPrimitive("EATING_SOON"), receipt["reason"])
+            assertEquals(JsonPrimitive(30), receipt["minutes"])
+            assertEquals(JsonPrimitive(90.0), receipt["mgdl"])
+            // A journal without local installation binding cannot look up a target on this phone.
+            assertNull(journal().localReceiptQuery(at + 60_003))
+        }
+    }
+
     @Test fun backgroundCommitAckSettlesOnlyExistingPendingTargetWithoutClinicalWrites() = runBlocking {
         val owner = journal(); owner.bind(client)
         db.actionCommandDao().upsert(io.aaps.copilot.data.local.entity.ActionCommandEntity(
