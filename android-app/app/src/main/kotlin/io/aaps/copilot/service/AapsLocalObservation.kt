@@ -4,6 +4,11 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.pm.ProviderInfo
 import android.net.Uri
+import android.os.Bundle
+import io.aaps.copilot.data.repository.AapsCarbHistoryContract
+import io.aaps.copilot.data.repository.AapsCarbHistoryRequest
+import io.aaps.copilot.data.repository.AapsCarbHistoryResult
+import io.aaps.copilot.data.repository.AapsCarbHistoryWireResponse
 import io.aaps.copilot.data.local.entity.LocalNightscoutV3DocumentEntity
 import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalV3RetainedSnapshot
@@ -53,7 +58,28 @@ internal object AapsLocalObservation {
         return readLocalComboJournalSummary(snapshot, System.currentTimeMillis())
     }
 
-    private fun readVerifiedSnapshot(context: Context, provider: ProviderInfo, method: String = "snapshot_v1"): ByteArray? {
+    fun readCarbPage(context: Context, request: AapsCarbHistoryRequest): AapsCarbHistoryResult {
+        if (!AapsCarbHistoryContract.validateRequest(request)) return AapsCarbHistoryResult.Invalid
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return AapsCarbHistoryResult.Unavailable
+        val args = Bundle().apply {
+            putString("nonce", request.nonce); putLong("fromTs", request.fromTs); putLong("throughTs", request.throughTs)
+            putLong("afterTimestamp", request.afterTimestamp); putLong("afterId", request.afterId); putInt("limit", request.limit)
+        }
+        val reply = callVerified(context, provider, "carb_history_page_v1", args) ?: return AapsCarbHistoryResult.Unavailable
+        return decodeCarbReply(request, reply)
+    }
+
+    internal fun decodeCarbReply(request: AapsCarbHistoryRequest, reply: Bundle): AapsCarbHistoryResult {
+        if (reply.isEmpty) return AapsCarbHistoryResult.Busy
+        val fields = reply.keySet().associateWith { reply[it] }
+        return AapsCarbHistoryContract.responseResult(request,
+            AapsCarbHistoryWireResponse(AapsCarbHistoryContract.RESPONSE_ACTION, fields)) ?: AapsCarbHistoryResult.Invalid
+    }
+
+    private fun readVerifiedSnapshot(context: Context, provider: ProviderInfo, method: String = "snapshot_v1"): ByteArray? =
+        callVerified(context, provider, method, null)?.getByteArray("snapshot")
+
+    private fun callVerified(context: Context, provider: ProviderInfo, method: String, extras: Bundle?): Bundle? {
         val pm = context.packageManager
         if (provider.packageName != AAPS || provider.readPermission != PERMISSION ||
             provider.writePermission != PERMISSION || provider.grantUriPermissions ||
@@ -61,8 +87,7 @@ internal object AapsLocalObservation {
             return null
         }
         return try {
-            context.contentResolver.call(Uri.parse("content://$AUTHORITY"), method, null, null)
-                ?.getByteArray("snapshot")
+            context.contentResolver.call(Uri.parse("content://$AUTHORITY"), method, null, extras)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {

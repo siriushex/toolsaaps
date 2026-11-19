@@ -199,7 +199,7 @@ internal class AapsCarbHistoryImporter(
         val payload = parseObject(entity.payloadJson)?.deepCopy() ?: JsonObject()
         payload.addProperty(IS_VALID, false)
         payload.addProperty(AAPS_CARB_IS_VALID, false)
-        payload.zeroEffectiveCarbs()
+        payload.setEffectiveCarbs(0.0)
         payload.addProperty(AAPS_CARB_SUPERSEDED, true)
         payload.addProperty(AAPS_CARB_SUPERSEDED_BY, survivorId)
         return entity.copy(payloadJson = gson.toJson(canonicalize(payload)))
@@ -276,11 +276,7 @@ internal class AapsCarbHistoryImporter(
         payload.addProperty(AAPS_REVISION_ID, page.revisionId)
         payload.addProperty(AAPS_PAGE_GENERATED_AT, page.generatedAt)
         payload.addProperty(AAPS_CARB_AMOUNT, row.amount)
-        if (row.isValid) {
-            payload.addProperty(CARBS, row.amount)
-        } else {
-            payload.zeroEffectiveCarbs()
-        }
+        payload.setEffectiveCarbs(if (row.isValid) row.amount else 0.0)
         payload.addProperty(AAPS_CARB_IS_VALID, row.isValid)
         payload.addProperty(AAPS_CARB_CLASSIFICATION, classification)
         payload.addProperty(AAPS_CARB_SOURCE, SOURCE_AAPS_DIRECT_HISTORY)
@@ -357,11 +353,11 @@ internal class AapsCarbHistoryImporter(
         listOf(UNITS, BOLUS_UNITS, INSULIN_UNITS, INSULIN, ENTERED_INSULIN)
             .firstNotNullOfOrNull { key -> doubleValue(key) }
 
-    private fun JsonObject.zeroEffectiveCarbs() {
-        addProperty(CARBS, 0.0)
+    private fun JsonObject.setEffectiveCarbs(amount: Double) {
+        addProperty(CARBS, amount)
         listOf(GRAMS, ENTERED_CARBS, MEAL_CARBS)
             .filter(::has)
-            .forEach { key -> addProperty(key, 0.0) }
+            .forEach { key -> addProperty(key, amount) }
     }
 
     private fun JsonObject.doubleValue(key: String): Double? =

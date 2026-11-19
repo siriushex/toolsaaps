@@ -12,6 +12,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class AapsCarbHistoryImporterTest {
+    @Test fun editedAmountReplacesPreviouslyStoredCarbAliasesWithoutEditingInsulin() = runTest {
+        val original = TherapyEventEntity("linked", ROW_TS, "meal_bolus",
+            """{"aapsCarbId":43,"units":1.25,"carbs":20,"grams":20,"enteredCarbs":20,"mealCarbs":20}""")
+        val dao = RecordingTherapyDao(original)
+        AapsCarbHistoryImporter(dao.proxy).importPage(page(row(id = 43L, amount = 12.0)))
+        val updated = payload(dao.stored.getValue("linked"))
+        for (name in listOf("carbs","grams","enteredCarbs","mealCarbs")) assertThat(updated[name].asDouble).isEqualTo(12.0)
+        assertThat(updated["units"].asDouble).isEqualTo(1.25)
+        assertThat(dao.stored.keys).containsExactly("linked")
+    }
     @Test fun durableStageRunsInsideTransactionAndFailedStageRollsBackImport() = runTest {
         val dao = RecordingTherapyDao()
         val transaction = RecordingTransactionRunner()

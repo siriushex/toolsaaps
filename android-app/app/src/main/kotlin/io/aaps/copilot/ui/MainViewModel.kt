@@ -2134,7 +2134,8 @@ class MainViewModel(application: Application) :
                 .collect(clinicalReportPdfExportCoordinator::onReportIdentityChanged)
         }
         viewModelScope.launch(Dispatchers.IO) {
-            container.aapsCarbHistorySyncRepository.sync()
+            // The local AAPS 4 runtime owns startup and periodic imports.
+            if (!container.settingsStore.settings.first().localAapsV3Upload) container.syncConfiguredCarbHistory()
         }
         runAutoConnectNow(silent = true)
         normalizeLegacyActionStatusesAsync()
@@ -8259,7 +8260,7 @@ class MainViewModel(application: Application) :
 
     fun runDailyAnalysisNow() {
         viewModelScope.launch {
-            container.aapsCarbHistorySyncRepository.sync()
+            container.syncConfiguredCarbHistory()
             val nowTs = System.currentTimeMillis()
             val coverageHours = loadAiCoverageHours(nowTs = nowTs)
             container.auditLogger.info(
