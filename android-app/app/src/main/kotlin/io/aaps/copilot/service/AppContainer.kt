@@ -1154,6 +1154,7 @@ class AppContainer(context: Context) {
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
+        reportTargetFailure = { stage -> auditLogger.warn("native_target_delivery_interrupted", mapOf("stage" to stage)) },
         historyStore = { AapsV3ComboJournalStore(retainedComboDatabase) },
         publicationLease = { publish ->
             io.aaps.copilot.security.TherapyActionTransportGate.withArmedLease(

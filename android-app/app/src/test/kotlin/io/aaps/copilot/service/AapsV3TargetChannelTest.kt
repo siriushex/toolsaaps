@@ -66,7 +66,9 @@ class AapsV3TargetChannelTest {
         channel = newChannel()
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
-    private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+    private var reportFailure: suspend (String) -> Unit = {}
+    private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory,
+        reportTargetFailure = { reportFailure(it) })
 
     private fun localWrapped(): ByteArray {
         val expiry = at + 120_000
@@ -297,7 +299,10 @@ class AapsV3TargetChannelTest {
         val master = FinalMaster()
         master.completeEnrollment()
         baseline = { "native_clinical_projection_unavailable" }
+        val stages = mutableListOf<String>()
+        reportFailure = { stages.add(it); error("audit unavailable") }
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertEquals(listOf("clinical_baseline"), stages)
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 

@@ -56,7 +56,8 @@ internal class AapsV3TargetChannel(
     private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
     private val localOffers: LocalEnrollmentOffers? = null,
     private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
-    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
+    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
+    private val reportTargetFailure: suspend (String) -> Unit = {}
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -407,6 +408,7 @@ internal class AapsV3TargetChannel(
         stopHistory(clearAudit = false)
         val epoch = generation.get()
         var commitAttempted = false
+        var stage = "request_validation"
         try {
             check(command.type == "temp_target")
             val mmol = checkNotNull(command.params["targetMmol"]?.toDoubleOrNull())
@@ -420,29 +422,42 @@ internal class AapsV3TargetChannel(
             }
             val mgdl = if (duration == 0) 0.0 else UnitConverter.mmolToMgdl(mmol).toDouble()
             val target = AapsV3TargetSpec(mgdl, mgdl, duration, reason)
+            stage = "session_refresh"
             refresh()
+            stage = "signed_protocol"
             journal.withTargetProtocol { protocol ->
                 suspend fun guard() {
                     currentCoroutineContext().ensureActive()
+                    stage = "runtime_storage_session"
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
-                    check(baselineGuard() == null && deliveryGuard() == null)
+                    stage = "clinical_baseline"
+                    check(baselineGuard() == null)
+                    stage = "delivery_guard"
+                    check(deliveryGuard() == null)
+                    stage = "live_pairing"
                     journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
+                    stage = "runtime_recheck"
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
+                    stage = "journal_publication"
                 }
+                stage = "prepare"
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
                         currentTime = clock, expectedActionId = command.id) { guard() }
                 }
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)
+                stage = "preview"
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
+                stage = "commit"
                 publicationLease {
                     commitAttempted = true
                     journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }
                 }
+                stage = "acknowledgement"
                 awaitPhase(command.idempotencyKey, emptySet())
                 outcome(journal.status(command.idempotencyKey))
             }
@@ -451,6 +466,8 @@ internal class AapsV3TargetChannel(
             // A failed fingerprint check must not relabel an older applied request
             // as application of this payload. Missing private state is not absence.
             try {
+                try { reportTargetFailure(stage) } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Diagnostics must not alter delivery classification. */ }
                 if (!commitAttempted && journal.pairingSnapshot() != null && journal.status(command.idempotencyKey) == null)
                     NativeTargetOutcome.NOT_SENT else NativeTargetOutcome.UNKNOWN
             } catch (cancelled: CancellationException) { throw cancelled }
