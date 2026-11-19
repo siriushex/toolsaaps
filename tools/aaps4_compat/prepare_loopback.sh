@@ -53,6 +53,9 @@ git apply --index "$meal_provider"
 meal_record="$root/tools/aaps4_compat/final-local-meal-record.patch"
 git apply --check "$meal_record"
 git apply --index "$meal_record"
+target_preview="$root/tools/aaps4_compat/final-eating-soon-receiver.patch"
+git apply --check "$target_preview"
+git apply --index "$target_preview"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET

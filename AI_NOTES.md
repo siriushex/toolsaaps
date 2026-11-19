@@ -1,3 +1,16 @@
+# Eating Soon at the AAPS receiver (2026-11-19)
+
+- A manual meal and its separate Eating Soon target share the same marker
+  prefix. The integrated receiver previously rejected the latter as an
+  invalid carb entry before it could produce a target preview. Preserve the
+  original marker and distinguish the two complete action shapes.
+- A target must be the only action, have equal bounds inside AAPS limits,
+  start now and last 30 minutes. A preview with any dose, carbs or advisor
+  option is discarded. Meal validation, client roles and commit admission
+  stay unchanged. The existing CI receiver filter includes the new tests.
+- This repairs the receiver; it does not create a persistent command session
+  on the phone or prove clinical admission or a target write.
+
 # Signed temporary target recovery (2026-11-19)
 
 - Bind a new native prepare to the originating pending target action, if

@@ -1,0 +1,95 @@
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+index 214079f39d..c366bfe3e9 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+@@ -1161,4 +1161,49 @@ internal class ClientControlReceiverTest {
+
+     private val scopedMeal = BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = 12, notes = "copilot:manual:meal:sample")
++    private fun scopedTarget() = tempTargetAction.copy(reason = "Eating Soon", lowMgdl = 74.0, highMgdl = 74.0,
++        notes = scopedMeal.notes + ":eating-soon")
++
++    @Test
++    fun manualMealTargetProducesASignedTargetPreviewNotAMealReceipt() = runTest {
++        val (id, key) = activeClient(ClientRole.Caregiver)
++        val acks = captureAcks(id)
++        whenever(masterActionExecutor.prepareBatch(any(), anyOrNull())).thenReturn(mealPreview(0))
++        sendBatch(id, key, listOf(scopedTarget()))
++        val ack = acks.last()
++        assertThat(ack.status.name).isEqualTo("Ok")
++        assertThat(ClientControlCrypto.verifyAck(key, ack)).isTrue()
++        assertThat(Json.decodeFromString<BolusPreview>(checkNotNull(ack.payload)).manualMeal).isNull()
++        verify(masterActionExecutor).prepareBatch(eq(listOf(scopedTarget().toDomain()!!)), anyOrNull())
++        verify(masterActionExecutor, never()).confirm(any(), any(), any(), any(), any(), anyOrNull(), any())
++    }
++
++    @Test
++    fun manualMealTargetRejectsHiddenFieldsMixedBatchesAndMalformedMarkers() = runTest {
++        val (id, key) = activeClient(ClientRole.Admin)
++        val acks = captureAcks(id)
++        val t = scopedTarget()
++        val bad = listOf(listOf(t.copy(insulin = 1.0)), listOf(t.copy(carbs = 12)), listOf(t, scopedMeal),
++            listOf(t.copy(durationMinutes = 0)), listOf(t.copy(reason = "Activity")),
++            listOf(t.copy(notes = scopedMeal.notes)), listOf(t.copy(lowMgdl = t.highMgdl + 1.0)),
++            listOf(t.copy(startOffsetMinutes = 1)), listOf(scopedMeal.copy(notes = t.notes)),
++            listOf(t.copy(lowMgdl = 50.0, highMgdl = 50.0)), listOf(t.copy(lowMgdl = 201.0, highMgdl = 201.0)))
++        bad.forEachIndexed { i, batch ->
++            sut.onSettingsDocChanged("${ClientControlPublisher.IDENTIFIER_CMD_PREFIX}batch_prepare_$id",
++                wrap(envelope(id, key, message = ClientControlMessage.BatchPrepare(batch), counter = 5L + i, wantsAck = true)))
++            assertThat(acks.last().commandCounter).isEqualTo(5L + i)
++            assertThat(acks.last().status.name).isEqualTo("Failed")
++        }
++        verify(masterActionExecutor, never()).prepareBatch(any(), anyOrNull())
++    }
++
++    @Test
++    fun manualMealTargetDiscardsUnexpectedMasterCarbs() = runTest {
++        val (id, key) = activeClient(ClientRole.Admin)
++        val acks = captureAcks(id)
++        whenever(masterActionExecutor.prepareBatch(any(), anyOrNull())).thenReturn(mealPreview(6))
++        sendBatch(id, key, listOf(scopedTarget()))
++        assertThat(acks.last().status.name).isEqualTo("Failed")
++        verify(masterActionExecutor).discard(79L)
++    }
+     private fun mealPreview(grams: Int) = MasterActionExecutor.PrepareResult.Preview(
+         insulin = 0.0, carbs = grams, bolusId = 79L, lines = listOf(ConfirmationLine(ConfirmationRole.NORMAL, "sample")),
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index 43693954a1..f3af733137 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -44,4 +44,5 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.BolusPreview
+ import app.aaps.core.nssdk.localmodel.clientcontrol.BatchActionDto
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ManualMealPreviewDto
++import app.aaps.core.interfaces.utils.HardLimits
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientState
+@@ -858,12 +859,13 @@ class ClientControlReceiver(
+         authorizedRepository.bumpLastSeen(entry.clientId, envelope.counter, now)
+         val actions = message.actions.mapNotNull { it.toDomain() }
+-        val meal = if (message.actions.any { it.notes.startsWith("copilot:manual:meal:") }) {
+-            val one = message.actions.singleOrNull()
+-            // Compare the whole DTO: no offsets, insulin, targets, extended carbs or record-only path.
+-            if (one == null || !Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}").matches(one.notes) ||
+-                one.carbs !in 1..120 || one != BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = one.carbs, notes = one.notes))
+-                return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
+-            one
+-        } else null
++        val scoped = if (message.actions.any { it.notes.startsWith("copilot:manual:meal:") })
++            message.actions.singleOrNull() ?: return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
++        else null
++        val meal = scoped?.takeIf { Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}").matches(it.notes) &&
++            it.carbs in 1..120 && it == BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = it.carbs, notes = it.notes) }
++        val eatingSoon = scoped != null && Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}:eating-soon").matches(scoped.notes) &&
++            scoped.lowMgdl in HardLimits.LIMIT_TEMP_TARGET_BG && scoped == BatchActionDto(type = BatchActionDto.TYPE_TEMP_TARGET,
++                reason = "Eating Soon", lowMgdl = scoped.lowMgdl, highMgdl = scoped.lowMgdl, durationMinutes = 30, notes = scoped.notes)
++        if (scoped != null && meal == null && !eatingSoon) return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
+         return when (val result = masterActionExecutor.prepareBatch(actions, entry.caller)) {
+             is MasterActionExecutor.PrepareResult.Error   -> {
+@@ -878,4 +880,8 @@ class ClientControlReceiver(
+
+             is MasterActionExecutor.PrepareResult.Preview -> {
++                if (eatingSoon && (result.insulin != 0.0 || result.carbs != 0 || result.advisorApplies || result.advisorLines.isNotEmpty())) {
++                    masterActionExecutor.discard(result.bolusId)
++                    return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
++                }
+                 val checkedMeal = meal?.let {
+                     if (result.insulin != 0.0 || result.carbs != it.carbs || result.advisorApplies || result.advisorLines.isNotEmpty()) {
