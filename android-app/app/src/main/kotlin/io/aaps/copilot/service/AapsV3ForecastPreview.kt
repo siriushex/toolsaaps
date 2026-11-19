@@ -20,13 +20,13 @@ internal class AapsV3ForecastPreview(
         const val FRESH_MS = 5 * 60_000L
         const val MAX_ROWS = 96
 
-        fun displayFromSignedSnapshot(points: List<GlucosePoint>?, now: Long): AapsV3ForecastPreview? {
+        suspend fun displayFromSignedSnapshot(points: List<GlucosePoint>?, now: Long): AapsV3ForecastPreview? {
             if (now <= WINDOW_MS || points == null || points.size !in 1..MAX_ROWS) return null
             val sorted = points.sortedBy { it.ts }
             if (sorted.any { it.ts !in (now - WINDOW_MS)..now || it.valueMmol !in 1.0..33.0 } ||
                 now - sorted.last().ts > FRESH_MS ||
                 sorted.zipWithNext().any { (a, b) -> a.ts == b.ts || a.source != b.source }) return null
-            return AapsV3ForecastPreview(sorted, emptyList())
+            return withDisplayTrend(sorted)
         }
 
         suspend fun from(rows: List<LocalNightscoutV3DocumentEntity>, now: Long): AapsV3ForecastPreview? {
@@ -36,6 +36,11 @@ internal class AapsV3ForecastPreview(
                 return null
             val latest = points.last()
             if (now - latest.ts > FRESH_MS) return AapsV3ForecastPreview(points, emptyList())
+            return withDisplayTrend(points)
+        }
+
+        private suspend fun withDisplayTrend(points: List<GlucosePoint>): AapsV3ForecastPreview {
+            val latest = points.last()
             val trend = ArrayList<GlucosePoint>()
             for (sample in points.asReversed()) {
                 val gap = trend.lastOrNull()?.let { it.ts - sample.ts }

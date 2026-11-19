@@ -2196,7 +2196,9 @@
     <string name="native_aaps_disabled">Включите Client Control и WebSocket в AAPS</string>
     <string name="native_aaps_revoked">Сопряжение отозвано</string>
     <string name="native_aaps_offline">Локальное соединение недоступно</string>
-    <string name="native_aaps_local_peer_verified">AAPS на этом телефоне отвечает. Канал команд не подключён.</string>
+    <string name="native_aaps_local_peer_verified">AAPS подтвердил локальное соединение на этом телефоне.</string>
+    <string name="native_aaps_permission_allowed">На этом телефоне разрешена отправка команд. Каждое действие проходит отдельную проверку.</string>
+    <string name="native_aaps_permission_blocked">Только наблюдение: Copilot не может отправлять углеводы и цели.</string>
     <string name="native_settings_probe_verified">AAPS получил проверочное сообщение через /storage и подписал ответ.</string>
     <string name="native_settings_probe_failed">Нет подписанного ответа на проверку /storage. Команда не отправлялась.</string>
     <string name="native_aaps_error">Связь не подтверждена. Проверьте AAPS, PIN и локальную синхронизацию.</string>

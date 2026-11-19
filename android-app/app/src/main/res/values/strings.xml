@@ -2188,7 +2188,9 @@
     <string name="native_aaps_disabled">Enable Client Control and WebSocket in AAPS</string>
     <string name="native_aaps_revoked">Pairing revoked</string>
     <string name="native_aaps_offline">Local connection unavailable</string>
-    <string name="native_aaps_local_peer_verified">AAPS responded on this phone. The command channel is not connected.</string>
+    <string name="native_aaps_local_peer_verified">AAPS confirmed the local connection on this phone.</string>
+    <string name="native_aaps_permission_allowed">Outgoing commands are permitted on this phone. Each action still requires its own checks.</string>
+    <string name="native_aaps_permission_blocked">Observation only: Copilot cannot send carbs or targets.</string>
     <string name="native_settings_probe_verified">AAPS received the test message over /storage and signed its reply.</string>
     <string name="native_settings_probe_failed">No signed reply to the /storage test. No command was sent.</string>
     <string name="native_aaps_error">Connection not confirmed. Check AAPS, PIN and local sync.</string>

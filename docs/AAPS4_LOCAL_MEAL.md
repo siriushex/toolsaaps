@@ -2,6 +2,8 @@
 
 When the same-phone legacy relay is absent, the manual food form can submit an immediate carb entry to a paired AAPS 4 master. Both apps must include the dedicated local meal providers, share a signing identity and have a current authorized pairing. An older preview-only master can validate a portion but cannot save it. This channel supports whole grams from 1 through 120, subject to the master's current, possibly lower limit. It never rounds a portion or requests insulin.
 
+The AAPS 4 settings page shows the local pairing status separately from the permission to send commands on this installation. For an AAPS insulin source, a user can open the existing two-step permission review from this page. Both the final personal confirmation and per-command checks are unchanged. Neither pairing nor enabling the permission proves that a meal has been saved.
+
 1. The user submits the form. Copilot freezes the portion and metadata under its unique submission key. Existing arming, rate and target-priority checks apply. Copilot sends the signed private preview directly to AAPS, not through the generic settings stream.
 2. AAPS validates the current role, key, counter, expiry, exactly one immediate carb action and its constrained amount. Its reply binds the preview identifier, submission marker and quantity. The temporary native batch is discarded.
 3. Before requesting a write Copilot stores the next signed counter and the pending readback in one database transaction. AAPS requires the same client and live unconsumed preview, rechecks the master constraints and uses only its carbs entry point. The preview identifier cannot execute a bolus. A process restart, role change, expiration or changed grams invalidates the pending preview.

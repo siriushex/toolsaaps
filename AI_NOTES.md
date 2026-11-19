@@ -1,3 +1,15 @@
+# Local AAPS forecast and command permission (2026-11-19)
+
+- The Forecast tab now uses the same display-only glucose trend for fresh
+  same-sensor readings from local v3 and the signed observation fallback.
+  Sparse series still show measurements only; the trend does not change
+  accepted clinical forecasts, meal timing or target decisions.
+- Settings > AAPS 4 distinguishes the local peer response, the installation's
+  outgoing permission and the separate target safety gate. With AAPS selected
+  as the insulin source, a blocked installation can open the existing personal
+  permission review here. Opening the review does not arm or submit anything.
+- Regression checks: AapsSignedGlucoseDisplayTest and NativeAapsConnectionSectionTest.
+
 # Confirming local carbohydrate records (2026-11-19)
 
 - For a manual meal sent via the owned v1 endpoint with the same-signature

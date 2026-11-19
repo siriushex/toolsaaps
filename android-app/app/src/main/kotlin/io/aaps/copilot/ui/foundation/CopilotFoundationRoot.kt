@@ -90,6 +90,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import io.aaps.copilot.R
 import io.aaps.copilot.config.UiStyle
+import io.aaps.copilot.config.SetupInsulinSource
 import io.aaps.copilot.config.SetupStatus
 import io.aaps.copilot.config.SetupStep
 import io.aaps.copilot.config.shouldAutoOpenSetup
@@ -644,6 +645,13 @@ fun CopilotFoundationRoot(
                                     viewModel.loadServerAiConnection()
                                 }
                                 SettingsScreen(
+                                    commandsArmed = setupState.therapyArmed.takeIf {
+                                        setupState.progress != null && !setupState.failed
+                                    },
+                                    onReviewCommandPermission = onReviewTherapy.takeIf {
+                                        !setupState.saving && !setupState.failed &&
+                                            setupState.progress?.insulinSource == SetupInsulinSource.AAPS
+                                    },
                                     onOpenSetup = {
                                         if (!navController.popBackStack(Destinations.Setup.route, false)) {
                                             navController.navigate(Destinations.Setup.route) { launchSingleTop = true }

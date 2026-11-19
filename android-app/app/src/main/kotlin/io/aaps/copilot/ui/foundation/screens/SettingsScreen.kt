@@ -133,6 +133,8 @@ fun SettingsScreen(
     forecastTestState: io.aaps.copilot.service.ForecastTestState = io.aaps.copilot.service.ForecastTestState(),
     onForecastTestToggle: (Boolean) -> Unit = {},
     onOpenSetup: () -> Unit = {},
+    commandsArmed: Boolean? = null,
+    onReviewCommandPermission: (() -> Unit)? = null,
     serverAiConnectionState: ServerAiConnectionState = ServerAiConnectionState(),
     onServerAiActivate: (String) -> Unit = {},
     onServerAiResume: () -> Unit = {},
@@ -432,7 +434,7 @@ fun SettingsScreen(
                     item {
                         NativeAapsConnectionSection(nativeAapsConnectionState, onNativeAapsPair, onNativeAapsCheck,
                             onNativeAapsRevoke, nativeAapsInbound, onNativeAapsInboundCheck,
-                            localAapsV3Upload, onLocalAapsV3Upload)
+                            localAapsV3Upload, onLocalAapsV3Upload, commandsArmed, onReviewCommandPermission)
                     }
                     item {
                         UamSettingsCard(

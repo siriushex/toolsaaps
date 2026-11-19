@@ -48,6 +48,24 @@ class NativeAapsConnectionSectionTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ComponentActivity
 
+    @Test fun blockedPermissionOpensOnlyTheExistingReview() {
+        var reviews = 0
+        screen(commandsArmed = false, review = { reviews++ }) {
+            compose.onNodeWithTag("native_aaps_permission").assertTextContains("Observation only", substring = true)
+            compose.onNodeWithTag("native_aaps_review_permission").performScrollTo().performClick()
+            assertEquals(1, reviews)
+            compose.onNodeWithTag("native_aaps_permission").assertTextContains("Observation only", substring = true)
+        }
+    }
+
+    @Test fun allowingCommandsDoesNotImplyATargetWasApplied() {
+        screen(commandsArmed = true, review = { error("Already allowed") }) {
+            compose.onNodeWithTag("native_aaps_permission").assertTextContains("are permitted", substring = true)
+            compose.onNodeWithTag("native_aaps_review_permission").assertDoesNotExist()
+            compose.onNodeWithText("AAPS 4 target control remains blocked", substring = true).assertExists()
+        }
+    }
+
     @Test fun pairingRequiresPinAndExplicitConsentAndDoesNotRetainPinWhenReopened() {
         var calls = 0
         screen(onPair = { pin, route -> assertArrayEquals("23456789".toCharArray(), pin); assertEquals(AapsV3PairingRoute.SAME_PHONE, route); pin.fill('\u0000'); calls++ }) {
@@ -212,6 +230,7 @@ class NativeAapsConnectionSectionTest {
         onPair: (CharArray, AapsV3PairingRoute) -> Unit = { pin, _ -> pin.fill('\u0000'); error("Unexpected pairing") },
         onCheck: () -> Unit = { error("Unexpected check") }, fontScale: Float = 1f,
         inbound: AapsV3InboundSummary? = null, onInboundCheck: () -> Unit = { error("Unexpected inbound check") },
+        commandsArmed: Boolean? = null, review: (() -> Unit)? = null,
         test: () -> Unit) {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity = controller.get()
@@ -222,7 +241,7 @@ class NativeAapsConnectionSectionTest {
                     AapsCopilotTheme(darkTheme = false, dynamicColor = false, uiStyle = UiStyle.CLARITY) {
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                             NativeAapsConnectionSection(state, onPair, onCheck, { error("Unexpected revoke") },
-                                inbound, onInboundCheck)
+                                inbound, onInboundCheck, commandsArmed = commandsArmed, onReviewCommandPermission = review)
                         }
                     }
                 }

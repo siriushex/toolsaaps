@@ -45,7 +45,9 @@ internal fun NativeAapsConnectionSection(
     inbound: AapsV3InboundSummary? = null,
     onInboundCheck: () -> Unit = {},
     localUpload: Boolean = false,
-    onLocalUpload: (Boolean) -> Unit = {}
+    onLocalUpload: (Boolean) -> Unit = {},
+    commandsArmed: Boolean? = null,
+    onReviewCommandPermission: (() -> Unit)? = null
 ) {
     var pairing by remember { mutableStateOf(false) }
     var revoking by remember { mutableStateOf(false) }
@@ -110,6 +112,16 @@ internal fun NativeAapsConnectionSection(
                 Modifier.testTag("native_aaps_profile_status"), style = MaterialTheme.typography.bodySmall)
         }
         Text(stringResource(R.string.native_aaps_control_unavailable), style = MaterialTheme.typography.bodySmall)
+        if (commandsArmed != null) {
+            Text(stringResource(if (commandsArmed) R.string.native_aaps_permission_allowed
+                else R.string.native_aaps_permission_blocked), Modifier.testTag("native_aaps_permission"))
+            if (!commandsArmed && onReviewCommandPermission != null) {
+                OutlinedButton(onClick = onReviewCommandPermission, enabled = !state.busy,
+                    modifier = Modifier.testTag("native_aaps_review_permission")) {
+                    Text(stringResource(R.string.setup_review_therapy))
+                }
+            }
+        }
         if (state.status in setOf(AapsV3ConnectionStatus.CONNECTED, AapsV3ConnectionStatus.VERIFYING,
                 AapsV3ConnectionStatus.CONTROL_DISABLED) || state.comboTransfer.lastAudit != null) {
             NativeComboHistorySection(state)
