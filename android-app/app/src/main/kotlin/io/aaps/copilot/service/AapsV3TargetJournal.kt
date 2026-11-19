@@ -601,6 +601,9 @@ internal class AapsV3TargetJournal(
         }
         check(root.pending == id && previous.phase == AapsV3TargetPhase.PREVIEW && nowMs >= root.lastIssuedAt)
         checkGuard()
+        previous.targetInput?.let { expected ->
+            check(pendingTargetAction(operationId)?.let(::actionFingerprint) == expected)
+        }
         val issuedAt = currentTime().also { check(it >= maxOf(nowMs, root.lastIssuedAt)) }
         val request = protocol.commit(AapsV3TargetRequest(checkNotNull(previous.prepare)),
             checkNotNull(previous.preview), next(root.counter), issuedAt)
