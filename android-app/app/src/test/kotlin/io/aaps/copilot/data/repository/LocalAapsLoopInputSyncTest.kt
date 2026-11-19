@@ -29,6 +29,22 @@ class LocalAapsLoopInputSyncTest {
     private var signals = 0
     private fun reader() = LocalAapsLoopInputSync(db, { body?.toByteArray() }, { enabled }, { signals++; accepted }, { now }, { nonce })
     @After fun close() = db.close()
+    @Test fun forecastSelectionSeparatesMissingInputsFromZeroAndDisabledScope() = runBlocking {
+        val empty = LocalLoopForecastSelection.capture(db, true, now)
+        empty.requireCurrent(db, true, now)
+        assertTrue(runCatching { empty.requireCurrent(db, false, now) }.exceptionOrNull() is IllegalArgumentException)
+        val off = LocalLoopForecastSelection.capture(db, false, now)
+        body = fixture.replace("12.5", "0.0")
+        reader().sync()
+        off.requireCurrent(db, false, now)
+        assertTrue(runCatching { empty.requireCurrent(db, true, now) }.exceptionOrNull() is IllegalArgumentException)
+
+        val current = LocalLoopForecastSelection.capture(db, true, now)
+        reader().sync()
+        current.requireCurrent(db, true, now + 250_000)
+        assertTrue(runCatching { current.requireCurrent(db, true, now + 250_001) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun exactLoopFactorInputsReachTheExistingAapsSelectorOnlyOnceConverted() = runBlocking {
         body = javaClass.getResource("/fixtures/local-loop-factors.json")!!.readText().trim()
         reader().sync()

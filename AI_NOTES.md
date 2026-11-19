@@ -1,3 +1,15 @@
+# Local AAPS inputs at forecast publication (2026-11-19)
+
+- Capture retained signed ISF, CR, net IOB and COB once per forecast candidate.
+  Recheck the exact values, original timestamps, freshness and read scope inside
+  the accepted-cycle transaction. A correction or withdrawal during prediction
+  rejects that result; an identical refresh does not. The last accepted cycle
+  is not rewritten on rejection. Existing source selection and therapeutic
+  limits are unchanged.
+- Room integration coverage starts from an accepted AAPS 4 forecast, changes
+  the signed packet during prediction and verifies recovery on the next cycle.
+  This is a data-consistency check, not validation of physiological accuracy.
+
 # First local AAPS observation without a normal cycle (2026-11-19)
 
 - A verified *live* CGM window can initialize the missing raw-glucose

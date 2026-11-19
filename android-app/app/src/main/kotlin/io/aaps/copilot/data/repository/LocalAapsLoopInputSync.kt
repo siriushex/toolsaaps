@@ -8,6 +8,24 @@ import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Ephemeral, exact inputs to one forecast. Never persist as delivery evidence or send to AI. */
+class LocalLoopForecastSelection private constructor(
+    private val enabled: Boolean,
+    internal val samples: List<TelemetrySampleEntity>
+) {
+    internal suspend fun requireCurrent(db: CopilotDatabase, allowed: Boolean, at: Long) {
+        require(allowed == enabled && (!enabled || LocalAapsLoopInputSync.activeSamples(db, at) == samples)) {
+            "local AAPS loop inputs changed before forecast publication"
+        }
+    }
+
+    internal companion object {
+        suspend fun capture(db: CopilotDatabase, enabled: Boolean, now: Long) = LocalLoopForecastSelection(
+            enabled, if (enabled) LocalAapsLoopInputSync.activeSamples(db, now) else emptyList()
+        )
+    }
+}
+
 internal class LocalAapsLoopInputSync(
     private val db: CopilotDatabase,
     private val read: suspend (String) -> ByteArray?,

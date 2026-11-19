@@ -1130,7 +1130,8 @@ class AutomationRepository(
             return null
         }
         // Freeze telemetry before the cycle clock and slow calibration/history preparation.
-        val resolvedTelemetry = resolveLatestTelemetry(System.currentTimeMillis(), settings)
+        val localLoopInputs = sensitivityRuntimeRepository.localLoopInputsForCandidate(sensitivitySnapshot)
+        val resolvedTelemetry = resolveLatestTelemetry(System.currentTimeMillis(), settings, localLoopInputs)
         val now = System.currentTimeMillis()
         val calibrationRuntime = prepareCalibrationRuntimeContext(
             rawGlucose = rawGlucose,
@@ -1306,7 +1307,8 @@ class AutomationRepository(
                     snapshot = sensitivitySnapshot,
                     forecasts = acceptedForecastCandidate,
                     preparedCalibration = preparedCalibration,
-                    expectedIsfCrInputGeneration = expectedIsfCrInputGeneration
+                    expectedIsfCrInputGeneration = expectedIsfCrInputGeneration,
+                    localLoopInputs = localLoopInputs
                 )
             },
             reconcileAcceptedRoomTuple = {
@@ -1701,13 +1703,18 @@ class AutomationRepository(
         snapshot: SensitivityRuntimeSnapshot,
         forecasts: List<Forecast>,
         preparedCalibration: PreparedCalibrationCycle,
-        expectedIsfCrInputGeneration: IsfCrInputGeneration
+        expectedIsfCrInputGeneration: IsfCrInputGeneration,
+        localLoopInputs: LocalLoopForecastSelection?
     ) {
         val rows = forecasts.map { it.toForecastEntity() }
         glucoseCalibrationRepository.commitPreparedCalibrationAcceptance(
             prepared = preparedCalibration,
             acceptedAtTs = acceptedAtTs
         ) {
+            localLoopInputs?.let { captured ->
+                val allowed = settingsStore.settings.first().nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)
+                captured.requireCurrent(db, allowed, System.currentTimeMillis())
+            }
             commitAcceptedSensitivityCycleStatic(
                 db = db,
                 acceptedAtTs = acceptedAtTs,
@@ -4604,7 +4611,8 @@ class AutomationRepository(
 
     private suspend fun resolveLatestTelemetry(
         nowTs: Long,
-        settings: AppSettings
+        settings: AppSettings,
+        localLoopInputs: LocalLoopForecastSelection?
     ): ResolvedLatestTelemetry {
         val baseRows = db.telemetryDao().latestBySourceAndKeySince(nowTs - TELEMETRY_LOOKBACK_MS)
         val reportRows = db.telemetryDao().latestReportAndProfileSince(nowTs - TELEMETRY_REPORT_LOOKBACK_MS)
@@ -4620,9 +4628,7 @@ class AutomationRepository(
             baseRows = baseRows,
             reportRows = reportRows
         )
-        val includeLocalInputs = baseRows.any { it.source == LocalAapsLoopInputSync.SOURCE } &&
-            settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)
-        val localInputs = if (includeLocalInputs) LocalAapsLoopInputSync.activeSamples(db, readCompletedAt) else emptyList()
+        val localInputs = localLoopInputs?.samples.orEmpty()
         val rows = ((baseRows + reportRows).filterNot { it.source == LocalAapsLoopInputSync.SOURCE } + localInputs)
             .distinctBy { row -> "${row.source}:${row.key}:${row.timestamp}" }
         if (rows.isEmpty()) return ResolvedLatestTelemetry(emptyMap(), emptyList())

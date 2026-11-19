@@ -612,6 +612,29 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
     }
 
     @Test
+    fun withdrawnLoopFactorDuringPredictionCannotReplaceLastAcceptedForecast() = runBlocking {
+        firstAaps4Forecast(observationOnly = true)
+        val now = System.currentTimeMillis()
+        suspend fun accepted() = requireNotNull(AcceptedSensitivityTupleRoomLoader(db).load(
+            settingsStore.settings.first().sensitivityRuntimeIdentity(), System.currentTimeMillis()))
+        val previous = accepted()
+        val crTs = LocalAapsLoopInputSync.activeSamples(db, now).single { it.key == "aaps_cr" }.timestamp
+        val changed = LocalAapsLoopInputSync(db, { nonce ->
+            """{"v":1,"at":$now,"nonce":"$nonce","inputCrGPerU":12,"crAt":$crTs}""".toByteArray()
+        }, { true }, { true }, { now })
+        val overlapping = repository(now, productionSensitivity = true, beforePredict = { changed.sync() })
+        val failure = runCatching { overlapping.runLocalReadOnlyCycle() }.exceptionOrNull()
+        assertThat(failure).hasMessageThat().contains("local AAPS loop inputs changed")
+        assertThat(accepted().snapshot.forecastCycleId).isEqualTo(previous.snapshot.forecastCycleId)
+        val next = requireNotNull(overlapping.runLocalReadOnlyCycle())
+        assertThat(next.isf.rawAaps).isNull()
+        assertThat(next.cr.rawAaps).isEqualTo(12.0)
+        assertThat(accepted().snapshot.forecastCycleId).isEqualTo(next.forecastCycleId)
+        assertThat(db.actionCommandDao().latest(1)).isEmpty()
+        assertThat(targetDispatches.get() + uamGatewayCalls.get() + server.requestCount).isEqualTo(0)
+    }
+
+    @Test
     fun sourceChangeRebuildsLegacyProfileBeforePublishingAcceptedSnapshot() = runBlocking {
         val now = System.currentTimeMillis()
         seedRisingGlucose(now, seedSensitivityGeneration = false)
@@ -1397,10 +1420,11 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         val settings = settingsStore.settings.first()
         val method = AutomationRepository::class.java.getDeclaredMethod(
             "resolveLatestTelemetry", Long::class.javaPrimitiveType,
-            io.aaps.copilot.config.AppSettings::class.java, kotlin.coroutines.Continuation::class.java
+            io.aaps.copilot.config.AppSettings::class.java, LocalLoopForecastSelection::class.java,
+            kotlin.coroutines.Continuation::class.java
         ).apply { isAccessible = true }
         val result = kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Any> { continuation ->
-            method.invoke(repo, readStartedAt, settings, continuation)
+            method.invoke(repo, readStartedAt, settings, null, continuation)
         }
         return result.javaClass.getDeclaredField("values").apply { isAccessible = true }.get(result)
             as Map<String, Double?>

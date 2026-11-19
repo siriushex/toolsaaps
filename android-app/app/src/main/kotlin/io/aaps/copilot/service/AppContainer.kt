@@ -29,6 +29,7 @@ import io.aaps.copilot.config.SetupProgress
 import io.aaps.copilot.config.SetupGlucoseSource
 import io.aaps.copilot.data.repository.LocalAapsCgmSync
 import io.aaps.copilot.data.repository.LocalAapsLoopInputSync
+import io.aaps.copilot.data.repository.LocalLoopForecastSelection
 import io.aaps.copilot.config.SetupInsulinSource
 import kotlinx.coroutines.withContext
 import io.aaps.copilot.data.repository.AapsCarbHistorySource
@@ -937,8 +938,9 @@ class AppContainer(context: Context) {
                     "cr_value", "raw_cr", "aaps_cr", "cr"
                 ).toList()
             )
-            val nativeFactors = if (settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource))
-                LocalAapsLoopInputSync.activeSamples(db, now) else emptyList()
+            val localInputs = LocalLoopForecastSelection.capture(db,
+                settings.nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource), now)
+            val nativeFactors = localInputs.samples
 
             val candidateInput = db.withTransaction {
                 val activeProfile = db.profileEstimateDao().active()
@@ -1061,6 +1063,7 @@ class AppContainer(context: Context) {
                 profileRevision = currentInputGeneration.profileRevision
             )
             return SensitivityRuntimeLoadedCandidates(
+                localLoopInputs = localInputs,
                 settingsRevision = settings.sensitivitySettingsRevision,
                 isfPreference = settings.isfSourcePreference,
                 crPreference = settings.crSourcePreference,
