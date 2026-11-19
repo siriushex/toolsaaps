@@ -107,7 +107,10 @@ class AapsV3EffectiveProfileSourceTest {
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE,
             AapsLocalObservation.decodePairedObservation(paired, "test-request", now + 1, now + 2)?.glucose)
         assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
-            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
+            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true, samePhoneGlucoseAtMs = at), parse(packet))
+        assertEquals(true, parse(packet).hasFreshPairedGlucose(at + 300_000))
+        assertEquals(false, parse(packet).hasFreshPairedGlucose(at + 300_001))
+        assertEquals(false, parse(packet).hasFreshPairedGlucose(now - 1))
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("version" to JsonPrimitive(2)))).glucose)
         val original = packet.getValue("insulin").jsonArray.single().jsonObject

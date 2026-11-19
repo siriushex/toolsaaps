@@ -1168,7 +1168,8 @@ class AppContainer(context: Context) {
                     clinical.profile == AapsV3ObservedProfileStatus.OBSERVED &&
                     clinical.insulin == AapsV3ObservedInsulinStatus.OBSERVED &&
                     clinical.insulinRecordCount > 0 && now >= received && now - issued in 0..10_000L &&
-                    LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received, System::currentTimeMillis)
+                    LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received, System::currentTimeMillis) &&
+                    clinical.hasFreshPairedGlucose(System.currentTimeMillis())
             }
             verify
         },

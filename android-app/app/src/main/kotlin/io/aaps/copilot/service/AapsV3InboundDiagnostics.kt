@@ -20,8 +20,13 @@ data class AapsV3InboundSummary(
     val insulinRecordCount: Int,
     val samePhone: Boolean = false,
     val comboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED,
-    val targetRow: LocalTargetRowCheck? = null
-)
+    val targetRow: LocalTargetRowCheck? = null,
+    val samePhoneGlucoseAtMs: Long? = null
+) {
+    internal fun hasFreshPairedGlucose(now: Long): Boolean =
+        samePhone && glucose == AapsV3InboundGlucose.FRESH && now >= checkedAtMs &&
+            samePhoneGlucoseAtMs?.let { it in 1..checkedAtMs && now - it <= 300_000L } == true
+}
 
 /** Checks locally retained uploads, without starting a session or projecting clinical inputs. */
 internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Store) {

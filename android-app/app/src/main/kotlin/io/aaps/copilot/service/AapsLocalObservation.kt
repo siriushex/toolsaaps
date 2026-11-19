@@ -220,7 +220,8 @@ internal object AapsLocalObservation {
         }
         val insulin = AapsV3InsulinInventoryTimeline(LocalV3RetainedSnapshot.Complete(at, records)).read(from, at, at)
         val count = insulin.records.count { !it.invalidated }
-        AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true)
+        AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true,
+            samePhoneGlucoseAtMs = latest?.takeIf { glucose == AapsV3InboundGlucose.FRESH })
     } catch (_: Exception) {
         unavailable(now)
     }
