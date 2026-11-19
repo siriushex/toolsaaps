@@ -1,0 +1,37 @@
+diff --git a/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensor.kt b/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensor.kt
+index e7e3f98ddb..5e6d0ff939 100644
+--- a/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensor.kt
++++ b/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensor.kt
+@@ -29,3 +29,3 @@ enum class SourceSensor(val text: String, val aliases: Set<String> = emptySet())
+     MM_UNKNOWN("Medtronic", setOf("CareLink Follow")),
+-    SIBIONIC_UNKNOWN("SI App"),
++    SIBIONIC_UNKNOWN("SI App", setOf("Sibionics")),
+     SIBIONIC_GS1("GS1Sb"),
+diff --git a/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensorExtensions.kt b/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensorExtensions.kt
+index 6eedcffb8d..4d3be828b0 100644
+--- a/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensorExtensions.kt
++++ b/core/data/src/commonMain/kotlin/app/aaps/core/data/model/SourceSensorExtensions.kt
+@@ -30,2 +30,4 @@ private val FLAT_BG_CHECK_SENSORS = setOf(
+     SourceSensor.LIBRE_1,
++    // A vendor-only broadcast does not identify the model or a direct sensor link.
++    SourceSensor.SIBIONIC_UNKNOWN,
+     // Medtronic with no model: a Guardian needs calibration, and a CareLink link can repeat a value.
+diff --git a/core/data/src/commonTest/kotlin/app/aaps/core/data/model/SourceSensorExtensionsTest.kt b/core/data/src/commonTest/kotlin/app/aaps/core/data/model/SourceSensorExtensionsTest.kt
+index 3757d506c2..0e8777324f 100644
+--- a/core/data/src/commonTest/kotlin/app/aaps/core/data/model/SourceSensorExtensionsTest.kt
++++ b/core/data/src/commonTest/kotlin/app/aaps/core/data/model/SourceSensorExtensionsTest.kt
+@@ -13,2 +13,14 @@ class SourceSensorExtensionsTest {
++    @Test
++    fun vendorOnlySibionicsBroadcastKeepsUnknownSensorProtections() {
++        val sensor = SourceSensor.fromString("Sibionics")
++        kotlin.test.assertEquals(SourceSensor.SIBIONIC_UNKNOWN, sensor)
++        assertTrue(sensor.needsFlatBgCheck())
++        assertFalse(sensor.advancedFilteringSupported())
++        kotlin.test.assertEquals(SourceSensor.UNKNOWN, SourceSensor.fromString("Nightscout Follow::Sibionics"))
++        kotlin.test.assertEquals(SourceSensor.UNKNOWN, SourceSensor.fromString("Sibionics relay"))
++        kotlin.test.assertEquals(SourceSensor.SIBIONIC_GS1, SourceSensor.fromString("GS1Sb"))
++        kotlin.test.assertEquals(SourceSensor.SIBIONIC_GS3, SourceSensor.fromString("GS3"))
++    }
++
+     @Test
+     fun `dexcom native sensors support advanced filtering`() {
