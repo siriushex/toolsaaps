@@ -206,7 +206,7 @@ internal class AapsV3TargetJournal(
                               nowMs: Long = System.currentTimeMillis()): AapsV3PairingSnapshot = transaction {
         val pair = pairing()
         // A single-client local enrollment must not become active from an ambient settings document.
-        if (pair.localBinding != null) return@transaction pair.snapshot()
+        if (pair.localBinding != null && pair.phase != AapsV3PairingPhase.ACTIVE) return@transaction pair.snapshot()
         if (row.collection != "settings" || row.identifier != "aaps" || row.source != "local-v3-owner" ||
             row.modifiedRevision <= maxOf(pair.helloRevision, pair.rosterRevision)) return@transaction pair.snapshot()
         if (pair.requiresSignedRoster) {
@@ -275,13 +275,14 @@ internal class AapsV3TargetJournal(
         check(nowMs >= root.lastIssuedAt)
         val previous = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) }
         val previousAt = previous?.request?.getValue("timestamp")?.jsonPrimitive?.long
-        if (previous?.request?.getValue("clientId") == JsonPrimitive(pair.clientId) &&
+        if (!(active && previous?.localInvitation == true) &&
+            previous?.request?.getValue("clientId") == JsonPrimitive(pair.clientId) &&
             previousAt != null && previousAt >= sessionStartedAt && nowMs - previousAt < 60_000) return@transaction null
         val secret = secretBytes(pair)
         try {
             val request = AapsV3SessionProtocol(secret).use { it.ping(root.clientId, next(root.counter), nowMs) }
             val publication = publish(AapsV3TargetRequest(request))
-            put(PROBE, json.encodeToString(Probe(request)))
+            put(PROBE, json.encodeToString(Probe(request, localInvitation = local != null)))
             put(ROOT, json.encodeToString(root.copy(counter = next(root.counter), lastIssuedAt = nowMs)))
             if (local != null) check(localOffers?.ready(local) == true)
             publication
@@ -331,7 +332,11 @@ internal class AapsV3TargetJournal(
         true
     }
 
-    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?): AapsLocalRoleReceipt? {
+    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?) =
+        checkLocalMembership(clock, ask) { false }
+
+    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?,
+                                     commandStorageLive: () -> Boolean): AapsLocalRoleReceipt? {
         val pair = transaction { pairingOrNull() } ?: return null
         if (pair.localBinding == null || !pair.secretRotated || pair.phase == AapsV3PairingPhase.REVOKED ||
             pair.verifiedSubject == null || pair.enrollmentRole == null) return null
@@ -349,7 +354,25 @@ internal class AapsV3TargetJournal(
             if (bytes.size !in 1..2048) return null
             val doc = HistoryJson.parse(bytes, 2048)
             transaction {
-                if (pairingOrNull() != pair) null else key.verifyLocalWitness(doc, pair.clientId, pair.masterInstallId, nonce, issued, clock())
+                if (pairingOrNull() != pair) return@transaction null
+                val now = clock()
+                val witness = key.verifyLocalWitness(doc, pair.clientId, pair.masterInstallId, nonce, issued, now)
+                    ?: return@transaction null
+                if (pair.phase == AapsV3PairingPhase.WAITING && commandStorageLive()) {
+                    val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps")
+                    if (row != null && !row.deleted && row.source == "local-v3-owner" &&
+                        row.modifiedRevision > maxOf(pair.helloRevision, pair.rosterRevision)) {
+                        val roster = key.verifyRoster(HistoryJson.parse(row.payloadJson.toByteArray(), 65_536),
+                            pair.clientId, now, maxOf(pair.enrolledAt, pair.rosterSignedAt + 1, now - 8_000L))
+                        if (roster != null && roster.confirmsLocalMembership(witness, issued, now) && commandStorageLive()) {
+                            // Require a new command-session pong; the invitation's pong is not reusable.
+                            put(PAIRING, json.encodeToString(pair.copy(phase = AapsV3PairingPhase.ACTIVE,
+                                controlEnabled = true, verifiedRole = roster.role, rosterSignedAt = roster.signedAt,
+                                rosterRevision = row.modifiedRevision, lastPongAt = 0L)))
+                        }
+                    }
+                }
+                witness
             }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null } finally { bytes.fill(0) }
     }
@@ -1004,7 +1027,7 @@ internal class AapsV3TargetJournal(
     @Serializable private data class PendingExchange(val publicPoint: String, val privateDer: String) {
         override fun toString() = "PendingExchange(redacted)"
     }
-    @Serializable private data class Probe(val request: JsonObject)
+    @Serializable private data class Probe(val request: JsonObject, val localInvitation: Boolean = false)
     @Serializable private data class ComboRead(val clientId: String, val masterInstallId: String,
         val requestId: String, val counter: Long, val issuedAt: Long, val spec: AapsV3ComboReadSpec,
         val publicationRevision: Long, val phase: AapsV3ComboReadPhase = AapsV3ComboReadPhase.ISSUED,

@@ -304,7 +304,9 @@ internal class AapsV3TargetChannel(
                 (checkSettings && previous.settings != null && now - previous.attempted in 0 until 5_000L))) previous.receipt
             else {
                 val storagePeer = localSettingsPeer.takeIf { checkSettings }
-                val overSettings = storagePeer?.let { journal.checkLocalMembership(clock, it) }
+                val overSettings = storagePeer?.let { peer -> journal.checkLocalMembership(clock, peer) {
+                    runtimeAllowed && generation.get() == epoch && storageAvailable()
+                } }
                 val result = overSettings ?: if (storagePeer != null && previous != null &&
                     previous.settings == null && now - previous.attempted in 0 until 5_000L) previous.receipt
                     else journal.checkLocalMembership(clock, witnessPeer)

@@ -71,6 +71,18 @@ class AapsV3TargetChannelTest {
         AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline(it) }, { it() }, now::get, historyFactory,
             reportTargetFailure = { reportFailure(it) }, capturePairedBaseline = capture)
 
+    @Test fun pairedRosterMustAgreeWithTheFreshWitness() {
+        val proof = AapsFinalRosterProof(at, true, AapsFinalClientRole.CAREGIVER, true)
+        val receipt = AapsLocalRoleReceipt(proof.role, at)
+        assertTrue(proof.confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(role = AapsFinalClientRole.ADMIN).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(member = false).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(controlEnabled = false).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(signedAt = at - 8001).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(signedAt = at + 1).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.confirmsLocalMembership(receipt, at, at + 8000))
+    }
+
     private fun localWrapped(): ByteArray {
         val expiry = at + 120_000
         return syntheticPairingOffer(buildJsonObject {
