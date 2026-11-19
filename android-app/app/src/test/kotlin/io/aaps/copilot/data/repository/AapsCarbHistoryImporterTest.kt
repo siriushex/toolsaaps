@@ -132,7 +132,7 @@ class AapsCarbHistoryImporterTest {
 
         assertThat(transaction.calls).isEqualTo(1)
         assertThat(dao.daoCalls)
-            .containsExactly("carbCandidates", "carbCandidates", "upsertAll")
+            .containsExactly("carbCandidates", "linkedCarbCandidates", "carbCandidates", "linkedCarbCandidates", "upsertAll")
             .inOrder()
         assertThat(dao.upserted).hasSize(1)
     }
@@ -967,6 +967,15 @@ class AapsCarbHistoryImporterTest {
             arrayOf(TherapyDao::class.java)
         ) { _, method, args ->
             when (method.name) {
+                "linkedCarbCandidates" -> {
+                    daoCalls += method.name
+                    onDaoCall?.invoke(method.name)
+                    val prefix = "\"aapsCarbId\":${args[0]}"
+                    stored.values.filter {
+                        it.type in setOf("carbs", "meal_bolus") &&
+                            (it.payloadJson.contains("$prefix,") || it.payloadJson.contains("$prefix}"))
+                    }.sortedBy { it.id }.take(args[1] as Int)
+                }
                 "carbCandidates" -> {
                     daoCalls += method.name
                     onDaoCall?.invoke(method.name)

@@ -1,3 +1,15 @@
+# Rescheduled local AAPS meals and transient SQLite journals (2026-11-19)
+
+- On a revised carb row, look for the previously linked source ID even outside
+  the near-time match. A moved carb on a combined record supersedes only the
+  carb component. Its bolus timestamp, units and validity remain unchanged.
+  A Room regression covers amount and time moving together, replay, then
+  invalidation. It failed before the fix with the original grams still active.
+- The protected owner API also re-stats the name of an already unlinked,
+  privately owned rollback journal. The current entry must still satisfy the
+  original file checks if present. Tests cover absence, a private replacement,
+  a wrong-mode replacement and a symbolic link. No production changes.
+
 # Local AAPS carbohydrate history (2026-11-19)
 
 - On the local AAPS 4 path, the background reader and manual daily analysis

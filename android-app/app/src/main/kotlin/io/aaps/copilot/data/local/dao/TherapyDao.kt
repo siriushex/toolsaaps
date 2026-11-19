@@ -113,6 +113,16 @@ interface TherapyDao {
     )
     suspend fun carbCandidates(fromTs: Long, toTs: Long): List<TherapyEventEntity>
 
+    // Importer-owned metadata is serialized with sorted keys and no whitespace.
+    // Check the numeric delimiter; source id 7 must not select 70.
+    @Query(
+        "SELECT * FROM therapy_events WHERE type IN ('carbs','meal_bolus') " +
+            "AND (instr(payloadJson, '\"aapsCarbId\":' || :sourceId || ',') > 0 " +
+            "OR instr(payloadJson, '\"aapsCarbId\":' || :sourceId || '}') > 0) " +
+            "ORDER BY id LIMIT :limit"
+    )
+    suspend fun linkedCarbCandidates(sourceId: Long, limit: Int): List<TherapyEventEntity>
+
     @Query(
         "SELECT timestamp AS ts, type, payloadJson, id AS rowId, 0 AS isBroadcastArtifact " +
             "FROM therapy_events WHERE type IN ('carbs','meal_bolus') " +

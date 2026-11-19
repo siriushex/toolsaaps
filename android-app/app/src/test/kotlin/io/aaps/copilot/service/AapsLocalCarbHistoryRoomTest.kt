@@ -7,6 +7,7 @@ import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.google.gson.JsonParser
 import io.aaps.copilot.data.local.CopilotDatabase
+import io.aaps.copilot.data.local.entity.TherapyEventEntity
 import io.aaps.copilot.data.repository.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -31,6 +32,41 @@ class AapsLocalCarbHistoryRoomTest {
         assertEquals("Test\u2028meal", row.notes)
         assertFalse(row.isValid)
         assertEquals(7L, row.id)
+    }
+
+    @Test fun movingLinkedMealKeepsBolusTimeAndOnlyOneActiveCarbComponent() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CopilotDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = db.therapyDao()
+            val importer = AapsCarbHistoryImporter(dao, AapsCarbImportTransactionRunner { block -> db.withTransaction { block() } })
+            val payload = requireNotNull(javaClass.getResource("/fixtures/local-carb-page-v1.json")).readText()
+            val request = AapsCarbHistoryRequest(nonce, at - 30L * 86_400_000L, at, 0, 0, 32)
+            val page = (AapsLocalObservation.decodeCarbReply(request, Bundle().apply {
+                putString("nonce", nonce); putLong("revisionId", 9); putString("payload", payload)
+            }) as AapsCarbHistoryResult.Page).value
+            val original = at - 3_600_000L
+            val moved = original + 1_800_000L
+            val meal = page.rows.single().copy(version = 0, timestamp = original, isValid = true, amount = 20.0,
+                notes = null, nightscoutId = "combined-entry")
+            dao.upsertAll(listOf(TherapyEventEntity("combined-entry", original, "meal_bolus",
+                """{"grams":20,"insulin":1.2,"isValid":true}""")))
+            importer.importPage(page.copy(rows = listOf(meal)))
+            assertEquals(1, dao.since(0).size)
+            val revised = meal.copy(version = 1, timestamp = moved, amount = 12.0, nightscoutId = null)
+            repeat(2) { importer.importPage(page.copy(rows = listOf(revised), revisionId = 10)) }
+            val events = dao.since(0)
+            fun fields(e: TherapyEventEntity) = JsonParser.parseString(e.payloadJson).asJsonObject
+            assertEquals(listOf(original, moved), events.map { it.timestamp })
+            assertEquals(1.2, fields(events.first())["insulin"].asDouble, 0.0)
+            assertTrue(fields(events.first())["isValid"].asBoolean)
+            assertEquals(0.0, fields(events.first())["grams"].asDouble, 0.0)
+            assertFalse(fields(events.first())["aapsCarbIsValid"].asBoolean)
+            assertEquals(12.0, fields(events.last())["carbs"].asDouble, 0.0)
+            assertFalse(fields(events.last()).has("insulin"))
+            importer.importPage(page.copy(rows = listOf(revised.copy(version = 2, isValid = false)), revisionId = 11))
+            assertTrue(dao.since(0).none { fields(it)["aapsCarbIsValid"].asBoolean })
+        } finally { db.close() }
     }
 
     @Test fun localPagesUpdateOneMealAndRetainItsInvalidationOnReplay() = runBlocking {

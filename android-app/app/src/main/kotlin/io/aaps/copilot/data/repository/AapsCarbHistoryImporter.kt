@@ -55,10 +55,16 @@ internal class AapsCarbHistoryImporter(
             page.rows.forEach { row ->
                 val fromTs = subtractSaturated(row.timestamp, MATCH_WINDOW_MS)
                 val toTs = addSaturated(row.timestamp, MATCH_WINDOW_MS)
-                val persistedCandidates = therapyDao.carbCandidates(
+                val nearby = therapyDao.carbCandidates(
                     fromTs = fromTs,
                     toTs = toTs
                 )
+                val linked = if (row.version > 0 || !row.isValid) {
+                    therapyDao.linkedCarbCandidates(row.id, MAX_LINKED + 1).also {
+                        check(it.size <= MAX_LINKED) { "ambiguous_carb_history_links" }
+                    }
+                } else emptyList()
+                val persistedCandidates = (nearby + linked).distinctBy { it.id }
                 persistedCandidates.forEach { candidate ->
                     persistedById.putIfAbsent(candidate.id, candidate)
                 }
@@ -68,14 +74,23 @@ internal class AapsCarbHistoryImporter(
                     fromTs = fromTs,
                     toTs = toTs
                 )
-                val selection = selectTarget(row, candidates)
+                // Keep the original event (and its bolus clock) when AAPS moves
+                // a previously linked carb. Only its carb component is retired.
+                val moved = candidates.filter { candidate ->
+                    if (candidate.id == "aaps-carb-${row.id}") return@filter false
+                    val payload = parseObject(candidate.payloadJson) ?: return@filter false
+                    payload.aapsCarbIdExact() == row.id &&
+                        payload.booleanValue(AAPS_CARB_SUPERSEDED) != true &&
+                        payload.primitive(AAPS_TIMESTAMP)?.asString?.toLongOrNull()?.let { it != row.timestamp } == true
+                }
+                val selection = selectTarget(row, candidates - moved.toSet())
                 val survivor = buildEntity(row, page, selection.survivor)
                 val tombstones = selection.supersededPureCarbs.map { candidate ->
-                    buildSupersededPureCarb(
+                    buildSupersededCarb(
                         entity = buildEntity(row, page, candidate),
                         survivorId = survivor.id
                     )
-                }
+                } + moved.map { buildSupersededCarb(it, survivor.id) }
                 (listOf(survivor) + tombstones).forEach { entity ->
                     plannedById[entity.id] = entity
                 }
@@ -192,12 +207,14 @@ internal class AapsCarbHistoryImporter(
         )
         .firstOrNull()
 
-    private fun buildSupersededPureCarb(
+    private fun buildSupersededCarb(
         entity: TherapyEventEntity,
         survivorId: String
     ): TherapyEventEntity {
         val payload = parseObject(entity.payloadJson)?.deepCopy() ?: JsonObject()
-        payload.addProperty(IS_VALID, false)
+        if (!entity.type.equals(TYPE_MEAL_BOLUS, ignoreCase = true) || payload.insulinUnits() == null) {
+            payload.addProperty(IS_VALID, false)
+        }
         payload.addProperty(AAPS_CARB_IS_VALID, false)
         payload.setEffectiveCarbs(0.0)
         payload.addProperty(AAPS_CARB_SUPERSEDED, true)
@@ -464,6 +481,7 @@ internal class AapsCarbHistoryImporter(
 
     private companion object {
         const val MATCH_WINDOW_MS = 2_000L
+        const val MAX_LINKED = 16
         const val GRAMS_EPSILON = 0.01
         const val SHA_256_HEX_LENGTH = 64
         const val HEX_DIGITS = "0123456789abcdef"

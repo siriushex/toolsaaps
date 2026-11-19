@@ -3108,8 +3108,10 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     @Test
     fun normalClosePacketAcknowledgesThenRejectsFurtherRequests() {
         val port = freePort()
-        server = newServer(MutableLocalNightscoutRuntimeState())
-        assertThat(server?.update(true, port)).isEqualTo(port)
+        val runtime = MutableLocalNightscoutRuntimeState()
+        server = newServer(runtime)
+        val started = server?.update(true, port)
+        com.google.common.truth.Truth.assertWithMessage("server startup (${runtime.value.reason})").that(started).isEqualTo(port)
         val client = trustedClient(caCertificate)
         val sid = openSocket(client, port)
         assertThat(postSocketCode(client, port, sid, "1")).isEqualTo(200)
