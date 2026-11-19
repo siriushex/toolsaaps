@@ -3320,6 +3320,7 @@ class MainViewModel(application: Application) :
             this.aiTuningStatusRaw = aiTuningStatus.statusRaw
             this.latestDataAgeMinutes = latestDataAgeMinutes
             this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
+            this.localAapsInputMode = settings.localAapsV3Upload
             this.cloudPushBacklogMinutes = cloudPushBacklogMinutes
             this.latestGlucoseMmol = latest?.mmol
             this.rawGlucoseMmol = rawGlucoseMmol
@@ -3933,6 +3934,7 @@ class MainViewModel(application: Application) :
             this.crRuntimeSourcePreference = publishedSensitivity?.cr?.requested?.name ?: "UNAVAILABLE"
             this.latestDataAgeMinutes = latestDataAgeMinutes
             this.nightscoutSyncAgeMinutes = nightscoutAgeMinutes
+            this.localAapsInputMode = settings.localAapsV3Upload
             this.latestGlucoseMmol = latest?.mmol
             this.rawGlucoseMmol = rawGlucoseMmol
             this.calibratedGlucoseMmol = calibratedGlucoseMmol
@@ -13361,6 +13363,7 @@ class MainUiState {
     var aiTuningStatusRaw: String? = null
     var latestDataAgeMinutes: Long? = null
     var nightscoutSyncAgeMinutes: Long? = null
+    var localAapsInputMode: Boolean = false
     var cloudPushBacklogMinutes: Long? = null
     var latestGlucoseMmol: Double? = null
     var rawGlucoseMmol: Double? = null

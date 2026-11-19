@@ -415,7 +415,11 @@ fun CopilotFoundationRoot(
                             AppHealthBanner(
                                 staleData = appHealth.staleData,
                                 killSwitchEnabled = appHealth.killSwitchEnabled,
-                                lastSyncText = appHealth.lastSyncText,
+                                lastSyncText = if (appHealth.localAapsInputMode) {
+                                    appHealth.clinicalGlucoseAgeMinutes?.let {
+                                        stringResource(R.string.app_health_clinical_glucose_age, it)
+                                    } ?: stringResource(R.string.app_health_no_clinical_glucose)
+                                } else stringResource(R.string.app_health_last_sync, appHealth.lastSyncText),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(Spacing.sm))
