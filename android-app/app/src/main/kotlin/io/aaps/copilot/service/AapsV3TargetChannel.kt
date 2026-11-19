@@ -457,7 +457,8 @@ internal class AapsV3TargetChannel(
                     stage = "journal_publication"
                 }
                 stage = "prepare"
-                capture(commit = false)
+                // prepare validates the stored payload fingerprint even for a settled command.
+                if (capturePairedBaseline != null && journal.status(command.idempotencyKey) == null) capture(commit = false)
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
                         currentTime = clock, expectedActionId = command.id) { guard() }

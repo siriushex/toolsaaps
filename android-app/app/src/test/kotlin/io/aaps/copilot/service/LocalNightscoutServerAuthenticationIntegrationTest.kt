@@ -1312,8 +1312,13 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
             SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
         })
+        val captures = mutableListOf<Pair<String, Boolean>>()
         val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
-            { null }, { write -> write() }, now::get)
+            { null }, { write -> write() }, now::get, capturePairedBaseline = { master, commit ->
+                captures.add(master to commit)
+                val verify: suspend () -> Boolean = { true }
+                verify
+            })
         val trustFile = File.createTempFile("storage-stand-trust-", ".p12")
         val output = File.createTempFile("storage-stand-result-", ".txt")
         var child: Process? = null
@@ -1382,6 +1387,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(channel.send(commands.last()) { error("A settled command cannot be resent") })
                 .isEqualTo(NativeTargetOutcome.APPLIED)
             assertThat(db.localNightscoutV3Dao().head("settings")).isEqualTo(head)
+            val masterId = checkNotNull(journal.pairingSnapshot()).masterInstallId
+            assertThat(captures).isEqualTo(listOf(masterId to false, masterId to true, masterId to false, masterId to true))
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(db.glucoseDao().since(0)).isEmpty()
         } finally {
