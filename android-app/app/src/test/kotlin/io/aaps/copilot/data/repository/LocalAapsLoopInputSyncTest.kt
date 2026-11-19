@@ -33,8 +33,12 @@ class LocalAapsLoopInputSyncTest {
         val complete = javaClass.getResource("/fixtures/local-loop-factors.json")!!.readText().trim()
         body = complete
         reader().sync()
-        suspend fun matches(input: String) = LocalAapsLoopInputSync.matchesPairedSamples(db, input.toByteArray(), nonce, now, now)
+        suspend fun matches(input: String, checkedAt: Long = now) =
+            LocalAapsLoopInputSync.matchesPairedSamples(db, input.toByteArray(), nonce, now, now) { checkedAt }
         assertTrue(matches(complete))
+        assertTrue(matches(complete, now + 10_000))
+        assertFalse(matches(complete, now + 10_001))
+        assertFalse(matches(complete, now - 1))
         assertFalse(matches(complete.replace("12.5", "13.5")))
         assertFalse(matches(fixture))
         assertFalse(matches(complete.replace(",\"cobG\":12.5,\"cobAt\":1799999900000", "")))

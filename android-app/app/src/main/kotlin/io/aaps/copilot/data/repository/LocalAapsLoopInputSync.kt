@@ -94,11 +94,13 @@ internal class LocalAapsLoopInputSync(
         private const val DIRTY = "aaps_local_loop_invalidation_pending"
         private val NAMES = listOf("iob_net_units", "cob_grams", "aaps_isf", "aaps_cr")
         internal suspend fun matchesPairedSamples(db: CopilotDatabase, reply: ByteArray, nonce: String,
-                                                 issued: Long, received: Long): Boolean {
+                                                 issued: Long, received: Long, clock: () -> Long): Boolean {
             val paired = decodeSamples(reply, nonce, issued, received)
             if (paired.size != NAMES.size) return false
             val selected = activeSamples(db, received)
-            return selected.size == paired.size && selected.toSet() == paired.toSet()
+            val checkedAt = clock()
+            return checkedAt >= received && checkedAt - issued in 0..10_000L &&
+                selected.size == paired.size && selected.toSet() == paired.toSet() && selected.all { current(it, checkedAt) }
         }
         private fun selectionKey(name: String) = "aaps_local_loop_current_$name"
 
