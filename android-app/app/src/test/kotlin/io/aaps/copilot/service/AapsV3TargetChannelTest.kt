@@ -376,6 +376,7 @@ class AapsV3TargetChannelTest {
             assertEquals(JsonPrimitive("temp_target"), action["type"])
             assertEquals(JsonPrimitive("Eating Soon"), action["reason"])
             assertEquals(JsonPrimitive(EatingSoonPolicy.DURATION_MINUTES), action["durationMinutes"])
+            assertEquals(JsonPrimitive("copilot:" + eatingSoon.idempotencyKey), action["notes"])
             preview()
             val commit = request("bolus_commit")
             val payload = Json.parseToJsonElement(commit.getValue("payload").jsonPrimitive.content).jsonObject
@@ -559,7 +560,11 @@ class AapsV3TargetChannelTest {
         val master = launch(Dispatchers.IO) { preview(); acknowledge(request("bolus_commit")) }
         assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { null })
         master.join()
-        assertEquals(3L, request("batch_prepare").getValue("counter").jsonPrimitive.long)
+        val prepare = request("batch_prepare")
+        assertEquals(3L, prepare.getValue("counter").jsonPrimitive.long)
+        val action = Json.parseToJsonElement(prepare.getValue("payload").jsonPrimitive.content).jsonObject
+            .getValue("actions").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("copilot:" + command().idempotencyKey), action["notes"])
         assertEquals(4L, request("bolus_commit").getValue("counter").jsonPrimitive.long)
         val head = db.localNightscoutV3Dao().head("settings")
         assertEquals(NativeTargetOutcome.APPLIED, channel.send(command()) { error("no repeat") })

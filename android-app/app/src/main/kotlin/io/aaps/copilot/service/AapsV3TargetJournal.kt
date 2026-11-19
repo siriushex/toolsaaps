@@ -421,7 +421,7 @@ internal class AapsV3TargetJournal(
             pair.masterPublicPoint != null && pair.pongCounter >= 2 &&
             pair.enrollmentRole in setOf(AapsFinalClientRole.MEAL_ASSISTANT, AapsFinalClientRole.CAREGIVER, AapsFinalClientRole.ADMIN))
         recordOrNull(id)?.let {
-            check(it.mealGrams?.toDouble() == grams && it.operationId == operationId && it.mealInput == mealFingerprint(row))
+            check(it.mealGrams?.toDouble() == grams && it.operationId == operationId && it.mealInput == actionFingerprint(row))
             return@transaction null
         }
         if (root.pending != null || db.actionCommandDao().hasPendingTempTarget()) return@transaction null
@@ -435,7 +435,7 @@ internal class AapsV3TargetJournal(
         val wire = req.envelope.json
         val counter = HistoryJson.long(wire.getValue("counter"))
         put(id, json.encodeToString(Record(digest(HistoryJson.string(wire.getValue("payload"))),
-            AapsV3TargetPhase.PREPARED, counter, wire, operationId = operationId, mealGrams = req.grams, mealInput = mealFingerprint(row))))
+            AapsV3TargetPhase.PREPARED, counter, wire, operationId = operationId, mealGrams = req.grams, mealInput = actionFingerprint(row))))
         put(ROOT, json.encodeToString(root.copy(counter = counter, lastIssuedAt = issued, pending = id)))
         checkGuard()
         check(clock() in issued until HistoryJson.long(wire.getValue("validUntil")))
@@ -453,7 +453,7 @@ internal class AapsV3TargetJournal(
         if (pair.clientId != root.clientId || pair.localBinding == null || pair.phase == AapsV3PairingPhase.REVOKED)
             return@transaction false
         val row = db.actionCommandDao().forTargetObservationProof(operationId).singleOrNull() ?: return@transaction false
-        if (row.status != "PENDING" || row.type != "carbs" || mealFingerprint(row) != prior.mealInput) return@transaction false
+        if (row.status != "PENDING" || row.type != "carbs" || actionFingerprint(row) != prior.mealInput) return@transaction false
         val req = AapsV3MealPrepare(AapsV3TargetRequest(checkNotNull(prior.prepare)), operationId, grams)
         val key = secretBytes(pair)
         val ok = try { AapsV3TargetProtocol(key).use { it.verifiedMealPreview(req, ack, nowMs) } }
@@ -470,7 +470,7 @@ internal class AapsV3TargetJournal(
         val prior = record(id)
         val row = db.actionCommandDao().forTargetObservationProof(operationId).single()
         check(root.pending == id && root.counter == prior.counter && prior.phase == AapsV3TargetPhase.PREVIEW &&
-            prior.operationId == operationId && row.status == "PENDING" && row.type == "carbs" && mealFingerprint(row) == prior.mealInput)
+            prior.operationId == operationId && row.status == "PENDING" && row.type == "carbs" && actionFingerprint(row) == prior.mealInput)
         val pair = pairing()
         check(pair.clientId == root.clientId && pair.localBinding != null && pair.phase != AapsV3PairingPhase.REVOKED)
         guard()
@@ -487,7 +487,7 @@ internal class AapsV3TargetJournal(
         val waiting = row.copy(timestamp = now, status = io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT,
             payloadJson = JsonObject(payload + ("deliveryChannel" to JsonPrimitive(NATIVE_MEAL_RECEIPT))).toString())
         db.actionCommandDao().upsert(waiting)
-        put(id, json.encodeToString(prior.copy(phase = AapsV3TargetPhase.COMMITTED, counter = next, commit = wire.json, mealInput = mealFingerprint(waiting))))
+        put(id, json.encodeToString(prior.copy(phase = AapsV3TargetPhase.COMMITTED, counter = next, commit = wire.json, mealInput = actionFingerprint(waiting))))
         put(ROOT, json.encodeToString(root.copy(counter = next, lastIssuedAt = now, pending = null)))
         guard()
         check(clock() in now until HistoryJson.long(checkNotNull(prior.prepare).getValue("validUntil")))
@@ -500,7 +500,7 @@ internal class AapsV3TargetJournal(
         val current = db.actionCommandDao().forTargetObservationProof(row.idempotencyKey).singleOrNull() ?: return@transaction false
         if (record.operationId != row.idempotencyKey || record.mealGrams?.toDouble() != grams || record.phase != AapsV3TargetPhase.COMMITTED ||
             row != current || row.status != io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT ||
-            record.mealInput != mealFingerprint(row)) return@transaction false
+            record.mealInput != actionFingerprint(row)) return@transaction false
         val wire = checkNotNull(record.commit)
         check(row.timestamp == HistoryJson.long(wire.getValue("timestamp")) && at in row.timestamp until HistoryJson.long(wire.getValue("validUntil")))
         val payload = HistoryJson.parse(row.payloadJson.encodeToByteArray(), 16_384)
@@ -534,7 +534,7 @@ internal class AapsV3TargetJournal(
     }
 
     suspend fun prepare(operationId: String, target: AapsV3TargetSpec, protocol: AapsV3TargetProtocol,
-                        nowMs: Long, currentTime: () -> Long = { nowMs },
+                        nowMs: Long, currentTime: () -> Long = { nowMs }, expectedActionId: String? = null,
                         checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
         val root = root()
         val id = commandKey(operationId)
@@ -558,7 +558,9 @@ internal class AapsV3TargetJournal(
         val issuedAt = currentTime().also { check(it >= maxOf(nowMs, root.lastIssuedAt)) }
         candidate = protocol.prepare(root.clientId, next(root.counter), issuedAt, target.copy(notes = marker))
         val counter = candidate.json.getValue("counter").jsonPrimitive.long
-        val record = Record(fingerprint, AapsV3TargetPhase.PREPARED, counter, candidate.json, operationId = operationId)
+        val receipt = expectedActionId?.let { id -> pendingTargetAction(operationId)?.takeIf { it.id == id } }
+        val record = Record(fingerprint, AapsV3TargetPhase.PREPARED, counter, candidate.json, operationId = operationId,
+            targetInput = receipt?.let(::actionFingerprint))
         val publication = publish(candidate)
         put(id, json.encodeToString(record))
         put(ROOT, json.encodeToString(root.copy(counter = counter, lastIssuedAt = issuedAt, pending = id)))
@@ -615,6 +617,8 @@ internal class AapsV3TargetJournal(
             val action = db.actionCommandDao().forTargetObservationProof(operationId).singleOrNull()
             if (action?.type == "temp_target") db.actionCommandDao().updateStatusByIds(
                 listOf(action.id), "PENDING", "SENT")
+        } else if (phase in TERMINAL) {
+            settleUnsentTarget(previous)
         }
         return updated.snapshot()
     }
@@ -631,7 +635,20 @@ internal class AapsV3TargetJournal(
         val updated = previous.copy(phase = phase).compactIfTerminal()
         put(id, json.encodeToString(updated))
         if (phase in TERMINAL) put(ROOT, json.encodeToString(root.copy(pending = null)))
+        if (phase == AapsV3TargetPhase.EXPIRED_NO_COMMIT) settleUnsentTarget(previous)
         updated.snapshot()
+    }
+
+    private suspend fun pendingTargetAction(key: String) =
+        db.actionCommandDao().forTargetObservationProof(key).singleOrNull()?.takeIf {
+            it.type == "temp_target" && it.status == "PENDING"
+        }
+
+    private suspend fun settleUnsentTarget(record: Record) {
+        val expected = record.targetInput ?: return
+        val action = pendingTargetAction(checkNotNull(record.operationId)) ?: return
+        if (actionFingerprint(action) == expected)
+            db.actionCommandDao().updateStatusByIds(listOf(action.id), "PENDING", "BLOCKED")
     }
 
     suspend fun pending(): AapsV3TargetJournalSnapshot? = transaction {
@@ -889,6 +906,7 @@ internal class AapsV3TargetJournal(
     private suspend fun recordOrNull(id: String): Record? = read(id)?.let {
         json.decodeFromJsonElement<Record>(it).also { record ->
             check(record.version == 1 && HEX.matches(record.fingerprint) && record.counter > 0)
+            record.targetInput?.let { check(HEX.matches(it) && record.mealGrams == null && record.operationId != null) }
             if (record.mealGrams != null || record.mealInput != null) {
                 check(record.mealGrams != null && record.mealGrams in 1..120 && record.mealInput?.matches(HEX) == true &&
                     (record.commit != null) == (record.phase == AapsV3TargetPhase.COMMITTED) &&
@@ -925,7 +943,7 @@ internal class AapsV3TargetJournal(
     }
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(HistoryJson.encodeUtf8(value))
         .joinToString("") { "%02x".format(it.toInt() and 255) }
-    private fun mealFingerprint(row: io.aaps.copilot.data.local.entity.ActionCommandEntity) = digest(buildJsonArray {
+    private fun actionFingerprint(row: io.aaps.copilot.data.local.entity.ActionCommandEntity) = digest(buildJsonArray {
         add(row.id); add(row.timestamp); add(row.idempotencyKey); add(row.payloadJson); add(row.safetyJson)
     }.toString())
     private fun next(counter: Long): Long { check(counter in 0 until Long.MAX_VALUE); return counter + 1 }
@@ -946,9 +964,10 @@ internal class AapsV3TargetJournal(
         val counter: Long, val prepare: JsonObject? = null, val preview: JsonObject? = null,
         val commit: JsonObject? = null, val version: Int = 1, val operationId: String? = null,
         @EncodeDefault(EncodeDefault.Mode.NEVER) val mealGrams: Int? = null,
-        @EncodeDefault(EncodeDefault.Mode.NEVER) val mealInput: String? = null) {
+        @EncodeDefault(EncodeDefault.Mode.NEVER) val mealInput: String? = null,
+        @EncodeDefault(EncodeDefault.Mode.NEVER) val targetInput: String? = null) {
         fun snapshot(publication: LocalV3Write? = null) = AapsV3TargetJournalSnapshot(phase, counter, publication, operationId)
-        fun compactIfTerminal() = if (phase in TERMINAL) copy(prepare = null, preview = null, commit = null) else this
+        fun compactIfTerminal() = if (phase in TERMINAL) copy(prepare = null, preview = null, commit = null, targetInput = null) else this
     }
     @Serializable private data class Pairing(val clientId: String, val masterInstallId: String, val secretHex: String,
         val expiresAt: Long, val helloRevision: Long, val phase: AapsV3PairingPhase = AapsV3PairingPhase.WAITING,

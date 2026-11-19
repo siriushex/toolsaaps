@@ -126,7 +126,10 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
             require(verify("$clientId|$counter|$phase|$status|${reason ?: ""}|${payload ?: ""}|$timestamp",
                 string(response, "signature")))
             when {
-                phase == "Done" && status == "Failed" -> AapsV3TargetAck.REJECTED
+                phase == "Done" && status == "Failed" ->
+                    if (string(original, "type") == "batch_prepare" ||
+                        (payload == null && reason in DEFINITE_COMMIT_REFUSALS)) AapsV3TargetAck.REJECTED
+                    else AapsV3TargetAck.UNCONFIRMED
                 phase == "Done" && status == "Expired" -> AapsV3TargetAck.EXPIRED
                 else -> {
                     require(timestamp <= number(original, "validUntil") + ACK_CLOCK_TOLERANCE_MS)
@@ -253,6 +256,8 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
 
     companion object {
         const val TTL_MS = 8000L
+        // These signed refusals precede execution. A handler error after commit is not proof of absence.
+        private val DEFINITE_COMMIT_REFUSALS = setOf("NotPaired", "ControlDisabled", "OtherToken", "NotAllowedForRole")
         private const val ACK_CLOCK_TOLERANCE_MS = 5000L
         private const val MAX_PREVIEW_BYTES = 16 * 1024
         private val CLIENT_ID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

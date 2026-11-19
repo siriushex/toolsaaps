@@ -244,13 +244,57 @@ class AapsV3TargetJournalTest {
         assertLateMasterRefusal("Failed", "ControlDisabled", AapsV3TargetPhase.REJECTED)
     }
 
+    @Test fun expiredPrepareReleasesOnlyItsOriginalPendingAction() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val dao = db.actionCommandDao()
+        protocol.use { p ->
+            for ((index, mode) in listOf("same", "edited", "duplicate", "late", "other-id", "unbound").withIndex()) {
+                val key = "manual:meal:$mode:eating-soon"
+                val time = at + index * 20_000L
+                val row = io.aaps.copilot.data.local.entity.ActionCommandEntity(key, time, "temp_target", "{}", "{}", key, "PENDING")
+                if (mode != "late") dao.upsert(row)
+                owner.prepare(key, target, p, time, expectedActionId = when (mode) {
+                    "other-id" -> key + "-other"
+                    "unbound" -> null
+                    else -> row.id
+                }) {}
+                when (mode) {
+                    "edited" -> dao.upsert(row.copy(safetyJson = """{"updated":true}"""))
+                    "duplicate" -> dao.upsert(row.copy(id = key + "-duplicate"))
+                    "late" -> dao.upsert(row)
+                }
+                assertEquals(AapsV3TargetPhase.EXPIRED_NO_COMMIT, journal().expire(time + 8001)!!.phase)
+                assertEquals(if (mode == "same") "BLOCKED" else "PENDING", dao.byIdempotencyKey(key)!!.status)
+                assertNull(owner.prepare(key, target, p, time + 8002) {}.publication)
+            }
+        }
+    }
+
+    @Test fun unknownCommitFailureIsNotProofOfAbsence() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("first", at, "temp_target", "{}", "{}", "meal-1", "PENDING")
+        db.actionCommandDao().upsert(row)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at, expectedActionId = row.id) {}; preview(owner, p); owner.commit("meal-1", p, at + 3) {}
+            val restarted = journal()
+            restarted.expire(at + 60_000)
+            for (reason in listOf("ExecutionFailed", "unrecognized")) {
+                assertEquals(AapsV3TargetPhase.UNKNOWN, restarted.acknowledge("meal-1", p,
+                    ack(2, timestamp = at + 4, status = "Failed", reason = reason), at + 60_001).phase)
+            }
+            assertNotNull(restarted.pending())
+            assertEquals("PENDING", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
+            assertTrue(runCatching { restarted.prepare("meal-2", target, p, at + 60_002) {} }.isFailure)
+        }
+    }
+
     private suspend fun assertLateMasterRefusal(status: String, reason: String, phase: AapsV3TargetPhase) {
         val owner = journal(); owner.bind(client)
         db.actionCommandDao().upsert(io.aaps.copilot.data.local.entity.ActionCommandEntity(
             id = "pending-target", timestamp = at, type = "temp_target", payloadJson = "{}", safetyJson = "{}",
             idempotencyKey = "meal-1", status = "PENDING"))
         protocol.use { p ->
-            owner.prepare("meal-1", target, p, at) {}; preview(owner, p)
+            owner.prepare("meal-1", target, p, at, expectedActionId = "pending-target") {}; preview(owner, p)
             owner.commit("meal-1", p, at + 3) {}
             val restarted = journal()
             assertEquals(AapsV3TargetPhase.UNKNOWN, restarted.expire(at + 60_000)!!.phase)
@@ -262,7 +306,7 @@ class AapsV3TargetJournalTest {
             assertNull(restarted.pending())
             assertNull(restarted.commit("meal-1", p, at + 60_003) { error("refused command cannot replay") }.publication)
             assertEquals(2L, db.localNightscoutV3Dao().count())
-            assertEquals("PENDING", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
+            assertEquals("BLOCKED", db.actionCommandDao().byIdempotencyKey("meal-1")!!.status)
             assertTrue(db.therapyDao().since(0).isEmpty())
             assertEquals(3L, restarted.prepare("meal-2", target, p, at + 60_004) {}.counter)
         }

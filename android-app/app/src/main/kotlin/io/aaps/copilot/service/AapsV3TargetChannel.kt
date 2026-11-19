@@ -422,7 +422,8 @@ internal class AapsV3TargetChannel(
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
                 }
                 val prepared = publicationLease {
-                    journal.prepare(command.idempotencyKey, target, protocol, clock(), currentTime = clock) { guard() }
+                    journal.prepare(command.idempotencyKey, target, protocol, clock(),
+                        currentTime = clock, expectedActionId = command.id) { guard() }
                 }
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)

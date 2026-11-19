@@ -1,3 +1,16 @@
+# Signed temporary target recovery (2026-11-19)
+
+- Bind a new native prepare to the originating pending target action, if
+  uniquely identifiable. A prepare that expires without a commit, or a
+  definitive signed master refusal, releases only that unchanged action in
+  the same Room transaction. Do not rewrite ambiguous or older unbound rows.
+- After a commit, generic execution errors do not prove that no target was
+  written. Preserve the outstanding operation; do not replay or fall back
+  to a second writer. A signed successful target commit is distinct from
+  merely displaying the current AAPS target.
+- Regression coverage: AapsV3TargetJournalTest and AapsV3TargetChannelTest.
+  Target readiness and pump protections are unchanged.
+
 # Local AAPS inputs at forecast publication (2026-11-19)
 
 - Capture retained signed ISF, CR, net IOB and COB once per forecast candidate.
