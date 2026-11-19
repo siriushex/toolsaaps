@@ -309,6 +309,37 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
             })
             val afterPin = current.expires + 60_000L
+            val mealId = "manual:meal:sample"
+            val mealRow = io.aaps.copilot.data.local.entity.ActionCommandEntity("sample", afterPin, "carbs",
+                """{"carbsGrams":"12","mealProfile":"MIXED"}""", "{}", mealId, "PENDING")
+            db.actionCommandDao().upsert(mealRow)
+            val wireCount = db.localNightscoutV3Dao().count()
+            var gateCalls = 0
+            assertThat(runCatching { reopened.reserveLocalMealPreview(mealId, { afterPin }) {
+                check(++gateCalls == 1)
+            } }.exceptionOrNull()).isInstanceOf(AapsV3TargetJournalFailure::class.java)
+            assertThat(reopened.pending()).isNull()
+            val prepared = checkNotNull(journal.reserveLocalMealPreview(mealId, { afterPin }) {})
+            assertThat(reopened.reserveLocalMealPreview(mealId, { afterPin }) { error("duplicate dispatch") }).isNull()
+            assertThat(reopened.pending()?.counter).isEqualTo(3)
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(wireCount)
+            send(prepared.envelope.json.toString())
+            val mealAck = io.aaps.copilot.data.repository.HistoryJson.parse(receive().encodeToByteArray(), 4096)
+            db.actionCommandDao().upsert(mealRow.copy(payloadJson = """{"carbsGrams":"12","mealProfile":"FAST"}"""))
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isFalse()
+            db.actionCommandDao().upsert(mealRow)
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isTrue()
+            assertThat(reopened.acceptLocalMealPreview(mealId, mealAck, afterPin + 2)).isFalse()
+            assertThat(reopened.status(mealId)).isEqualTo(AapsV3TargetPhase.PREVIEW)
+            val wrongCommit = runCatching { reopened.withTargetProtocol { p ->
+                reopened.commit(mealId, p, afterPin + 3) { error("not a target") }
+            } }.exceptionOrNull()
+            assertThat(wrongCommit).isInstanceOf(AapsV3TargetJournalFailure::class.java)
+            assertThat(reopened.expire(afterPin + AapsV3TargetProtocol.TTL_MS + 1)?.phase)
+                .isEqualTo(AapsV3TargetPhase.EXPIRED_NO_COMMIT)
+            assertThat(reopened.reserveLocalMealPreview(mealId, { afterPin + 10_000 }) {}).isNull()
+            assertThat(db.actionCommandDao().byIdempotencyKey(mealId)?.status).isEqualTo("PENDING")
+            assertThat(db.localNightscoutV3Dao().count()).isEqualTo(wireCount)
             afterEnrollment.set(afterPin)
             lateinit var reply: String
             var transportCalls = 0

@@ -68,6 +68,11 @@ fun main() {
                         System.out.flush()
                         readln() == "ROLE_OBSERVED"
                 }))
+                val meal = Json.decodeFromString<SignedEnvelope>(readln())
+                check(meal.clientId == id && meal.counter == 3L)
+                val mealAck = integration.mealpreview.signedSampleMealPreview(meal, checkNotNull(saved))
+                println(Json.encodeToString(AckEnvelope.serializer(), mealAck))
+                System.out.flush()
                 val nonce = readln()
                 val now = readln().toLong()
                 val request = checkNotNull(LocalSessionSettingsPeer.receive(System.getenv("SETTINGS_TEST_PORT").toInt(),
