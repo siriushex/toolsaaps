@@ -186,7 +186,10 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val ready = cp?.isFile == true && !javaHome.isNullOrBlank()
         if (System.getenv("CI") == "true") check(ready) { "Missing AAPS enrollment fixture" }
         Assume.assumeTrue("Requires final AAPS enrollment fixture", ready)
-        val listener = newServer(MutableLocalNightscoutRuntimeState())
+        val afterEnrollment = AtomicLong(0)
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = {
+            afterEnrollment.get().takeIf { it > 0 } ?: System.currentTimeMillis()
+        })
         server = listener
         val port = freePort()
         assertThat(listener.update(true, port)).isEqualTo(port)
@@ -306,26 +309,34 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
             })
             val afterPin = current.expires + 60_000L
+            afterEnrollment.set(afterPin)
             lateinit var reply: String
-            var peerAvailable = false
+            var transportCalls = 0
             val resumed = AapsV3TargetChannel(db, reopened, { false }, { "not_armed" },
-                { error("Membership must not submit a command") }, clock = { afterPin }, localWitnessPeer = { master, nonce, bytes ->
-                    if (!peerAvailable) null else {
+                { error("Membership must not submit a command") }, clock = afterEnrollment::get,
+                localWitnessPeer = { _, _, _ -> null }, localSettingsPeer = { master, nonce, bytes ->
+                    transportCalls++
+                    if (transportCalls > 1) reply.encodeToByteArray() else checkNotNull(listener.openLocalWitnessTicket(master, nonce, bytes)).use { proof ->
                         assertThat(master).isEqualTo(pair.masterInstallId)
-                        send(nonce); send(bytes.decodeToString())
+                        send(nonce); send(afterPin.toString()); send(checkNotNull(proof.extras.getString("bearer")))
                         reply = receive()
+                        assertThat(listener.hasNativeStorageSubscription()).isFalse()
                         reply.encodeToByteArray()
                     }
                 })
             try {
                 resumed.start(scope)
                 withTimeout(10_000) { resumed.state.first { it.status == AapsV3ConnectionStatus.OFFLINE } }
-                peerAvailable = true
-                resumed.checkConnection()
+                resumed.checkConnection(checkSettings = true)
                 assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED)
                 assertThat(resumed.state.value.localMembershipRole).isEqualTo(AapsFinalClientRole.READ_ONLY)
-                peerAvailable = false
-                resumed.checkConnection()
+                assertThat(resumed.state.value.localSettingsProbeVerified).isTrue()
+                resumed.checkConnection(checkSettings = true)
+                assertThat(transportCalls).isEqualTo(1)
+                afterEnrollment.addAndGet(5_001)
+                resumed.checkConnection(checkSettings = true)
+                assertThat(transportCalls).isEqualTo(2)
+                assertThat(resumed.state.value.localSettingsProbeVerified).isFalse()
                 assertThat(resumed.state.value.status).isEqualTo(AapsV3ConnectionStatus.OFFLINE)
                 assertThat(resumed.state.value.localMembershipRole).isNull()
             } finally {
@@ -480,6 +491,44 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 assertThat(it.body!!.string()).doesNotContain(clientId)
             }
         }
+    }
+
+    @Test
+    fun postPinSettingsGrantCarriesOnlyOneFreshChallengeAndCannotReadDocuments() = runBlocking {
+        val clock = AtomicLong(System.currentTimeMillis())
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get,
+            socketLimits = LocalNightscoutSocketLimits(pollWaitMs = 20))
+        server = listener
+        val port = freePort()
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val master = "12345678-0000-4000-8000-123456789012"
+        val client = "12345678-0000-4000-8000-123456789013"
+        val nonce = "12345678-0000-4000-8000-123456789014"
+        val request = AapsV3SessionProtocol(ByteArray(32) { 17 }).use { it.localWitness(client, master, nonce, clock.get()) }
+        val bytes = request.toString().encodeToByteArray()
+        assertThat(listener.openLocalWitnessTicket(master, client, bytes)).isNull()
+        assertThat(listener.openLocalWitnessTicket(client, nonce, bytes)).isNull()
+        checkNotNull(listener.openLocalWitnessTicket(master, nonce, bytes)).use { ticket ->
+            val token = checkNotNull(ticket.extras.getString("bearer"))
+            val sid = openSocket(peer, port)
+            postSocket(peer, port, sid, "40/storage,")
+            getSocket(peer, port, sid).close()
+            postSocket(peer, port, sid, storageSubscribe(token))
+            val packets = getSocket(peer, port, sid).use { it.body!!.string() }.split('\u001e')
+            assertThat(packets).hasSize(2)
+            assertThat(packets.first()).contains("\"success\":true")
+            val event = JsonParser.parseString(packets.last().removePrefix("42/storage,")).asJsonArray
+            assertThat(event[0].asString).isEqualTo("local_session_witness_v1")
+            assertThat(event[1]).isEqualTo(JsonParser.parseString(request.toString()))
+            assertThat(listener.hasNativeStorageSubscription()).isFalse()
+            assertThat(getCode(peer, port, "/api/v3/status", headers = mapOf("Authorization" to "Bearer $token"))).isEqualTo(401)
+            LocalNightscoutV3Store(db).create(pingPublication(client, clock.get()))
+            getSocket(peer, port, sid).use { assertThat(it.body!!.string()).doesNotContain("42/storage,") }
+            clock.addAndGet(8_000)
+            getSocket(peer, port, sid).use { assertThat(it.code).isEqualTo(400) }
+        }
+        assertThat(listener.openLocalWitnessTicket(master, nonce, bytes)).isNull()
     }
 
     @Test

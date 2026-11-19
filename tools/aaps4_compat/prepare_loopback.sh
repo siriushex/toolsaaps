@@ -38,6 +38,9 @@ git apply --index "$confirmation"
 witness="$root/tools/aaps4_compat/final-local-witness.patch"
 git apply --check "$witness"
 git apply --index "$witness"
+settings_witness="$root/tools/aaps4_compat/final-settings-witness.patch"
+git apply --check "$settings_witness"
+git apply --index "$settings_witness"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET

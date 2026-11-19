@@ -320,6 +320,11 @@ class LocalNightscoutServer internal constructor(
         server?.openLocalSettingsTicket(clientId, currentPort ?: return null)
     }
 
+    internal fun openLocalWitnessTicket(master: String, nonce: String, bytes: ByteArray): LocalSettingsGrants.Ticket? =
+        synchronized(this) {
+            server?.openLocalWitnessTicket(master, nonce, bytes, currentPort ?: return null)
+        }
+
     internal fun withLocalUploadTicket(block: (android.os.Bundle) -> Boolean): Boolean {
         val (active, port) = synchronized(this) {
             (server ?: return false) to (currentPort ?: return false)
@@ -527,8 +532,15 @@ class LocalNightscoutServer internal constructor(
             }
         }
 
-        fun openLocalSettingsTicket(clientId: String, port: Int) =
-            settingsGrants.issue(clientId, port, uploadCaDer, uploadLeafDer, ::hasSettingsSubscription) { grant ->
+        fun openLocalWitnessTicket(master: String, nonce: String, bytes: ByteArray, port: Int): LocalSettingsGrants.Ticket? {
+            val now = socketNowMs()
+            val witness = LocalSettingsWitness.decode(master, nonce, bytes, now) ?: return null
+            return openLocalSettingsTicket(witness.clientId, port, witness, witness.until - now)
+        }
+
+        fun openLocalSettingsTicket(clientId: String, port: Int, witness: LocalSettingsWitness? = null,
+                                    lifetime: Long = LocalSettingsGrants.LIFETIME_MS) =
+            settingsGrants.issue(clientId, port, uploadCaDer, uploadLeafDer, ::hasSettingsSubscription, witness, lifetime) { grant ->
                 socketSessions.values.filter { it.settingsGrant === grant }.forEach(::closeSocketSession)
             }
 
@@ -818,8 +830,7 @@ class LocalNightscoutServer internal constructor(
                             active.awaitingPongSince = now
                             return@synchronized drainSocketPackets(active, heartbeat = true)
                         }
-                        if (active.outboundPackets.any { !it.startsWith("42") ||
-                                (it.startsWith("42/storage,") && active.storageCursors.isNotEmpty()) } ||
+                        if (active.outboundPackets.any { !it.startsWith("42") || storageEventReady(active, it) } ||
                             (active.authorized && (active.outboundPackets.isNotEmpty() || active.initialPackets.isNotEmpty()))) {
                             return@synchronized drainSocketPackets(active)
                         }
@@ -863,9 +874,7 @@ class LocalNightscoutServer internal constructor(
                 // Live deltas must not advance the client's resume cursor ahead of initial history.
                 if (session.initialPackets.isEmpty()) drain(session.outboundPackets) { !isStoragePacket(it) }
             }
-            if (session.storageCursors.isNotEmpty()) {
-                drain(session.outboundPackets) { it.startsWith("42/storage,") }
-            }
+            drain(session.outboundPackets) { storageEventReady(session, it) }
             session.outboundBytes = session.outboundPackets.sumOf { it.toByteArray(Charsets.UTF_8).size } +
                 (session.outboundPackets.size - 1).coerceAtLeast(0)
             return packets
@@ -928,7 +937,8 @@ class LocalNightscoutServer internal constructor(
         // Called under the session monitor on GET, POST and each packet reservation.
         private fun socketUsableLocked(session: SocketSession): Boolean {
             if (session.closedStatus != null || socketSessions[session.sid] !== session) return false
-            if (session.settingsGrant?.live() == false) {
+            val grant = session.settingsGrant
+            if (grant?.live() == false || grant?.witness?.let { socketNowMs() >= it.until } == true) {
                 closeSocketSession(session)
                 return false
             }
@@ -1115,6 +1125,18 @@ class LocalNightscoutServer internal constructor(
                         val grant = if (shapeOk && !owner && names == listOf("settings") && !session.connected &&
                             !session.authorized && !session.initializing) settingsGrants.claim(token) else null
                         if (grant != null) session.settingsGrant = grant
+                        val witness = grant?.witness
+                        if (witness != null) {
+                            val live = grant.live() && socketNowMs() < witness.until
+                            val response = JsonObject().apply {
+                                addProperty("success", live)
+                                if (live) add("collections", gson.toJsonTree(names))
+                            }
+                            enqueueSocketAck(session, packet.packetId, listOf(response), "/storage")
+                            if (live) enqueueSocketEvent(session, LocalSettingsWitness.EVENT,
+                                JsonParser.parseString(witness.wire).asJsonObject, "/storage")
+                            return
+                        }
                         val valid = owner || grant != null
                         val heads = if (valid) runCatching { runBlocking { v3Store.lastModified() } }.getOrNull() else null
                         if (heads != null) {
@@ -1192,6 +1214,10 @@ class LocalNightscoutServer internal constructor(
             if (collection == LocalV3Collection.FOOD) "foods" else collection.wireName
 
         private fun isStoragePacket(packet: String) = packet.length > 2 && packet.substring(2).startsWith("/storage,")
+
+        private fun storageEventReady(session: SocketSession, packet: String) =
+            packet.startsWith("42/storage,") && (session.storageCursors.isNotEmpty() ||
+                (session.settingsGrant?.witness != null && packet.startsWith("42/storage,[\"${LocalSettingsWitness.EVENT}\",")))
 
         private fun updateOutboundBytes(session: SocketSession) {
             session.outboundBytes = session.outboundPackets.sumOf { it.toByteArray(Charsets.UTF_8).size } +

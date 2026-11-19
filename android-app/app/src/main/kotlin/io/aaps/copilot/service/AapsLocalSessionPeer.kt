@@ -12,7 +12,17 @@ internal object AapsLocalSessionPeer {
     private const val AUTHORITY = "$MASTER.localsession"
     private const val PERMISSION = "$MASTER.permission.CHECK_LOCAL_CLIENT_SESSION"
 
-    fun check(context: Context, masterId: String, nonce: String, request: ByteArray): ByteArray? {
+    fun check(context: Context, masterId: String, nonce: String, request: ByteArray): ByteArray? =
+        call(context, "witness_v1", Bundle().apply {
+            putString("master", masterId); putString("nonce", nonce); putByteArray("request", request)
+        })
+
+    fun checkSettings(context: Context, masterId: String, nonce: String, ticket: LocalSettingsGrants.Ticket): ByteArray? =
+        call(context, "settings_witness_v1", Bundle().apply {
+            putString("master", masterId); putString("nonce", nonce); putBundle("ticket", ticket.extras)
+        })
+
+    private fun call(context: Context, method: String, extras: Bundle): ByteArray? {
         val pm = context.packageManager
         val info = pm.resolveContentProvider(AUTHORITY, 0) ?: return null
         if (info.packageName != MASTER || !info.exported || info.grantUriPermissions ||
@@ -20,9 +30,8 @@ internal object AapsLocalSessionPeer {
             pm.checkSignatures(context.packageName, MASTER) != PackageManager.SIGNATURE_MATCH) return null
         return try {
             context.contentResolver.acquireUnstableContentProviderClient(Uri.parse("content://$AUTHORITY"))?.use { peer ->
-                peer.call("witness_v1", null, Bundle().apply {
-                    putString("master", masterId); putString("nonce", nonce); putByteArray("request", request)
-                })?.takeIf { it.keySet() == setOf("witness") }?.getByteArray("witness")?.takeIf { it.size in 1..2048 }
+                peer.call(method, null, extras)?.takeIf { it.keySet() == setOf("witness") }
+                    ?.getByteArray("witness")?.takeIf { it.size in 1..2048 }
             }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
     }

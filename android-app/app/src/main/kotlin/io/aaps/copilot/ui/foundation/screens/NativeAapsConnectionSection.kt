@@ -96,6 +96,10 @@ internal fun NativeAapsConnectionSection(
                 AapsV3PairingIssue.LOCAL_NOT_READY -> R.string.native_aaps_local_offer_not_ready
             }), Modifier.testTag("native_aaps_pair_issue"), style = MaterialTheme.typography.bodySmall)
         }
+        state.localSettingsProbeVerified?.let { verified ->
+            Text(stringResource(if (verified) R.string.native_settings_probe_verified else R.string.native_settings_probe_failed),
+                Modifier.testTag("native_settings_probe"), style = MaterialTheme.typography.bodySmall)
+        }
         if (state.status == AapsV3ConnectionStatus.UNPAIRED) state.settingsSubscribedAtCheck?.let { subscribed ->
             Text(stringResource(if (subscribed) R.string.native_storage_seen else R.string.native_storage_not_seen),
                 Modifier.testTag("native_storage_status"), style = MaterialTheme.typography.bodySmall)

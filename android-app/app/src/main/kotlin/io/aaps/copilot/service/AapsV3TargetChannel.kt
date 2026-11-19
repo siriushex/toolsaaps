@@ -40,7 +40,8 @@ data class AapsV3ConnectionState(
     val localLinkCheckedAtMs: Long? = null,
     val localEnrollmentRole: AapsFinalClientRole? = null,
     val localMembershipVerifiedAtMs: Long? = null,
-    val localMembershipRole: AapsFinalClientRole? = null
+    val localMembershipRole: AapsFinalClientRole? = null,
+    val localSettingsProbeVerified: Boolean? = null
 )
 
 /** Foreground-runtime owner. Observation never commits a preview or replays a command. */
@@ -53,12 +54,14 @@ internal class AapsV3TargetChannel(
     private val clock: () -> Long = System::currentTimeMillis,
     private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
     private val localOffers: LocalEnrollmentOffers? = null,
-    private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
+    private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
+    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
-    private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long, val receipt: AapsLocalRoleReceipt?)
+    private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long,
+                                  val receipt: AapsLocalRoleReceipt?, val settings: Boolean?)
     // Accessed under refreshMutex; never used for command admission.
     private var membershipCheck: MembershipCheck? = null
     private val commandMutex = Mutex()
@@ -152,11 +155,11 @@ internal class AapsV3TargetChannel(
         finally { pin.fill('\u0000'); matches.forEach { it.close() }; mutableState.update { it.copy(busy = false) } }
     } } finally { pin.fill('\u0000') }
 
-    suspend fun checkConnection() {
+    suspend fun checkConnection(checkSettings: Boolean = false) {
         mutableState.update { it.copy(pairingIssue = null) }
         if (runtimeAllowed) runtimeScope?.let(::start)
         val epoch = generation.get()
-        try { refresh(recheckMembership = true) } catch (cancelled: CancellationException) { throw cancelled }
+        try { refresh(recheckMembership = true, checkSettings = checkSettings) } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { connectionFailed(epoch) }
     }
 
@@ -211,7 +214,7 @@ internal class AapsV3TargetChannel(
         mutableState.update { AapsV3ConnectionState(settingsSubscribedAtCheck = subscribed, busy = it.busy, pairingIssue = it.pairingIssue) }
     }
 
-    private suspend fun refresh(recheckMembership: Boolean = false) = refreshMutex.withLock {
+    private suspend fun refresh(recheckMembership: Boolean = false, checkSettings: Boolean = false) = refreshMutex.withLock {
         val epoch = generation.get()
         if (!journal.hasNativeState()) {
             synchronized(this) {
@@ -251,12 +254,16 @@ internal class AapsV3TargetChannel(
         val witness = if (witnessPeer != null && runtimeAllowed && epoch == generation.get() && pair.localEnrollment &&
             pair.enrollmentRole != null && pair.phase != AapsV3PairingPhase.REVOKED && localOffers?.current() == null) {
             val now = clock()
-            val previous = membershipCheck
-            if (!recheckMembership && previous != null && previous.epoch == epoch && previous.client == pair.clientId &&
-                now - previous.attempted in 0 until 60_000L) previous.receipt
+            val previous = membershipCheck?.takeIf { it.epoch == epoch && it.client == pair.clientId }
+            if (previous != null && ((!recheckMembership && now - previous.attempted in 0 until 60_000L) ||
+                (checkSettings && previous.settings != null && now - previous.attempted in 0 until 5_000L))) previous.receipt
             else {
-                val result = journal.checkLocalMembership(clock, witnessPeer)
-                membershipCheck = MembershipCheck(epoch, pair.clientId, now, result)
+                val storagePeer = localSettingsPeer.takeIf { checkSettings }
+                val overSettings = storagePeer?.let { journal.checkLocalMembership(clock, it) }
+                val result = overSettings ?: if (storagePeer != null && previous != null &&
+                    previous.settings == null && now - previous.attempted in 0 until 5_000L) previous.receipt
+                    else journal.checkLocalMembership(clock, witnessPeer)
+                membershipCheck = MembershipCheck(epoch, pair.clientId, now, result, storagePeer?.let { overSettings != null })
                 result
             }
         } else { membershipCheck = null; null }
@@ -295,7 +302,8 @@ internal class AapsV3TargetChannel(
             mutableHistoryState.value, pairingIssue = mutableState.value.pairingIssue,
             localLinkCheckedAtMs = pair.lastPongAt.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING && pair.pongCounter == 2L && it > 0 },
             localEnrollmentRole = pair.enrollmentRole.takeIf { pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING },
-            localMembershipVerifiedAtMs = witness?.signedAt, localMembershipRole = witness?.role)
+            localMembershipVerifiedAtMs = witness?.signedAt, localMembershipRole = witness?.role,
+            localSettingsProbeVerified = membershipCheck?.settings)
             if (status == AapsV3ConnectionStatus.CONNECTED) startHistory(epoch)
             else stopHistory(clearAudit = status != AapsV3ConnectionStatus.VERIFYING)
         }

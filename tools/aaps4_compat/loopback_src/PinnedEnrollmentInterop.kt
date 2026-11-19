@@ -13,6 +13,7 @@ import app.aaps.core.nssdk.networking.NsLoopbackUploadIdentity
 import app.aaps.core.nssdk.utils.ClientControlCrypto
 import app.aaps.core.nssdk.utils.ClientControlPinOffer
 import app.aaps.plugins.sync.nsclientV3.localpin.LocalPinHelloPeer
+import app.aaps.plugins.sync.nsclientV3.localpin.LocalSessionSettingsPeer
 import app.aaps.plugins.sync.nsclientV3.localpin.LocalPinKeyResponder
 import java.io.File
 import java.util.UUID
@@ -68,7 +69,9 @@ fun main() {
                         readln() == "ROLE_OBSERVED"
                 }))
                 val nonce = readln()
-                val request = Json.decodeFromString(SignedEnvelope.serializer(), readln())
+                val now = readln().toLong()
+                val request = checkNotNull(LocalSessionSettingsPeer.receive(System.getenv("SETTINGS_TEST_PORT").toInt(),
+                    identity, readln(), pending.masterInstallId, nonce) { now })
                 check(request.timestamp > pending.expiresAt && LocalSessionWitness.accepts(request, pending.masterInstallId, nonce, request.timestamp))
                 check(ClientControlCrypto.verifyEnvelope(checkNotNull(saved), request))
                 val signed = LocalSessionWitness.signedBody(request, pending.masterInstallId, nonce, "ReadOnly", request.timestamp)

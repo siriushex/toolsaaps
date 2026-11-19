@@ -1136,6 +1136,11 @@ class AppContainer(context: Context) {
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
         localOffers = localEnrollmentOffers,
         localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },
+        localSettingsPeer = { master, nonce, request ->
+            localNightscoutServer.openLocalWitnessTicket(master, nonce, request)?.use {
+                AapsLocalSessionPeer.checkSettings(appContext, master, nonce, it)
+            }
+        },
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
@@ -1161,7 +1166,7 @@ class AppContainer(context: Context) {
         nativeAapsTargetChannel.acceptLocalEnrollmentRole(id, handle, bytes)
     internal suspend fun acceptLocalEnrollmentKey(id: String, handle: String, bytes: ByteArray) =
         nativeAapsTargetChannel.acceptLocalEnrollmentKey(id, handle, bytes)
-    suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection()
+    suspend fun checkNativeAapsConnection() = nativeAapsTargetChannel.checkConnection(checkSettings = true)
     suspend fun revokeNativeAapsPairing() = nativeAapsTargetChannel.revoke()
 
     val actionRepository = NightscoutActionRepository(

@@ -30,6 +30,19 @@ and eight-second deadline. This call uses a separate signature-protected
 provider; it does not publish a settings message or use a therapy counter.
 The timestamp displayed is the last successful check, not target permission.
 
+The manual connection check also tests the settings transport. Copilot opens a
+single-use TLS polling ticket for an eight-second signed challenge. Binder
+carries only the ticket, master identity and nonce to AAPS; it does not carry
+the signed request. After subscribing to `/storage`, AAPS receives that
+request from the pinned loopback listener. It checks the envelope, retained
+client identity and current role before signing the response. Copilot verifies
+the signature and nonce before reporting a successful settings test. The
+ticket has no history cursor and cannot subscribe to normal documents. Its
+socket closes after the check; the regular background membership check does
+not open a socket. If the settings test fails, a Binder-only reply can still
+prove membership, but cannot mark the settings transport as verified. Neither
+result establishes a persistent command channel or proves target application.
+
 Do not paste the invitation PIN, the AI activation code, the local upload
 bearer, or a Nightscout API secret into the NSClientV3 access-token field.
 The stock NSClientV3 profile needs a real Nightscout URL and that server's

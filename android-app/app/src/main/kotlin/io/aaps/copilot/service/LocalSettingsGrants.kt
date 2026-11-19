@@ -11,7 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Separate from all REST credentials. At most one same-phone subscriber can be enrolled at a time. */
 internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.os.SystemClock::elapsedRealtime) {
-    internal class Lease(val clientId: String, private val digest: ByteArray, private val elapsedMs: () -> Long) {
+    internal class Lease(val clientId: String, private val digest: ByteArray, private val elapsedMs: () -> Long,
+                         val witness: LocalSettingsWitness?, private val lifetimeMs: Long) {
         val documentIds = ENROLLMENT_TYPES.map { publicationId(it, clientId) }
         private val issued = elapsedMs()
         private val retired = AtomicBoolean(false)
@@ -19,7 +20,7 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
 
         fun remainingMs(): Long {
             val age = elapsedMs() - issued
-            return if (!retired.get() && age in 0 until LIFETIME_MS) LIFETIME_MS - age else 0
+            return if (!retired.get() && age in 0 until lifetimeMs) lifetimeMs - age else 0
         }
         fun live(): Boolean = remainingMs() > 0
 
@@ -49,15 +50,18 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
     private var closed = false
 
     @Synchronized fun issue(clientId: String, port: Int, root: ByteArray, leaf: ByteArray,
-                            subscribed: (Lease) -> Boolean = { false }, wake: (Lease) -> Unit): Ticket? {
-        if (closed || !CLIENT.matches(clientId) || current?.live() == true) return null
+                            subscribed: (Lease) -> Boolean = { false }, witness: LocalSettingsWitness? = null,
+                            lifetimeMs: Long = LIFETIME_MS, wake: (Lease) -> Unit): Ticket? {
+        if (closed || !CLIENT.matches(clientId) || current?.live() == true ||
+            (witness != null && (witness.clientId != clientId || lifetimeMs !in 1..8_000L)) ||
+            lifetimeMs !in 1..LIFETIME_MS) return null
         current?.retire()
         val bytes = ByteArray(32)
         val token = try {
             random.nextBytes(bytes)
             "ls1." + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         } finally { bytes.fill(0) }
-        val lease = Lease(clientId, digestOf(token), elapsedMs)
+        val lease = Lease(clientId, digestOf(token), elapsedMs, witness, lifetimeMs)
         current = lease
         return Ticket(Bundle().apply {
             putString("bearer", token); putInt("port", port)
@@ -81,6 +85,29 @@ internal class LocalSettingsGrants(private val elapsedMs: () -> Long = android.o
             val bytes = token.toByteArray(Charsets.US_ASCII)
             return try { MessageDigest.getInstance("SHA-256").digest(bytes) } finally { bytes.fill(0) }
         }
+    }
+}
+
+/** Ephemeral signed challenge. This ticket has no document cursor, including for its own client. */
+internal class LocalSettingsWitness private constructor(val clientId: String, val wire: String, val until: Long) {
+    override fun toString() = "LocalSettingsWitness(redacted)"
+    companion object {
+        const val EVENT = "local_session_witness_v1"
+        fun decode(master: String, nonce: String, bytes: ByteArray, now: Long): LocalSettingsWitness? = runCatching {
+            val envelope = HistoryJson.parse(bytes, 2048)
+            require(envelope.keys == setOf("clientId", "counter", "timestamp", "validUntil", "wantsAck", "type", "payload", "signature"))
+            val client = HistoryJson.string(envelope.getValue("clientId")).also(HistoryJson::uuid)
+            HistoryJson.uuid(nonce)
+            val issued = HistoryJson.long(envelope.getValue("timestamp"))
+            val until = HistoryJson.long(envelope.getValue("validUntil"))
+            require(issued in 1..(HistoryJson.maxTime - 8000) && until == issued + 8000 && now in issued until until)
+            require(HistoryJson.long(envelope.getValue("counter")) == 0L && envelope.getValue("wantsAck") == kotlinx.serialization.json.JsonPrimitive(true))
+            require(HistoryJson.string(envelope.getValue("type")) == EVENT && SIGNATURE.matches(HistoryJson.string(envelope.getValue("signature"))))
+            val payload = HistoryJson.parse(HistoryJson.encodeUtf8(HistoryJson.string(envelope.getValue("payload"))), 512)
+            require(payload.keys == setOf("masterInstallId", "nonce") && HistoryJson.string(payload.getValue("nonce")) == nonce &&
+                HistoryJson.string(payload.getValue("masterInstallId")) == master)
+            LocalSettingsWitness(client, envelope.toString(), until)
+        }.getOrNull()
     }
 }
 
