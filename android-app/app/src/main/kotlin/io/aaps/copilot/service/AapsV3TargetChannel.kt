@@ -275,14 +275,18 @@ internal class AapsV3TargetChannel(
         store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it, clock()) }
         if (ack != null) journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
         journal.expire(clock())
-        fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment)
+        fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING)
             localOffers?.current()?.let { it.clientId == pair.clientId && localOffers.ready(it) } == true
         else storageAvailable()
         if (runtimeAllowed && probeRouteReady(pair) && generation.get() == epoch) {
             journal.probe(clock(), sessionStartedAt, localOffers)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
                 synchronized(this) {
-                    if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
+                    if (runtimeAllowed && generation.get() == epoch) {
+                        // The invitation's one-shot subscription cannot authorize the command session.
+                        sessionProbeCounter = if (pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING) 0L
+                        else HistoryJson.long(request.getValue("counter"))
+                    }
                 }
             }
         }
@@ -311,7 +315,9 @@ internal class AapsV3TargetChannel(
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
             !runtimeAllowed -> AapsV3ConnectionStatus.OFFLINE
-            witness != null -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
+            witness != null && !(pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled &&
+                storageAvailable() && sessionProbeCounter > 0 && pair.pongCounter >= sessionProbeCounter &&
+                clock() - pair.lastPongAt in 0..90_000) -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
             !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
             pair.phase == AapsV3PairingPhase.WAITING -> AapsV3ConnectionStatus.WAITING
             !pair.controlEnabled -> AapsV3ConnectionStatus.CONTROL_DISABLED
