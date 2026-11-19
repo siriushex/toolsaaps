@@ -85,6 +85,11 @@ internal class LocalAapsCgmSync(
             if (remove.isNotEmpty() || add.isNotEmpty()) {
                 remove.chunked(256).forEach { dao.deleteByIds(it) }
                 if (add.isNotEmpty()) dao.upsertAll(add)
+            }
+            val latest = if (historical) null else wanted.values.maxByOrNull { it.timestamp }
+            val initialized = latest != null && clock().let { at -> at >= received &&
+                initializeRawAuthorityForFirstLocalCgm(db, latest, at) }
+            if (remove.isNotEmpty() || add.isNotEmpty() || initialized) {
                 db.syncStateDao().upsert(SyncStateEntity(DIRTY, received))
             }
             if (historical) db.syncStateDao().upsert(SyncStateEntity(CURSOR, from - 1))

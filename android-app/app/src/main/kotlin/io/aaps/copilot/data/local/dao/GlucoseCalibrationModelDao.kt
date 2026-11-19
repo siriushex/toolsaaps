@@ -19,6 +19,15 @@ data class CalibrationInputWatermarkRow(
 @Dao
 interface GlucoseCalibrationModelDao {
 
+    @Query("SELECT CASE WHEN EXISTS(SELECT 1 FROM telemetry_samples WHERE id = :canonicalId) THEN 0 ELSE " +
+        "NOT EXISTS(SELECT 1 FROM telemetry_samples WHERE source = :source AND `key` = :tokenKey) " +
+        "AND NOT EXISTS(SELECT 1 FROM glucose_calibration_models) " +
+        "AND NOT EXISTS(SELECT 1 FROM blood_glucose_checks) " +
+        "AND NOT EXISTS(SELECT 1 FROM telemetry_samples WHERE source = :acceptedSource AND `key` = :acceptedKey " +
+        "AND valueText IS NOT :none) END")
+    suspend fun canInitializeRawAuthority(source: String, tokenKey: String, canonicalId: String,
+        acceptedSource: String, acceptedKey: String, none: String): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: GlucoseCalibrationModelEntity)
 

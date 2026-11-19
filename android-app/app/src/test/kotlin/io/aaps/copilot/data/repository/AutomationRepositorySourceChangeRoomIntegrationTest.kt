@@ -557,6 +557,15 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
 
     @Test
     fun firstAaps4LoopProducesThreeAcceptedForecastsWithProductionSensitivityLoader() = runBlocking {
+        firstAaps4Forecast(observationOnly = false)
+    }
+
+    @Test
+    fun firstAaps4ObservationProducesThreeAcceptedForecastsWithoutNormalCycle() = runBlocking {
+        firstAaps4Forecast(observationOnly = true)
+    }
+
+    private suspend fun firstAaps4Forecast(observationOnly: Boolean) {
         val now = System.currentTimeMillis()
         val setup = settingsStore.setupProgress.first()
         assertThat(settingsStore.saveSetupProgress(setup, setup.copy(insulinSource = io.aaps.copilot.config.SetupInsulinSource.AAPS))).isTrue()
@@ -580,7 +589,13 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         val repository = repository(now, productionSensitivity = true,
             predictionEngineOverride = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true))
         assertThat(settingsStore.settings.first().therapyActionsArmed).isFalse()
-        assertThat(repository.runAutomationCycle()).isNotNull()
+        val first = requireNotNull(if (observationOnly) repository.runLocalReadOnlyCycle() else repository.runAutomationCycle())
+        val initial = requireNotNull(AcceptedSensitivityTupleRoomLoader(db).load(
+            settingsStore.settings.first().sensitivityRuntimeIdentity(), System.currentTimeMillis()))
+        assertThat(initial.snapshot.forecastCycleId).isEqualTo(first.forecastCycleId)
+        assertThat(initial.calibrationModel).isNull()
+        assertThat(AutomationRepository.requireAcceptedClinicalForecastsStatic(initial).forecasts.map { it.horizonMinutes })
+            .containsExactly(5, 30, 60)
         val snapshot = repository.applySensitivitySettings { it.copy(
             isfSourcePreference = SensitivitySourcePreference.AAPS, crSourcePreference = SensitivitySourcePreference.AAPS) }
         assertThat(snapshot.isf.effective).isEqualTo(2.5)

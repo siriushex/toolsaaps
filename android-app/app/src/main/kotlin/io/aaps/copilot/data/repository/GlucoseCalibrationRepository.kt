@@ -751,17 +751,6 @@ class GlucoseCalibrationRepository(
         ?.takeIf(String::isNotBlank)
         ?: ACCEPTED_CALIBRATION_NONE
 
-    private fun calibrationAuthorityTokenRow(token: String, timestamp: Long) = TelemetrySampleEntity(
-        id = CALIBRATION_AUTHORITY_ROW_ID,
-        timestamp = timestamp.coerceAtLeast(1L),
-        source = CALIBRATION_AUTHORITY_SOURCE,
-        key = CALIBRATION_AUTHORITY_TOKEN_KEY,
-        valueDouble = null,
-        valueText = token,
-        unit = null,
-        quality = "OK"
-    )
-
     private fun tokenFor(prepared: PreparedCalibrationCycle): PreparedCalibrationToken =
         prepared.token as? PreparedCalibrationToken
             ?: error("prepared calibration token is invalid")
@@ -2411,6 +2400,31 @@ internal const val ACCEPTED_CALIBRATION_NONE = "none"
 internal const val CALIBRATION_AUTHORITY_SOURCE = "copilot_glucose_calibration_authority"
 internal const val CALIBRATION_AUTHORITY_TOKEN_KEY = "glucose_calibration_authority_token"
 private const val CALIBRATION_AUTHORITY_ROW_ID = "glucose-calibration-authority-current"
+
+private fun calibrationAuthorityTokenRow(token: String, timestamp: Long) = TelemetrySampleEntity(
+    id = CALIBRATION_AUTHORITY_ROW_ID, timestamp = timestamp.coerceAtLeast(1L),
+    source = CALIBRATION_AUTHORITY_SOURCE, key = CALIBRATION_AUTHORITY_TOKEN_KEY,
+    valueDouble = null, valueText = token, unit = null, quality = "OK"
+)
+
+/** Called in the live CGM import transaction, never during forecast readback or history backfill. */
+internal suspend fun initializeRawAuthorityForFirstLocalCgm(
+    db: CopilotDatabase, observed: GlucoseSampleEntity, now: Long
+): Boolean {
+    if (!observed.source.startsWith(LocalAapsCgmSync.PREFIX) ||
+        observed.timestamp !in maxOf(1L, now - 300_000L)..now) return false
+    if (!db.glucoseCalibrationModelDao().canInitializeRawAuthority(CALIBRATION_AUTHORITY_SOURCE,
+            CALIBRATION_AUTHORITY_TOKEN_KEY, CALIBRATION_AUTHORITY_ROW_ID, ACCEPTED_CALIBRATION_SOURCE,
+            ACCEPTED_CALIBRATION_AUTHORITY_TOKEN_KEY, ACCEPTED_CALIBRATION_NONE)) return false
+    val rows = db.glucoseDao().latestValidDistinctAtOrBefore(now, GlucoseSanitizer.CURRENT_CAUSAL_QUERY_LIMIT)
+    val current = GlucoseSanitizer.selectCausalEntities(rows, now).latest ?: return false
+    if (observed.copy(id = current.id) != current) return false
+    val context = loadCalibrationSessionContextInTransaction(db, now, current.timestamp)
+    val token = CalibrationAuthorityStateCodec.raw(UUID.randomUUID().toString(), context.currentSessionKey)
+    if (!CalibrationAuthorityStateCodec.resolve(token, applicableModel = null, context = context).contextValid) return false
+    db.telemetryDao().upsertAll(listOf(calibrationAuthorityTokenRow(token, now)))
+    return true
+}
 internal val ACCEPTED_CALIBRATION_KEYS = listOf(
     ACCEPTED_CALIBRATION_MODEL_ID_KEY,
     ACCEPTED_CALIBRATION_SESSION_KEY,

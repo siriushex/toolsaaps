@@ -6,6 +6,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.aaps.copilot.data.local.CopilotDatabase
 import io.aaps.copilot.data.local.entity.GlucoseSampleEntity
+import io.aaps.copilot.data.local.entity.BloodGlucoseCheckEntity
+import io.aaps.copilot.data.local.entity.GlucoseCalibrationModelEntity
+import io.aaps.copilot.data.local.entity.TelemetrySampleEntity
 import io.aaps.copilot.domain.predict.HybridPredictionEngine
 import io.aaps.copilot.domain.model.TherapyEvent
 import com.google.gson.Gson
@@ -49,6 +52,90 @@ class LocalAapsCgmSyncTest {
     }.toString().encodeToByteArray()
 
     @After fun close() = db.close()
+
+    private suspend fun authority() = db.telemetryDao().currentBySourceAndKey(
+        CALIBRATION_AUTHORITY_SOURCE, CALIBRATION_AUTHORITY_TOKEN_KEY)
+
+    private suspend fun importFresh() {
+        body = packet(listOf(sampleTs to 108.0))
+        syncer().sync()
+    }
+
+    @Test fun onlyFreshLiveCgmCanInitializeRawAndReplayCannotRefreshIt() = runBlocking {
+        offerPast = true
+        body = packet(listOf(now - 300_001 to 108.0))
+        syncer().sync()
+        assertNull(authority())
+        body = packet(listOf(sampleTs to 108.0), sentKey = "wrong-window")
+        assertTrue(runCatching { syncer().sync() }.isFailure)
+        assertNull(authority())
+        importFresh()
+        val row = requireNotNull(authority())
+        val raw = requireNotNull(CalibrationAuthorityStateCodec.decode(row.valueText))
+        assertEquals(DurableCalibrationAuthorityStatus.RAW, raw.state)
+        assertNull(raw.sessionKey)
+        now += 60_000
+        importFresh()
+        assertEquals(row, authority())
+        assertTrue(db.glucoseCalibrationModelDao().modelsSince(0).isEmpty())
+        assertTrue(db.actionCommandDao().latest(1).isEmpty())
+    }
+
+    @Test fun conflictingOrRestoredAuthorityIsNeverReinitialized() = runBlocking {
+        val row = TelemetrySampleEntity("existing", now - 10, CALIBRATION_AUTHORITY_SOURCE,
+            CALIBRATION_AUTHORITY_TOKEN_KEY, null, null, null, "OK")
+        for (text in listOf(null, "", "invalid", CalibrationAuthorityStateCodec.pending("prior"))) {
+            val existing = row.copy(valueText = text)
+            db.telemetryDao().upsertAll(listOf(existing))
+            importFresh()
+            assertEquals(existing, authority())
+        }
+    }
+
+    @Test fun historicAcceptedCalibrationWithoutCurrentRowIsNotCleanInstall() = runBlocking {
+        db.telemetryDao().upsertAll(listOf(TelemetrySampleEntity("old-marker", now - 600_000,
+            ACCEPTED_CALIBRATION_SOURCE, ACCEPTED_CALIBRATION_AUTHORITY_TOKEN_KEY, null,
+            CalibrationAuthorityStateCodec.raw("prior", null), null, "OK")))
+        importFresh()
+        assertNull(authority())
+    }
+
+    @Test fun importCannotInitializeFromAnOlderPointThanCurrentClinicalGlucose() = runBlocking {
+        db.glucoseDao().upsertAll(listOf(GlucoseSampleEntity(timestamp = sampleTs + 1, mmol = 6.1,
+            source = "nightscout", quality = "OK")))
+        importFresh()
+        assertNull(authority())
+    }
+
+    @Test fun malformedSensorEvidenceIsNotTreatedAsAbsentOrAssignedAGuessedSession() = runBlocking {
+        val age = TelemetrySampleEntity("sensor-age", sampleTs, "aaps_broadcast", "sensor_age_hours",
+            null, "unavailable", "h", "OK")
+        db.telemetryDao().upsertAll(listOf(age))
+        importFresh()
+        assertNull(authority())
+        db.telemetryDao().upsertAll(listOf(age.copy(valueDouble = 24.0, valueText = null)))
+        importFresh()
+        val raw = requireNotNull(CalibrationAuthorityStateCodec.decode(requireNotNull(authority()).valueText))
+        assertEquals(calibrationSensorSessionKeyFromAgeSample(sampleTs, 24.0), raw.sessionKey)
+    }
+
+    @Test fun pastFingerstickPreventsImplicitCalibrationInitialization() = runBlocking {
+        val check = BloodGlucoseCheckEntity("check", now - 1, 5.0, "mmol/L", "manual", "", now,
+            null, null, null, "RESET", "")
+        db.bloodGlucoseCheckDao().upsert(check)
+        importFresh()
+        assertNull(authority())
+        assertEquals(check, db.bloodGlucoseCheckDao().latest(1).single())
+    }
+
+    @Test fun retiredModelPreventsImplicitCalibrationInitialization() = runBlocking {
+        val model = GlucoseCalibrationModelEntity("model", "previous", now - 10, now - 10, now, "OFFSET",
+            1.0, 0.1, 0.7, 2, null, null, "RETIRED", "{}")
+        db.glucoseCalibrationModelDao().upsert(model)
+        importFresh()
+        assertNull(authority())
+        assertEquals(model, db.glucoseCalibrationModelDao().byId(model.id))
+    }
 
     @Test fun legacyStatusAndLocalProviderGiveSameForecastWithIdenticalMealAndInsulin() = runBlocking {
         // The legacy receiver clamps future sensor timestamps against the Android wall clock.

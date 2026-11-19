@@ -1,3 +1,19 @@
+# First local AAPS observation without a normal cycle (2026-11-19)
+
+- A verified *live* CGM window can initialize the missing raw-glucose
+  calibration state in the same Room transaction. Match the fresh sample
+  against the clinical reader, use its bounded session evidence and the
+  normal RAW codec. No calibration fit, input correction or invented sensor
+  identity. Historical windows, empty packets and older points cannot do it.
+- Initialization is insert-once: existing or malformed authority, a previous
+  calibration check, any model (even retired), or a restored accepted authority
+  prevents replacement. Identical observations never refresh an existing token.
+  No changes to forecast readback, loop mode, alerting or therapy dispatch.
+- LocalAapsCgmSyncTest covers admission and non-replacement. In
+  AutomationRepositorySourceChangeRoomIntegrationTest, the same AAPS exchange
+  produces accepted 5/30/60 forecasts on a new database both after a normal
+  cycle and with only an observation cycle before source selection.
+
 # Cold-start profile recovery from local AAPS loop inputs (2026-11-19)
 
 - A fresh local ISF/CR pair plus recent valid glucose can trigger the existing
