@@ -67,6 +67,19 @@ internal class AapsV3TargetProtocol(secret: ByteArray) : AutoCloseable {
         return AapsV3MealPrepare(envelope, mealKey, grams.toInt())
     }
 
+    fun recordMeal(prepared: AapsV3MealPrepare, ack: JsonObject, counter: Long, now: Long): AapsV3TargetRequest {
+        require(verifiedMealPreview(prepared, ack, now))
+        val original = prepared.envelope.json
+        val before = number(original, "counter")
+        require(counter > 0 && counter - 1 == before)
+        val typed = preview(string(ack, "payload"), meal = true)
+        return signed(string(original, "clientId"), counter, now, "local_meal_record_v1", buildJsonObject {
+            put("type", "local_meal_record_v1"); put("prepareCounter", before)
+            put("previewId", number(typed, "bolusId")); put("marker", "copilot:${prepared.mealKey}")
+            put("carbsGrams", prepared.grams)
+        })
+    }
+
     /** A valid preview is not a saved meal. The target commit API cannot consume a meal request. */
     fun verifiedMealPreview(request: AapsV3MealPrepare, response: JsonObject, nowMs: Long): Boolean {
         check(!closed)

@@ -1,0 +1,10 @@
+# AAPS 4 local manual carb entries
+
+When the same-phone legacy relay is absent, the manual food form can submit an immediate carb entry to a paired AAPS 4 master. Both apps must include the dedicated local meal providers, share a signing identity and have a current authorized pairing. An older preview-only master can validate a portion but cannot save it. This channel supports whole grams from 1 through 120, subject to the master's current, possibly lower limit. It never rounds a portion or requests insulin.
+
+1. The user submits the form. Copilot freezes the portion and metadata under its unique submission key. Existing arming, rate and target-priority checks apply. Copilot sends the signed private preview directly to AAPS, not through the generic settings stream.
+2. AAPS validates the current role, key, counter, expiry, exactly one immediate carb action and its constrained amount. Its reply binds the preview identifier, submission marker and quantity. The temporary native batch is discarded.
+3. Before requesting a write Copilot stores the next signed counter and the pending readback in one database transaction. AAPS requires the same client and live unconsumed preview, rechecks the master constraints and uses only its carbs entry point. The preview identifier cannot execute a bolus. A process restart, role change, expiration or changed grams invalidates the pending preview.
+4. Only a unique, valid current AAPS carb row with the matching marker, quantity and actual timestamp within the signed submission window can confirm the entry in Copilot. Neither the preview, Binder reply, socket event nor a Copilot-local row proves persistence. After an uncertain result the client reads back; it does not send the entry again. A second transport is never used to retry a claimed native write.
+
+This verifies a carbohydrate **record**, not meal consumption, insulin delivery, CGM completeness or a temporary target. The entry can change AAPS COB and therefore subsequent loop decisions, even though the transport requests no bolus. Eating Soon remains a separate command with its own authorization and confirmation.

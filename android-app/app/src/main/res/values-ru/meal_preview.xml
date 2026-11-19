@@ -1,4 +1,5 @@
 <resources>
     <string name="meal_checked_not_saved">AAPS проверил порцию, но не записал её. Введите углеводы в AAPS.</string>
     <string name="meal_not_verified">Подтверждение порции от AAPS не получено. Углеводы не записаны.</string>
+    <string name="meal_whole_grams">Канал AAPS 4 принимает только целые граммы. Порция не округлена и не записана.</string>
 </resources>

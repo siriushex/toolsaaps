@@ -18,6 +18,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
+internal const val NATIVE_MEAL_RECEIPT = "local_native_meal_pending_readback"
 @Serializable
 internal enum class AapsV3TargetPhase { PREPARED, PREVIEW, COMMITTED, UNKNOWN, APPLIED, REJECTED, EXPIRED, EXPIRED_NO_COMMIT }
 
@@ -462,6 +463,54 @@ internal class AapsV3TargetJournal(
         true
     }
 
+    /** Claim before Binder: process death or an ambiguous reply can only lead to readback, never resend. */
+    suspend fun claimLocalMealRecord(operationId: String, clock: () -> Long, guard: suspend () -> Unit): AapsV3TargetRequest = transaction {
+        val id = commandKey(operationId)
+        val root = root()
+        val prior = record(id)
+        val row = db.actionCommandDao().forTargetObservationProof(operationId).single()
+        check(root.pending == id && root.counter == prior.counter && prior.phase == AapsV3TargetPhase.PREVIEW &&
+            prior.operationId == operationId && row.status == "PENDING" && row.type == "carbs" && mealFingerprint(row) == prior.mealInput)
+        val pair = pairing()
+        check(pair.clientId == root.clientId && pair.localBinding != null && pair.phase != AapsV3PairingPhase.REVOKED)
+        guard()
+        val now = clock()
+        check(!db.actionCommandDao().hasPendingTempTarget())
+        check(io.aaps.copilot.data.repository.CarbsSendThrottle(db.actionCommandDao()).evaluatePersisted(now).allowed)
+        val next = next(root.counter)
+        val prepared = AapsV3MealPrepare(AapsV3TargetRequest(checkNotNull(prior.prepare)), operationId, checkNotNull(prior.mealGrams))
+        val key = secretBytes(pair)
+        val wire = try { AapsV3TargetProtocol(key).use { it.recordMeal(prepared, checkNotNull(prior.preview), next, now) } }
+            finally { key.fill(0) }
+        val payload = HistoryJson.parse(row.payloadJson.encodeToByteArray(), 16_384)
+        check("deliveryChannel" !in payload && "carbBlockReason" !in payload)
+        val waiting = row.copy(timestamp = now, status = io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT,
+            payloadJson = JsonObject(payload + ("deliveryChannel" to JsonPrimitive(NATIVE_MEAL_RECEIPT))).toString())
+        db.actionCommandDao().upsert(waiting)
+        put(id, json.encodeToString(prior.copy(phase = AapsV3TargetPhase.COMMITTED, counter = next, commit = wire.json, mealInput = mealFingerprint(waiting))))
+        put(ROOT, json.encodeToString(root.copy(counter = next, lastIssuedAt = now, pending = null)))
+        guard()
+        check(clock() in now until HistoryJson.long(checkNotNull(prior.prepare).getValue("validUntil")))
+        wire
+    }
+
+    suspend fun confirmNativeMeal(row: io.aaps.copilot.data.local.entity.ActionCommandEntity, at: Long, grams: Double): Boolean = transaction {
+        val id = commandKey(row.idempotencyKey)
+        val record = record(id)
+        val current = db.actionCommandDao().forTargetObservationProof(row.idempotencyKey).singleOrNull() ?: return@transaction false
+        if (record.operationId != row.idempotencyKey || record.mealGrams?.toDouble() != grams || record.phase != AapsV3TargetPhase.COMMITTED ||
+            row != current || row.status != io.aaps.copilot.data.repository.NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT ||
+            record.mealInput != mealFingerprint(row)) return@transaction false
+        val wire = checkNotNull(record.commit)
+        check(row.timestamp == HistoryJson.long(wire.getValue("timestamp")) && at in row.timestamp until HistoryJson.long(wire.getValue("validUntil")))
+        val payload = HistoryJson.parse(row.payloadJson.encodeToByteArray(), 16_384)
+        check(HistoryJson.string(payload.getValue("deliveryChannel")) == NATIVE_MEAL_RECEIPT)
+        db.actionCommandDao().upsert(row.copy(status = "SENT", timestamp = at,
+            payloadJson = JsonObject(payload + ("deliveryChannel" to JsonPrimitive("aaps_meal_record"))).toString()))
+        put(id, json.encodeToString(record.copy(phase = AapsV3TargetPhase.APPLIED).compactIfTerminal()))
+        true
+    }
+
     suspend fun retireLocalMealPreview(operationId: String) = transaction {
         val root = root()
         val id = commandKey(operationId)
@@ -841,8 +890,10 @@ internal class AapsV3TargetJournal(
         json.decodeFromJsonElement<Record>(it).also { record ->
             check(record.version == 1 && HEX.matches(record.fingerprint) && record.counter > 0)
             if (record.mealGrams != null || record.mealInput != null) {
-                check(record.mealGrams != null && record.mealGrams in 1..120 && record.mealInput?.matches(HEX) == true && record.commit == null &&
-                    record.phase in setOf(AapsV3TargetPhase.PREPARED, AapsV3TargetPhase.PREVIEW, AapsV3TargetPhase.EXPIRED_NO_COMMIT))
+                check(record.mealGrams != null && record.mealGrams in 1..120 && record.mealInput?.matches(HEX) == true &&
+                    (record.commit != null) == (record.phase == AapsV3TargetPhase.COMMITTED) &&
+                    record.phase in setOf(AapsV3TargetPhase.PREPARED, AapsV3TargetPhase.PREVIEW, AapsV3TargetPhase.EXPIRED_NO_COMMIT,
+                        AapsV3TargetPhase.COMMITTED, AapsV3TargetPhase.APPLIED))
             }
             if (record.phase !in TERMINAL) {
                 check(record.prepare != null)

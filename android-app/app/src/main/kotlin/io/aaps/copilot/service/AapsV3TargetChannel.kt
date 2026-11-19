@@ -5,6 +5,7 @@ import io.aaps.copilot.data.repository.HistoryJson
 import io.aaps.copilot.data.repository.LocalNightscoutV3Store
 import io.aaps.copilot.data.repository.LocalV3Collection
 import io.aaps.copilot.data.repository.NativeTargetOutcome
+import io.aaps.copilot.data.repository.NativeMealSubmission
 import io.aaps.copilot.data.repository.NativeTargetTransport
 import io.aaps.copilot.domain.model.ActionCommand
 import io.aaps.copilot.domain.target.EatingSoonPolicy
@@ -60,23 +61,34 @@ internal class AapsV3TargetChannel(
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
-    suspend fun previewManualMeal(id: String, peer: (String, ByteArray) -> ByteArray?): Boolean = withContext(Dispatchers.IO) {
+    suspend fun submitManualMeal(id: String, recordPeer: ((String, ByteArray) -> Unit)?,
+                                 peer: (String, ByteArray) -> ByteArray?): NativeMealSubmission = withContext(Dispatchers.IO) {
         val epoch = generation.get()
-        val pair = journal.pairingSnapshot() ?: return@withContext false
+        val pair = journal.pairingSnapshot() ?: return@withContext NativeMealSubmission.NOT_VERIFIED
         fun guard() = check(runtimeAllowed && generation.get() == epoch && pair.localEnrollment)
-        val prepared = journal.reserveLocalMealPreview(id, clock, ::guard) ?: return@withContext false
+        val prepared = journal.reserveLocalMealPreview(id, clock, ::guard) ?: return@withContext NativeMealSubmission.NOT_VERIFIED
         val bytes = prepared.envelope.json.toString().encodeToByteArray()
         try {
             guard()
-            val reply = peer(pair.masterInstallId, bytes) ?: return@withContext false
+            val reply = peer(pair.masterInstallId, bytes) ?: return@withContext NativeMealSubmission.NOT_VERIFIED
             try {
                 guard()
-                journal.acceptLocalMealPreview(id, HistoryJson.parse(reply, 16_384), clock())
+                if (!journal.acceptLocalMealPreview(id, HistoryJson.parse(reply, 16_384), clock())) return@withContext NativeMealSubmission.NOT_VERIFIED
+                if (recordPeer != null) {
+                    val wire = journal.claimLocalMealRecord(id, clock, ::guard).json.toString().encodeToByteArray()
+                    try { guard(); recordPeer(pair.masterInstallId, wire) } finally { wire.fill(0) }
+                    NativeMealSubmission.CHECK_RECORD
+                } else NativeMealSubmission.PREVIEW_ONLY
             } finally { reply.fill(0) }
         } finally {
             bytes.fill(0)
             withContext(NonCancellable) { journal.retireLocalMealPreview(id) }
         }
+    }
+    suspend fun verifyMealRow(row: io.aaps.copilot.data.local.entity.ActionCommandEntity, grams: Double,
+                              reader: suspend (String, Long, Double) -> Long?): Boolean {
+        val at = reader(row.idempotencyKey, row.timestamp, grams) ?: return false
+        return journal.confirmNativeMeal(row, at, grams)
     }
     private class MembershipCheck(val epoch: Long, val client: String, val attempted: Long,
                                   val receipt: AapsLocalRoleReceipt?, val settings: Boolean?)

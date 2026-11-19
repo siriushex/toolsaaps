@@ -19,6 +19,7 @@ internal fun manualMealSubmissionMessage(context: Context, carbsGrams: Double, r
                 "local_carb_relay_unavailable" -> R.string.meal_carbs_local_relay_unavailable
                 "local_meal_checked_not_saved" -> R.string.meal_checked_not_saved
                 "local_meal_not_verified" -> R.string.meal_not_verified
+                "native_meal_whole_grams" -> R.string.meal_whole_grams
                 else -> R.string.meal_carbs_blocked
             })
             MealDeliveryStatus.NOT_REQUESTED -> context.getString(R.string.meal_carbs_not_attempted)

@@ -40,6 +40,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+enum class NativeMealSubmission { UNAVAILABLE, NOT_VERIFIED, PREVIEW_ONLY, CHECK_RECORD }
+
 class NightscoutActionRepository(
     private val context: Context,
     private val db: CopilotDatabase,
@@ -53,7 +55,8 @@ class NightscoutActionRepository(
     private val localMealReadbackAvailable: () -> Boolean = { AapsLocalMealRecord.available(context) },
     private val readLocalMealRecord: suspend (String, Long, Double) -> Boolean =
         { key, at, grams -> AapsLocalMealRecord.recorded(context, key, at, grams) },
-    private val nativeMealPreview: (suspend (String) -> Boolean?)? = null
+    private val submitNativeMeal: (suspend (String) -> NativeMealSubmission)? = null,
+    private val verifyNativeMealRow: suspend (ActionCommandEntity, Double) -> Boolean = { _, _ -> false }
 ) : AapsCarbGateway {
 
     suspend fun normalizeLegacyBlockedCommands(lookbackMs: Long = 7L * 24 * 60 * 60 * 1000): Int {
@@ -695,20 +698,28 @@ class NightscoutActionRepository(
             if (blockIfTherapyActionsNotArmed(command, deliverySettings)) return false
             if (guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) &&
                 !AapsTreatmentBroadcastCapability.canSendLocalRelay(context)) {
-                val peer = nativeMealPreview
+                if (carbs != carbs.toInt().toDouble()) {
+                    markBlocked(command, "native_meal_whole_grams")
+                    return false
+                }
+                val peer = submitNativeMeal
                 val reason = try {
-                    val checked = if (peer == null) null else TherapyActionTransportGate.withArmedLease(
+                    val outcome = if (peer == null) NativeMealSubmission.UNAVAILABLE else TherapyActionTransportGate.withArmedLease(
                         verifyPersistedState = { settingsStore.settings.first().therapyActionsArmed }
                     ) { peer(command.idempotencyKey) }
-                    when (checked) {
-                        true -> "local_meal_checked_not_saved"
-                        false -> "local_meal_not_verified"
-                        null -> "local_carb_relay_unavailable"
+                    when (outcome) {
+                        NativeMealSubmission.CHECK_RECORD -> return reconcileLocalMeal(command)
+                        NativeMealSubmission.PREVIEW_ONLY -> "local_meal_checked_not_saved"
+                        NativeMealSubmission.NOT_VERIFIED -> "local_meal_not_verified"
+                        NativeMealSubmission.UNAVAILABLE -> "local_carb_relay_unavailable"
                     }
                 } catch (e: CancellationException) { throw e }
                 catch (_: TherapyActionsNotArmedException) { "therapy_actions_not_armed" }
                 catch (_: Exception) { "local_meal_not_verified" }
-                markBlocked(command, reason)
+                val latest = db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)
+                if (latest?.status == STATUS_LOCAL_MEAL_RECEIPT || latest?.status == STATUS_SENT)
+                    return reconcileLocalMeal(command)
+                if (latest?.id == command.id && latest.status == STATUS_PENDING) markBlocked(command, reason)
                 return false
             }
             val needsReadback = guardedMeal && isLocalNightscoutTarget(targetUrl, deliverySettings) && localMealReadbackAvailable()
@@ -983,8 +994,10 @@ class NightscoutActionRepository(
         val payload = gson.fromJson(row.payloadJson, JsonObject::class.java)
         val channel = payload.get("deliveryChannel")?.asString
         if (row.status == STATUS_SENT) return channel == LOCAL_MEAL_RECORDED
-        if (row.status != STATUS_LOCAL_MEAL_RECEIPT || channel != LOCAL_MEAL_READBACK_PENDING) return false
+        if (row.status != STATUS_LOCAL_MEAL_RECEIPT) return false
         val grams = payload.get("carbsGrams")?.asString?.toDoubleOrNull()?.takeIf { it in 1.0..120.0 } ?: return false
+        if (channel == io.aaps.copilot.service.NATIVE_MEAL_RECEIPT) return verifyNativeMealRow(row, grams)
+        if (channel != LOCAL_MEAL_READBACK_PENDING) return false
         if (!readLocalMealRecord(row.idempotencyKey, row.timestamp, grams)) return false
         return db.withTransaction {
             val current = dao.forTargetObservationProof(row.idempotencyKey).singleOrNull()
@@ -1289,7 +1302,7 @@ class NightscoutActionRepository(
         const val AAPS_PACKAGE_LEGACY = "info.nightscout.androidaps"
         private val MANUAL_CARB_BLOCK_REASONS =
             setOf("carbs_rate_limit_30m", "therapy_actions_not_armed", "local_carb_relay_unavailable",
-                "local_meal_checked_not_saved", "local_meal_not_verified")
+                "local_meal_checked_not_saved", "local_meal_not_verified", "native_meal_whole_grams")
         private const val LOCAL_MEAL_READBACK_PENDING = "local_meal_pending_readback"
         private const val LOCAL_MEAL_RECORDED = "aaps_meal_record"
         const val AAPS_PACKAGE_MODERN = "app.aaps"

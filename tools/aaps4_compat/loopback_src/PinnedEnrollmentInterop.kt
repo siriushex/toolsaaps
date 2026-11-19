@@ -73,6 +73,12 @@ fun main() {
                 val mealAck = integration.mealpreview.signedSampleMealPreview(meal, checkNotNull(saved))
                 println(Json.encodeToString(AckEnvelope.serializer(), mealAck))
                 System.out.flush()
+                val record = Json.decodeFromString<SignedEnvelope>(readln())
+                check(record.clientId == id && record.counter == 4L && record.type == "local_meal_record_v1" &&
+                    app.aaps.core.nssdk.utils.ClientControlCrypto.verifyEnvelope(checkNotNull(saved), record) &&
+                    record.payload == """{"type":"local_meal_record_v1","prepareCounter":3,"previewId":79,"marker":"copilot:manual:meal:sample","carbsGrams":12}""")
+                println("MEAL_RECORD_WIRE_VERIFIED")
+                System.out.flush()
                 val nonce = readln()
                 val now = readln().toLong()
                 val request = checkNotNull(LocalSessionSettingsPeer.receive(System.getenv("SETTINGS_TEST_PORT").toInt(),

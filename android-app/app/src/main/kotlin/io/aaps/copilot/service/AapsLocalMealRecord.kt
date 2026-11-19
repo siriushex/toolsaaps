@@ -37,4 +37,17 @@ internal object AapsLocalMealRecord {
             false
         }
     }
+
+    suspend fun recordedDuring(context: Context, key: String, issued: Long, grams: Double): Long? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (!keyFormat.matches(key) || issued !in (now - 86_400_000L)..now || grams !in 1.0..120.0) return@withContext null
+        val until = issued + AapsV3TargetProtocol.TTL_MS
+        try {
+            if (!available(context)) return@withContext null
+            val reply = context.contentResolver.call(Uri.parse("content://$AUTHORITY"), "meal_receipt_v2", key,
+                Bundle().apply { putLong("at", issued); putLong("until", until); putDouble("grams", grams) })
+            reply?.takeIf { it.keySet() == setOf("recordedAt") }?.getLong("recordedAt", -1)
+                ?.takeIf { it in issued until until && it <= System.currentTimeMillis() }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+    }
 }

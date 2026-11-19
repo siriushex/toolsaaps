@@ -50,6 +50,9 @@ git apply --index "$meal_preview"
 meal_provider="$root/tools/aaps4_compat/final-local-meal-provider.patch"
 git apply --check "$meal_provider"
 git apply --index "$meal_provider"
+meal_record="$root/tools/aaps4_compat/final-local-meal-record.patch"
+git apply --check "$meal_record"
+git apply --index "$meal_record"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -66,6 +69,12 @@ assert any(p.get(name) == permission and p.get(android + "protectionLevel") == "
 assert any(p.get(android + "authorities") == "${applicationId}.localmealpreview" and
            p.get(android + "permission") == permission and p.get(android + "grantUriPermissions") == "false" and
            p.get(android + "exported") == "true" for p in manifest.findall("./application/provider"))
+record_permission = "${applicationId}.permission.RECORD_LOCAL_MEAL"
+assert any(p.get(name) == record_permission and p.get(android + "protectionLevel") == "signature"
+           for p in manifest.findall("permission"))
+assert any(p.get(android + "authorities") == "${applicationId}.localmealrecord" and
+           p.get(android + "permission") == record_permission and p.get(android + "grantUriPermissions") == "false" and
+           p.get(android + "exported") == "true" for p in manifest.findall("./application/provider"))
 PY
 # The final AAPS build refuses tracked changes. Commit only in this detached fixture.
 git -c user.name="Local fixture" -c user.email="fixture@example.invalid" \
@@ -78,5 +87,6 @@ export AAPS_INTEROP_CLASSPATH="$root/android-app/build/aaps4-loopback-interop/cl
     :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest' \
     --tests '*RunningConfigurationPublisherTest' --tests '*NSClientV3PluginTest' \
     --tests '*ClientControlReceiverTest.manualMeal*' \
-    :database:impl:jvmTest --tests '*LocalMealRecordTest' :app:compileFullReleaseKotlin
+    :database:impl:jvmTest --tests '*LocalMealRecordTest' \
+    :implementation:testAndroidHostTest --tests '*CommandQueueImplementationTest.markedImmediateMeal*' :app:compileFullReleaseKotlin
 test -s "$AAPS_INTEROP_CLASSPATH"

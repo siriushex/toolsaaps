@@ -335,10 +335,25 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
                 reopened.commit(mealId, p, afterPin + 3) { error("not a target") }
             } }.exceptionOrNull()
             assertThat(wrongCommit).isInstanceOf(AapsV3TargetJournalFailure::class.java)
-            assertThat(reopened.expire(afterPin + AapsV3TargetProtocol.TTL_MS + 1)?.phase)
-                .isEqualTo(AapsV3TargetPhase.EXPIRED_NO_COMMIT)
-            assertThat(reopened.reserveLocalMealPreview(mealId, { afterPin + 10_000 }) {}).isNull()
+            val issuedAt = afterPin + 3
+            val denied = runCatching { reopened.claimLocalMealRecord(mealId, { issuedAt }) { error("disarmed") } }
+            assertThat(denied.isFailure).isTrue()
             assertThat(db.actionCommandDao().byIdempotencyKey(mealId)?.status).isEqualTo("PENDING")
+            val write = reopened.claimLocalMealRecord(mealId, { issuedAt }) {}
+            send(write.json.toString())
+            assertThat(receive()).isEqualTo("MEAL_RECORD_WIRE_VERIFIED")
+            assertThat(reopened.pending()).isNull()
+            val waiting = checkNotNull(db.actionCommandDao().byIdempotencyKey(mealId))
+            assertThat(waiting.status).isEqualTo("AWAITING_AAPS_MEAL_RECORD")
+            assertThat(runCatching { journal.claimLocalMealRecord(mealId, { issuedAt }) {} }.isFailure).isTrue()
+            assertThat(journal.confirmNativeMeal(waiting, issuedAt + 1, 13.0)).isFalse()
+            assertThat(runCatching { journal.confirmNativeMeal(waiting, issuedAt - 1, 12.0) }.isFailure).isTrue()
+            assertThat(db.actionCommandDao().byIdempotencyKey(mealId)).isEqualTo(waiting)
+            assertThat(journal.confirmNativeMeal(waiting, issuedAt + 1, 12.0)).isTrue()
+            val confirmed = checkNotNull(db.actionCommandDao().byIdempotencyKey(mealId))
+            assertThat(confirmed.status).isEqualTo("SENT")
+            assertThat(confirmed.timestamp).isEqualTo(issuedAt + 1)
+            assertThat(journal.status(mealId)).isEqualTo(AapsV3TargetPhase.APPLIED)
             assertThat(db.localNightscoutV3Dao().count()).isEqualTo(wireCount)
             afterEnrollment.set(afterPin)
             lateinit var reply: String
@@ -1836,7 +1851,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             params = mapOf("carbsGrams" to "12"), idempotencyKey = "manual:meal:form")
         val repository = NightscoutActionRepository(context, db, settings, ApiFactory { error("no HTTP fallback") },
             CarbsSendThrottle(db.actionCommandDao()), TempTargetSendThrottle(db.actionCommandDao()),
-            Gson(), AuditLogger(db.auditLogDao(), Gson()), nativeMealPreview = { calls.add(it); true })
+            Gson(), AuditLogger(db.auditLogDao(), Gson()), submitNativeMeal = { calls.add(it); io.aaps.copilot.data.repository.NativeMealSubmission.PREVIEW_ONLY })
         repeat(2) { assertThat(repository.submitCarbs(command)).isFalse() }
         assertThat(calls).containsExactly(command.idempotencyKey)
         assertThat(repository.manualCarbBlockReason(command)).isEqualTo("local_meal_checked_not_saved")
@@ -1879,6 +1894,39 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         assertThat(repository.submitCarbs(command)).isTrue()
         assertThat(db.actionCommandDao().byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo("SENT")
         assertThat(posts.get()).isEqualTo(1)
+    }
+
+    @Test fun lostNativeMealReplyLeavesOnlyReadbackAndNeverPostsToNightscout() = runBlocking {
+        val settings = configuredLocalSettings(freePort())
+        val command = managerTempTargetCommand("lost-meal-reply").copy(type = "carbs",
+            params = mapOf("carbsGrams" to "12"), idempotencyKey = "manual:meal:lost-reply")
+        var writes = 0
+        var reads = 0
+        val dao = db.actionCommandDao()
+        val repo = NightscoutActionRepository(context, db, settings, ApiFactory { error("no fallback") },
+            CarbsSendThrottle(dao), TempTargetSendThrottle(dao), Gson(), AuditLogger(db.auditLogDao(), Gson()),
+            submitNativeMeal = { key ->
+                writes++
+                val row = checkNotNull(dao.byIdempotencyKey(key))
+                dao.upsert(row.copy(status = NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT,
+                    payloadJson = Gson().toJson(command.params + ("deliveryChannel" to NATIVE_MEAL_RECEIPT))))
+                error("reply lost after claim")
+            }, verifyNativeMealRow = { row, grams ->
+                assertThat(row.idempotencyKey).isEqualTo(command.idempotencyKey)
+                assertThat(grams).isEqualTo(12.0)
+                if (++reads == 1) false else {
+                    dao.upsert(row.copy(status = NightscoutActionRepository.STATUS_SENT,
+                        payloadJson = Gson().toJson(command.params + ("deliveryChannel" to "aaps_meal_record"))))
+                    true
+                }
+            })
+        assertThat(repo.submitCarbs(command)).isFalse()
+        assertThat(dao.byIdempotencyKey(command.idempotencyKey)?.status).isEqualTo(NightscoutActionRepository.STATUS_LOCAL_MEAL_RECEIPT)
+        assertThat(repo.reconcilePendingLocalMeal()).isTrue()
+        assertThat(repo.submitCarbs(command)).isTrue()
+        assertThat(writes).isEqualTo(1)
+        assertThat(reads).isEqualTo(2)
+        assertThat(db.therapyDao().since(0)).isEmpty()
     }
 
     @Test

@@ -1179,9 +1179,13 @@ class AppContainer(context: Context) {
         gson = gson,
         auditLogger = auditLogger,
         nativeTargetTransport = nativeAapsTargetChannel,
-        nativeMealPreview = { id -> if (!AapsLocalSessionPeer.hasMealPreview(appContext)) null
-        else nativeAapsTargetChannel.previewManualMeal(id) { master, request ->
+        submitNativeMeal = { id -> if (!AapsLocalSessionPeer.hasMealPreview(appContext)) io.aaps.copilot.data.repository.NativeMealSubmission.UNAVAILABLE
+        else nativeAapsTargetChannel.submitManualMeal(id, if (AapsLocalSessionPeer.hasMealRecord(appContext))
+            { master, request -> AapsLocalSessionPeer.requestMealRecord(appContext, master, request) } else null) { master, request ->
             AapsLocalSessionPeer.previewMeal(appContext, master, request)
+        } },
+        verifyNativeMealRow = { row, grams -> nativeAapsTargetChannel.verifyMealRow(row, grams) { key, at, amount ->
+            AapsLocalMealRecord.recordedDuring(appContext, key, at, amount)
         } }
     )
 

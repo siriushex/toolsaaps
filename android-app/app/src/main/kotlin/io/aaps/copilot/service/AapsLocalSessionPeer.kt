@@ -25,6 +25,18 @@ internal object AapsLocalSessionPeer {
     fun hasMealPreview(context: Context): Boolean =
         trustedProvider(context, "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL")
 
+    fun hasMealRecord(context: Context): Boolean =
+        trustedProvider(context, "$MASTER.localmealrecord", "$MASTER.permission.RECORD_LOCAL_MEAL") && AapsLocalMealRecord.available(context)
+
+    fun requestMealRecord(context: Context, master: String, request: ByteArray) {
+        if (!hasMealRecord(context)) return
+        val uri = Uri.parse("content://$MASTER.localmealrecord")
+        context.contentResolver.acquireUnstableContentProviderClient(uri)?.use {
+            // The RPC reply never replaces an actual AAPS carb row, including after a timeout.
+            it.call("record_meal_v1", null, Bundle().apply { putString("master", master); putByteArray("request", request) })
+        }
+    }
+
     fun previewMeal(context: Context, master: String, request: ByteArray): ByteArray? =
         call(context, "preview_meal_v1", Bundle().apply { putString("master", master); putByteArray("request", request) },
             "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL", "preview", 16_384)
