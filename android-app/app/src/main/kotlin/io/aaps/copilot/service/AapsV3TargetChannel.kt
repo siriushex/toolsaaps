@@ -468,6 +468,10 @@ internal class AapsV3TargetChannel(
                     check(deliveryGuard() == null)
                     stage = "live_pairing"
                     check(journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true) == master)
+                    if (capturePairedBaseline != null) {
+                        stage = "paired_input_match"
+                        check(pairedCheck?.invoke() == true)
+                    }
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
                     stage = "runtime_recheck"

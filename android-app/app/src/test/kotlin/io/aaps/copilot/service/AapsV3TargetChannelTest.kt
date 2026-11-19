@@ -604,6 +604,18 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
+    @Test fun pairedInputsInvalidatedDuringDeliveryGuardCannotPublish() = runBlocking {
+        var current = true
+        channel = newChannel { _, _ ->
+            val verify: suspend () -> Boolean = { current }
+            verify
+        }
+        connected()
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { current = false; null })
+        assertFalse(current)
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+    }
+
     @Test fun changedSafetyGuardAfterPreviewCannotCommit() = runBlocking {
         connected()
         var checks = 0
