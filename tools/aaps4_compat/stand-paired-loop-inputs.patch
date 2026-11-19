@@ -1,0 +1,44 @@
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index f239e9150a..40d37a10b5 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -225,6 +225,12 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+         val bucket = metroGraphs.iobCobCalculator.ads.getLastAutosensData("local_loop_inputs", aapsLogger, dateUtil)
+         return app.aaps.localobservation.localLoopInputs(now, nonce, loop.lastRun?.request, bucket)
+     }
++    internal fun readPairedLoopInputs(now: Long, nonce: String, master: String): ByteArray? {
++        fun matchesInstall() = AndroidStorage.failure == null && config.initProgressFlow.value.done &&
++            preferences.get(app.aaps.core.keys.StringNonKey.NsClientControlOwnInstallId) == master
++        if (!matchesInstall()) return null
++        return readLocalLoopInputs(now, nonce).takeIf { matchesInstall() }
++    }
+     private val uiInteraction get() = metroGraphs.uiInteraction
+     private val processLifecycleListener get() = metroGraphs.processLifecycleListener
+     private val localAlertUtils get() = metroGraphs.localAlertUtils
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+index 3430d03e1b..fc7b22a992 100644
+--- a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -55,13 +55,19 @@ class LocalObservationProvider : ContentProvider() {
+         if (method == "meal_receipt_v1" || method == "meal_receipt_v2")
+             return mealReceipt(app, arg, extras, windowed = method == "meal_receipt_v2")
+         if (method == "upload_v3" && arg == null && extras != null) return upload(app, extras)
+-        if (method == "loop_inputs_v1" && arg == null && extras != null) {
+-            require(extras.keySet() == setOf("nonce"))
++        if (method in setOf("loop_inputs_v1", "loop_inputs_v2") && arg == null && extras != null) {
++            val paired = method == "loop_inputs_v2"
++            require(extras.keySet() == if (paired) setOf("nonce", "master") else setOf("nonce"))
++            val master = if (paired) requireNotNull(extras.getString("master")).also {
++                require(it.matches(Regex("[a-zA-Z0-9_-]{1,128}")))
++            } else null
+             val nonce = extras.getString("nonce").orEmpty().also { require(localInputNonce.matches(it)) }
+             if (!readingInputs.compareAndSet(false, true)) return Bundle()
+             val identity = Binder.clearCallingIdentity()
+             try {
+-                return Bundle().apply { putByteArray("snapshot", app.readLocalLoopInputs(System.currentTimeMillis(), nonce)) }
++                val now = System.currentTimeMillis()
++                val snapshot = if (master == null) app.readLocalLoopInputs(now, nonce) else app.readPairedLoopInputs(now, nonce, master)
++                return Bundle().apply { if (snapshot != null) putByteArray("snapshot", snapshot) }
+             } finally {
+                 Binder.restoreCallingIdentity(identity)
+                 readingInputs.set(false)

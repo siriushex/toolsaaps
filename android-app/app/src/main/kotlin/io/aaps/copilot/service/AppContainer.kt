@@ -1154,6 +1154,19 @@ class AppContainer(context: Context) {
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
+        capturePairedBaseline = { master ->
+            val nonce = UUID.randomUUID().toString()
+            val issued = System.currentTimeMillis()
+            val reply = withContext(Dispatchers.IO) { AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master) }
+            val received = System.currentTimeMillis()
+            val verify: suspend () -> Boolean = {
+                val now = System.currentTimeMillis()
+                reply != null && now >= received && now - issued in 0..10_000L &&
+                    LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received) &&
+                    LocalAapsLoopInputSync.activeSamples(db, now).size == 4
+            }
+            verify
+        },
         reportTargetFailure = { stage -> auditLogger.warn("native_target_delivery_interrupted", mapOf("stage" to stage)) },
         historyStore = { AapsV3ComboJournalStore(retainedComboDatabase) },
         publicationLease = { publish ->

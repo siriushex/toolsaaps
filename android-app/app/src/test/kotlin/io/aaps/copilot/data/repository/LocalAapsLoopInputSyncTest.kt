@@ -29,6 +29,16 @@ class LocalAapsLoopInputSyncTest {
     private var signals = 0
     private fun reader() = LocalAapsLoopInputSync(db, { body?.toByteArray() }, { enabled }, { signals++; accepted }, { now }, { nonce })
     @After fun close() = db.close()
+    @Test fun pairedComparisonRequiresAllFourExactSelectedSamples() = runBlocking {
+        val complete = javaClass.getResource("/fixtures/local-loop-factors.json")!!.readText().trim()
+        body = complete
+        reader().sync()
+        suspend fun matches(input: String) = LocalAapsLoopInputSync.matchesPairedSamples(db, input.toByteArray(), nonce, now, now)
+        assertTrue(matches(complete))
+        assertFalse(matches(complete.replace("12.5", "13.5")))
+        assertFalse(matches(fixture))
+        assertFalse(matches(complete.replace(",\"cobG\":12.5,\"cobAt\":1799999900000", "")))
+    }
     @Test fun forecastSelectionSeparatesMissingInputsFromZeroAndDisabledScope() = runBlocking {
         val empty = LocalLoopForecastSelection.capture(db, true, now)
         empty.requireCurrent(db, true, now)

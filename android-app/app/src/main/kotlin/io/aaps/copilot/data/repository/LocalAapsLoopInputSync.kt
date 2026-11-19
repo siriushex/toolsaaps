@@ -43,27 +43,7 @@ internal class LocalAapsLoopInputSync(
             val key = nonce()
             val bytes = read(key) ?: return@withLock
             val received = clock()
-            require(issued in 1..HistoryJson.maxTime && received in issued..issued + 10_000L)
-            val body = HistoryJson.parse(bytes, 1024)
-            HistoryJson.fields(body, setOf("v", "at", "nonce"),
-                setOf("netIobU", "iobAt", "cobG", "cobAt", "inputIsfMgdlPerU", "isfAt", "inputCrGPerU", "crAt"))
-            val at = HistoryJson.long(body.getValue("at"))
-            require(HistoryJson.long(body.getValue("v")) == 1L && HistoryJson.string(body.getValue("nonce")) == key &&
-                at in issued..received)
-            fun metric(field: String, ts: String, age: Long, range: ClosedFloatingPointRange<Double>,
-                       name: String, unit: String, divisor: Double = 1.0): TelemetrySampleEntity? {
-                require((field in body) == (ts in body))
-                val value = body[field]?.let(HistoryJson::double) ?: return null
-                val timestamp = HistoryJson.long(body.getValue(ts))
-                require(timestamp in maxOf(1L, at - age)..at && value in range)
-                if (received - timestamp > age) return null
-                return TelemetrySampleEntity("$SOURCE:$name:$timestamp", timestamp, SOURCE, name, value / divisor, null, unit, "OK")
-            }
-            val rows = listOfNotNull(metric("netIobU", "iobAt", 300_000, -30.0..30.0, "iob_net_units", "U"),
-                metric("cobG", "cobAt", 600_000, 0.0..400.0, "cob_grams", "g"),
-                // The validated 3.x relay expressed profile ISF in mmol/L/U using exactly 18.
-                metric("inputIsfMgdlPerU", "isfAt", 300_000, 14.4..324.0, "aaps_isf", "mmol/L/U", 18.0),
-                metric("inputCrGPerU", "crAt", 300_000, 2.0..60.0, "aaps_cr", "g/U"))
+            val rows = decodeSamples(bytes, key, issued, received)
             if (!enabled()) return@withLock
             db.withTransaction {
                 val current = db.telemetryDao().byIds(rows.map { it.id }).associateBy { it.id }
@@ -86,9 +66,40 @@ internal class LocalAapsLoopInputSync(
     }
 
     companion object {
+        internal fun decodeSamples(bytes: ByteArray, key: String, issued: Long, received: Long): List<TelemetrySampleEntity> {
+            require(issued in 1..HistoryJson.maxTime && received in issued..issued + 10_000L)
+            val body = HistoryJson.parse(bytes, 1024)
+            HistoryJson.fields(body, setOf("v", "at", "nonce"),
+                setOf("netIobU", "iobAt", "cobG", "cobAt", "inputIsfMgdlPerU", "isfAt", "inputCrGPerU", "crAt"))
+            val at = HistoryJson.long(body.getValue("at"))
+            require(HistoryJson.long(body.getValue("v")) == 1L && HistoryJson.string(body.getValue("nonce")) == key &&
+                at in issued..received)
+            fun metric(field: String, ts: String, age: Long, range: ClosedFloatingPointRange<Double>,
+                       name: String, unit: String, divisor: Double = 1.0): TelemetrySampleEntity? {
+                require((field in body) == (ts in body))
+                val value = body[field]?.let(HistoryJson::double) ?: return null
+                val timestamp = HistoryJson.long(body.getValue(ts))
+                require(timestamp in maxOf(1L, at - age)..at && value in range)
+                if (received - timestamp > age) return null
+                return TelemetrySampleEntity("$SOURCE:$name:$timestamp", timestamp, SOURCE, name, value / divisor, null, unit, "OK")
+            }
+            return listOfNotNull(metric("netIobU", "iobAt", 300_000, -30.0..30.0, "iob_net_units", "U"),
+                metric("cobG", "cobAt", 600_000, 0.0..400.0, "cob_grams", "g"),
+                // The validated 3.x relay expressed profile ISF in mmol/L/U using exactly 18.
+                metric("inputIsfMgdlPerU", "isfAt", 300_000, 14.4..324.0, "aaps_isf", "mmol/L/U", 18.0),
+                metric("inputCrGPerU", "crAt", 300_000, 2.0..60.0, "aaps_cr", "g/U"))
+        }
+
         const val SOURCE = "aaps_local_loop"
         private const val DIRTY = "aaps_local_loop_invalidation_pending"
         private val NAMES = listOf("iob_net_units", "cob_grams", "aaps_isf", "aaps_cr")
+        internal suspend fun matchesPairedSamples(db: CopilotDatabase, reply: ByteArray, nonce: String,
+                                                 issued: Long, received: Long): Boolean {
+            val paired = decodeSamples(reply, nonce, issued, received)
+            if (paired.size != NAMES.size) return false
+            val selected = activeSamples(db, received)
+            return selected.size == paired.size && selected.toSet() == paired.toSet()
+        }
         private fun selectionKey(name: String) = "aaps_local_loop_current_$name"
 
         suspend fun activeSamples(db: CopilotDatabase, now: Long): List<TelemetrySampleEntity> = db.withTransaction {

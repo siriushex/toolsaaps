@@ -380,7 +380,7 @@ internal class AapsV3TargetJournal(
 
     // Read-only assertion used by the guard inside prepare/commit; no state or receipt escapes.
     suspend fun requireLivePairing(nowMs: Long, sessionStartedAt: Long, minimumProbeCounter: Long = 0,
-                                   requireTargetRole: Boolean = false): Unit = try { db.withTransaction {
+                                   requireTargetRole: Boolean = false): String = try { db.withTransaction {
         val pair = pairing()
         check(!pair.requiresSignedRoster || pair.secretRotated)
         check(pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled && pair.lastPongAt >= sessionStartedAt)
@@ -391,6 +391,7 @@ internal class AapsV3TargetJournal(
         }
         val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps")
         check(row != null && !row.deleted && row.source == "local-v3-owner" && row.modifiedRevision == pair.rosterRevision)
+        pair.masterInstallId
     } } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { throw AapsV3TargetJournalFailure() }
 

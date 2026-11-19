@@ -50,14 +50,15 @@ internal class AapsV3TargetChannel(
     private val db: CopilotDatabase,
     private val journal: AapsV3TargetJournal,
     private val storageAvailable: () -> Boolean,
-    private val baselineGuard: suspend () -> String?,
+    private val baselineGuard: suspend (masterInstallId: String) -> String?,
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
     private val clock: () -> Long = System::currentTimeMillis,
     private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
     private val localOffers: LocalEnrollmentOffers? = null,
     private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
-    private val reportTargetFailure: suspend (String) -> Unit = {}
+    private val reportTargetFailure: suspend (String) -> Unit = {},
+    private val capturePairedBaseline: (suspend (String) -> (suspend () -> Boolean))? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -426,16 +427,29 @@ internal class AapsV3TargetChannel(
             refresh()
             stage = "signed_protocol"
             journal.withTargetProtocol { protocol ->
+                var pairedCheck: (suspend () -> Boolean)? = null
+                var pairedMaster: String? = null
+                suspend fun capture() {
+                    val read = capturePairedBaseline ?: return
+                    stage = "paired_input_read"
+                    val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    pairedMaster = master
+                    pairedCheck = read(master)
+                }
                 suspend fun guard() {
                     currentCoroutineContext().ensureActive()
                     stage = "runtime_storage_session"
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
+                    stage = "live_pairing"
+                    val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    stage = "paired_input_match"
+                    if (capturePairedBaseline != null) check(pairedMaster == master && pairedCheck?.invoke() == true)
                     stage = "clinical_baseline"
-                    check(baselineGuard() == null)
+                    check(baselineGuard(master) == null)
                     stage = "delivery_guard"
                     check(deliveryGuard() == null)
                     stage = "live_pairing"
-                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    check(journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true) == master)
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
                     stage = "runtime_recheck"
@@ -443,6 +457,7 @@ internal class AapsV3TargetChannel(
                     stage = "journal_publication"
                 }
                 stage = "prepare"
+                capture()
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
                         currentTime = clock, expectedActionId = command.id) { guard() }
@@ -453,6 +468,7 @@ internal class AapsV3TargetChannel(
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
                 stage = "commit"
+                capture()
                 publicationLease {
                     commitAttempted = true
                     journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }

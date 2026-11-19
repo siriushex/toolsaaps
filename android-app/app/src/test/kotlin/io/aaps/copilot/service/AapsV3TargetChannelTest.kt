@@ -56,7 +56,7 @@ class AapsV3TargetChannelTest {
     private val journal get() = AapsV3TargetJournal(db, cipher)
     private var storage = true
     private var storageProbe: () -> Boolean = { storage }
-    private var baseline: suspend () -> String? = { null }
+    private var baseline: suspend (String) -> String? = { null }
     private lateinit var channel: AapsV3TargetChannel
     private var privateDb: ComboJournalDatabase? = null
     private var historyFactory: (() -> AapsV3ComboJournalStore)? = null
@@ -67,8 +67,9 @@ class AapsV3TargetChannelTest {
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
     private var reportFailure: suspend (String) -> Unit = {}
-    private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory,
-        reportTargetFailure = { reportFailure(it) })
+    private fun newChannel(capture: (suspend (String) -> (suspend () -> Boolean))? = null) =
+        AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline(it) }, { it() }, now::get, historyFactory,
+            reportTargetFailure = { reportFailure(it) }, capturePairedBaseline = capture)
 
     private fun localWrapped(): ByteArray {
         val expiry = at + 120_000
@@ -85,7 +86,7 @@ class AapsV3TargetChannelTest {
         val invites = LocalEnrollmentOffers(scope, { id ->
             grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2), { subscribed }) {}
         }, now::get)
-        channel = AapsV3TargetChannel(db, journal, { true }, { baseline() }, { it() }, now::get, localOffers = invites)
+        channel = AapsV3TargetChannel(db, journal, { true }, { baseline(it) }, { it() }, now::get, localOffers = invites)
         channel.start(scope)
         val wrapped = localWrapped()
         val receipt = checkNotNull(invites.publish(wrapped))
@@ -298,11 +299,13 @@ class AapsV3TargetChannelTest {
     @Test fun finalPinUsesSignedRosterAndKeepsTheProductionClinicalFence() = runBlocking {
         val master = FinalMaster()
         master.completeEnrollment()
-        baseline = { "native_clinical_projection_unavailable" }
+        val checkedMasters = mutableListOf<String>()
+        baseline = { checkedMasters.add(it); "native_clinical_projection_unavailable" }
         val stages = mutableListOf<String>()
         reportFailure = { stages.add(it); error("audit unavailable") }
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
         assertEquals(listOf("clinical_baseline"), stages)
+        assertEquals(listOf("fixture-master"), checkedMasters)
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
@@ -599,6 +602,22 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_bolus_commit_$client"))
         now.addAndGet(9000)
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.reconcile(command().idempotencyKey))
+    }
+
+    @Test fun changedPairedInputsAfterPreviewCannotCommit() = runBlocking {
+        var reads = 0
+        channel = newChannel {
+            val matches = ++reads == 1
+            val verify: suspend () -> Boolean = { matches }
+            verify
+        }
+        connected()
+        val master = launch(Dispatchers.IO) { preview() }
+        assertEquals(NativeTargetOutcome.UNKNOWN, channel.send(command()) { null })
+        master.join()
+        assertEquals(2, reads)
+        assertEquals(AapsV3TargetPhase.PREVIEW, journal.pending()!!.phase)
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_bolus_commit_$client"))
     }
 
     @Test fun runtimeRestartRequiresANewSignedProbeAndNeverReplaysAPrepare() = runBlocking {
