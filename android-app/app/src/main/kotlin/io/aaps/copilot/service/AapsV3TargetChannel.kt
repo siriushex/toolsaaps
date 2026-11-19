@@ -461,7 +461,9 @@ internal class AapsV3TargetChannel(
                     stage = "paired_input_match"
                     if (capturePairedBaseline != null) check(pairedMaster == master && pairedCheck?.invoke() == true)
                     stage = "clinical_baseline"
-                    check(baselineGuard(master) == null)
+                    val baselineFailure = baselineGuard(master)
+                    if (baselineFailure == "native_clinical_projection_unavailable") stage = baselineFailure
+                    check(baselineFailure == null)
                     stage = "delivery_guard"
                     check(deliveryGuard() == null)
                     stage = "live_pairing"

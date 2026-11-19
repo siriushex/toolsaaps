@@ -316,7 +316,7 @@ class AapsV3TargetChannelTest {
         val stages = mutableListOf<String>()
         reportFailure = { stages.add(it); error("audit unavailable") }
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
-        assertEquals(listOf("clinical_baseline"), stages)
+        assertEquals(listOf("native_clinical_projection_unavailable"), stages)
         assertEquals(listOf("fixture-master"), checkedMasters)
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
