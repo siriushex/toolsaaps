@@ -1,3 +1,16 @@
+# AAPS 4 insulin observation window (2026-11-19)
+
+- The v3 uploader and same-phone snapshot_v2 now include native temporary
+  basals and extended boluses that were still active at the start of the
+  previous 24 hours. Start time, amount/rate and duration remain unchanged.
+  Point boluses still have to start within the window. In AAPS, one Room
+  reader transaction excludes priming, invalid rows and historical versions
+  and rejects the whole read if the combined 512-row budget is exceeded.
+- Copilot requests v2 where available. The v1 contract remains start-only;
+  v2 rejects out-of-window boluses, expired intervals and duration overflow.
+  These observations do not establish actual pump delivery or independently
+  qualify a personal forecast, a new profile or permission to send a target.
+
 # Clinical glucose input from local AAPS 4 (2026-11-19)
 
 - The signature-checked cgm_window_v1 method returns complete bounded windows

@@ -26,6 +26,10 @@ internal object AapsLocalObservation {
 
     fun read(context: Context): AapsV3InboundSummary? {
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        callVerified(context, provider, "snapshot_v2", null)?.let { reply ->
+            val now = System.currentTimeMillis()
+            return reply.getByteArray("snapshot")?.let { decode(it, now, version = 2) } ?: unavailable(now)
+        }
         val snapshot = readVerifiedSnapshot(context, provider)
         val now = System.currentTimeMillis()
         return if (snapshot == null) unavailable(now) else decode(snapshot, now)
@@ -128,10 +132,10 @@ internal object AapsLocalObservation {
         null
     }
 
-    fun decode(bytes: ByteArray, now: Long): AapsV3InboundSummary = try {
+    fun decode(bytes: ByteArray, now: Long, version: Long = 1): AapsV3InboundSummary = try {
         val body = HistoryJson.parse(bytes, 196_608)
         HistoryJson.fields(body, setOf("version", "at", "glucose", "insulin"), setOf("profile"))
-        require(HistoryJson.long(body.getValue("version")) == 1L)
+        require(version in 1L..2L && HistoryJson.long(body.getValue("version")) == version)
         val at = HistoryJson.long(body.getValue("at"))
         require(now in 1..HistoryJson.maxTime && at in maxOf(1, now - 10_000L)..now)
         val samples = HistoryJson.array(body.getValue("glucose")).also { require(it.size <= 256) }
@@ -158,8 +162,16 @@ internal object AapsLocalObservation {
         val from = maxOf(1, at - DAY_MS)
         val records = HistoryJson.array(body.getValue("insulin")).also { require(it.size <= 512) }.mapIndexed { index, row ->
             val record = HistoryJson.obj(row)
-            require(HistoryJson.string(record.getValue("eventType")) in setOf("Correction Bolus", "Temp Basal", "Combo Bolus"))
-            observationRow(record, "insulin-$index", at).also { require(checkNotNull(it.eventAtMs) in from..at) }
+            val kind = HistoryJson.string(record.getValue("eventType"))
+            require(kind in setOf("Correction Bolus", "Temp Basal", "Combo Bolus"))
+            observationRow(record, "insulin-$index", at).also {
+                val start = checkNotNull(it.eventAtMs)
+                if (start < from) {
+                    require(version == 2L && kind != "Correction Bolus")
+                    val duration = HistoryJson.long(record.getValue("durationInMilliseconds"))
+                    require(duration > from - start && duration <= Long.MAX_VALUE - start)
+                }
+            }
         }
         val insulin = AapsV3InsulinInventoryTimeline(LocalV3RetainedSnapshot.Complete(at, records)).read(from, at, at)
         val count = insulin.records.count { !it.invalidated }

@@ -83,6 +83,18 @@ class AapsV3EffectiveProfileSourceTest {
             AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("version" to JsonPrimitive(2)))).glucose)
+        val original = packet.getValue("insulin").jsonArray.single().jsonObject
+        val from = now - 86_400_000L
+        fun carry(kind: String, duration: Long, start: Long = from - 60_000L): AapsV3InboundSummary {
+            val row = JsonObject(original + mapOf("eventType" to JsonPrimitive(kind), "date" to JsonPrimitive(start),
+                "durationInMilliseconds" to JsonPrimitive(duration)))
+            val payload = JsonObject(packet + mapOf("version" to JsonPrimitive(2), "insulin" to JsonArray(listOf(row))))
+            return AapsLocalObservation.decode(payload.toString().encodeToByteArray(), now, version = 2)
+        }
+        assertEquals(parse(packet), carry("Temp Basal", 120_000L))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Temp Basal", 60_000L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Correction Bolus", 120_000L).glucose)
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, carry("Temp Basal", Long.MAX_VALUE).glucose)
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("command" to JsonPrimitive("unknown")))).glucose)
         val sample = packet.getValue("glucose").jsonArray.single()
         assertEquals(AapsV3InboundGlucose.CONFLICTING,
