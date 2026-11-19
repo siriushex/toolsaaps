@@ -16,6 +16,10 @@ interface ProfileEstimateDao {
     @Query("SELECT * FROM profile_estimates WHERE id = 'active' LIMIT 1")
     suspend fun active(): ProfileEstimateEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM profile_estimates WHERE id = 'active') " +
+        "AND EXISTS(SELECT 1 FROM isf_cr_model_state WHERE id = 'active')")
+    suspend fun hasActiveProfileAndModel(): Boolean
+
     @Query("SELECT * FROM profile_estimates WHERE id = 'active' LIMIT 1")
     fun observeActive(): Flow<ProfileEstimateEntity?>
 

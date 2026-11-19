@@ -59,7 +59,8 @@ class AnalyticsRepository(
     private val gson: Gson,
     private val auditLogger: AuditLogger,
     val isfCrRepository: IsfCrRepository,
-    private val glucoseCalibrationRepository: GlucoseCalibrationRepository
+    private val glucoseCalibrationRepository: GlucoseCalibrationRepository,
+    private val nativeProfileInputsEnabled: suspend () -> Boolean = { false }
 ) {
 
     private val profileStateMutations = ProfileStateMutationCoordinator()
@@ -283,7 +284,7 @@ class AnalyticsRepository(
             latestSegmentUpdatedAt = latestSegmentUpdatedAt,
             nowTs = nowTs,
             storedEstimatorRevision = storedEstimatorRevision
-        ) ?: return@runExclusive false
+        ) ?: if (nativeBootstrapPending(nowTs)) "missing_local_loop_model" else return@runExclusive false
         val revisionChanged = storedEstimatorRevision != PROFILE_ESTIMATOR_ALGORITHM_REVISION
         auditLogger.info(
             "profile_estimate_self_heal_requested",
@@ -335,11 +336,11 @@ class AnalyticsRepository(
             val updated = rebuilt.profileRevision?.let { expectedRevision ->
                 db.profileEstimateDao().active()?.timestamp == expectedRevision
             } == true
-            if (updated && revisionChanged) {
+            if (updated && (revisionChanged || db.isfCrModelStateDao().active() == null)) {
                 isfCrRepository.fitBaseModel(
                     settings = settings,
                     nowTs = nowTs,
-                    resetExistingState = true
+                    resetExistingState = revisionChanged
                 )
                 isfCrRepository.computeRealtimeSnapshot(
                     settings = settings,
@@ -356,6 +357,8 @@ class AnalyticsRepository(
     }
 
     suspend fun isProfileEstimatorRevisionPending(): Boolean {
+        // On a new install the revision marker may already exist, before the first AAPS packet.
+        if (nativeBootstrapPending(System.currentTimeMillis())) return true
         if (profileEstimatorRevisionKnownApplied) return false
         val storedRevision = db.syncStateDao()
             .bySource(PROFILE_ESTIMATOR_REVISION_SOURCE)
@@ -767,6 +770,22 @@ class AnalyticsRepository(
         }
     }
 
+    private suspend fun nativeBootstrapPending(now: Long): Boolean {
+        if (db.profileEstimateDao().hasActiveProfileAndModel()) return false
+        if (currentLoopFactors(now).size != 2) return false
+        val latest = db.glucoseDao().latestValidDistinctAtOrBefore(now, 1).firstOrNull()
+        return latest != null && latest.timestamp >= now - 5 * 60_000L
+    }
+
+    private suspend fun currentLoopFactors(at: Long): List<TelemetrySignal> {
+        if (!nativeProfileInputsEnabled()) return emptyList()
+        return LocalAapsLoopInputSync.activeSamples(db, at).mapNotNull { row ->
+            if (!(row.key == "aaps_isf" && row.unit == "mmol/L/U" ||
+                    row.key == "aaps_cr" && row.unit == "g/U")) return@mapNotNull null
+            TelemetrySignal(row.timestamp, row.key, row.valueDouble, source = row.source, quality = row.quality)
+        }.sortedBy { it.key }
+    }
+
     private suspend fun rebuildProfileState(
         lookbackDays: Int,
         nowTs: Long,
@@ -775,16 +794,16 @@ class AnalyticsRepository(
         therapy: List<io.aaps.copilot.domain.model.TherapyEvent>,
         telemetry: List<TelemetrySignal>
     ): ProfileStateRebuildResult {
-        val profileEstimator = ProfileEstimator(
-            ProfileEstimatorConfig(lookbackDays = lookbackDays)
-        )
+        val config = ProfileEstimatorConfig(lookbackDays = lookbackDays)
+        val loopFactors = currentLoopFactors(System.currentTimeMillis()).filter { it.ts <= nowTs }
+        val profileEstimator = ProfileEstimator(config, loopFactors)
         val profileEstimate = profileEstimator.estimate(
             glucoseHistory = glucose,
             therapyEvents = therapy,
             telemetrySignals = telemetry,
             telemetryReferenceTs = nowTs
         )
-        val calculatedEstimate = profileEstimator.estimate(
+        val calculatedEstimate = ProfileEstimator(config).estimate(
             glucoseHistory = glucose,
             therapyEvents = therapy,
             telemetrySignals = emptyList(),
@@ -800,7 +819,9 @@ class AnalyticsRepository(
         var clearedSegmentRows = 0
         var publicationRevision = 0L
         var publishedSegmentCount = 0
-        db.withTransaction {
+        val published = db.withTransaction {
+            if (loopFactors.isNotEmpty() && currentLoopFactors(System.currentTimeMillis()) != loopFactors)
+                return@withTransaction false
             publicationRevision = nextStrictlyMonotonicPublicationRevision(
                 requestedRevision = nowTs,
                 currentRevisions = listOfNotNull(
@@ -881,7 +902,9 @@ class AnalyticsRepository(
                 )
             }
             db.profileEstimateDao().deleteHistoryOlderThan(historyStart)
+            true
         }
+        if (!published) return ProfileStateRebuildResult(db.profileSegmentEstimateDao().countAll(), null)
 
         if (legacyProfileRowsRemoved > 0 || clearedSegmentRows > 0) {
             auditLogger.info(

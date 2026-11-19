@@ -42,6 +42,7 @@ import io.aaps.copilot.domain.safety.SafetyPolicy
 import io.aaps.copilot.domain.target.TargetDecisionOutcome
 import io.aaps.copilot.domain.target.TargetManagerMode
 import io.aaps.copilot.service.ApiFactory
+import io.aaps.copilot.service.nativeInsulinInputEnabled
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -510,6 +511,89 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         ).single()
         assertThat(normalAfterDiagnostic.reasonsJson).isEqualTo(control.reasonsJson)
         assertThat(normalAfterDiagnostic.actionJson).isEqualTo(control.actionJson)
+    }
+
+    @Test
+    fun signedLoopFactorsBootstrapMissingRevisionsWithoutCountingAsLearnedHistory() = runBlocking {
+        val gson = Gson()
+        val audit = AuditLogger(db.auditLogDao(), gson)
+        val calibration = GlucoseCalibrationRepository(db, gson, audit)
+        val isfCr = IsfCrRepository(db, gson, audit, calibration)
+        var enabled = false
+        val analytics = AnalyticsRepository(db, io.aaps.copilot.domain.predict.PatternAnalyzer(), gson, audit,
+            isfCr, calibration, nativeProfileInputsEnabled = { enabled })
+        val settings = settingsStore.settings.first()
+        assertThat(analytics.isProfileEstimatorRevisionPending()).isFalse()
+        val now = System.currentTimeMillis()
+        seedRisingGlucose(now, seedSensitivityGeneration = false)
+        var include = true
+        val sync = LocalAapsLoopInputSync(db, { nonce ->
+            val fields = if (include) ""","inputIsfMgdlPerU":234,"isfAt":$now,"inputCrGPerU":11,"crAt":$now""" else ""
+            """{"v":1,"at":$now,"nonce":"$nonce"$fields}""".toByteArray()
+        }, { true }, { true }, { now })
+        sync.sync()
+        assertThat(analytics.isProfileEstimatorRevisionPending()).isFalse()
+        enabled = true
+        include = false
+        sync.sync()
+        assertThat(analytics.isProfileEstimatorRevisionPending()).isFalse()
+        assertThat(analytics.ensureProfileStateHealthy(settings, "withdrawn")).isFalse()
+        assertThat(db.profileEstimateDao().active()).isNull()
+        include = true
+        sync.sync()
+        assertThat(analytics.isProfileEstimatorRevisionPending()).isTrue()
+        assertThat(analytics.ensureProfileStateHealthy(settings, "first_local_packet")).isTrue()
+        val profile = requireNotNull(db.profileEstimateDao().active())
+        assertThat(profile.isfMmolPerUnit).isEqualTo(13.0)
+        assertThat(profile.crGramPerUnit).isEqualTo(11.0)
+        assertThat(profile.telemetryIsfSampleCount).isEqualTo(1)
+        assertThat(profile.telemetryCrSampleCount).isEqualTo(1)
+        assertThat(profile.calculatedIsfMmolPerUnit).isNull()
+        assertThat(profile.calculatedCrGramPerUnit).isNull()
+        assertThat(db.profileEstimateDao().hasActiveProfileAndModel()).isTrue()
+        assertThat(analytics.isProfileEstimatorRevisionPending()).isFalse()
+        assertThat(db.actionCommandDao().latest(1)).isEmpty()
+    }
+
+    @Test
+    fun firstAaps4LoopProducesThreeAcceptedForecastsWithProductionSensitivityLoader() = runBlocking {
+        val now = System.currentTimeMillis()
+        val setup = settingsStore.setupProgress.first()
+        assertThat(settingsStore.saveSetupProgress(setup, setup.copy(insulinSource = io.aaps.copilot.config.SetupInsulinSource.AAPS))).isTrue()
+        settingsStore.update { it.copy(localAapsV3Upload = true, localNightscoutEnabled = true,
+            localBroadcastIngestEnabled = true, localNightscoutLegacyMigrationAcknowledged = true) }
+        assertThat(settingsStore.setLocalObservationEnabled(expected = false, enabled = true)).isTrue()
+        assertThat(settingsStore.settings.first().nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)).isTrue()
+        LocalAapsCgmSync(db, { from, through, nonce ->
+            val samples = (0 until 36).mapNotNull { i ->
+                val ts = now - (35 - i) * 5L * MINUTE_MS
+                if (ts in from..through) mapOf("ts" to ts, "mgdl" to 105 + i, "sensor" to "LIBRE_3") else null
+            }
+            Gson().toJson(mapOf("v" to 1, "from" to from, "through" to through, "at" to now,
+                "nonce" to nonce, "unit" to "mg/dL", "samples" to samples)).toByteArray()
+        }, { true }, { true }, { now }).sync()
+        assertThat(db.glucoseDao().latest(1).single().source).isEqualTo("aaps_local_cgm:LIBRE_3")
+        val packet = LocalAapsLoopInputSync(db, { nonce ->
+            """{"v":1,"at":$now,"nonce":"$nonce","inputIsfMgdlPerU":45,"isfAt":$now,"inputCrGPerU":11,"crAt":$now,"netIobU":1.5,"iobAt":$now,"cobG":10,"cobAt":$now}""".toByteArray()
+        }, { true }, { true }, { now })
+        packet.sync()
+        val repository = repository(now, productionSensitivity = true,
+            predictionEngineOverride = HybridPredictionEngine(enableEnhancedPredictionV3 = true, enableUam = true))
+        assertThat(settingsStore.settings.first().therapyActionsArmed).isFalse()
+        assertThat(repository.runAutomationCycle()).isNotNull()
+        val snapshot = repository.applySensitivitySettings { it.copy(
+            isfSourcePreference = SensitivitySourcePreference.AAPS, crSourcePreference = SensitivitySourcePreference.AAPS) }
+        assertThat(snapshot.isf.effective).isEqualTo(2.5)
+        assertThat(snapshot.cr.effective).isEqualTo(11.0)
+        assertThat(snapshot.isf.resolved.name).isEqualTo("AAPS")
+        assertThat(snapshot.cr.resolved.name).isEqualTo("AAPS")
+        val accepted = requireNotNull(AcceptedSensitivityTupleRoomLoader(db).load(
+            settingsStore.settings.first().sensitivityRuntimeIdentity(), System.currentTimeMillis()))
+        val authority = AutomationRepository.requireAcceptedClinicalForecastsStatic(accepted)
+        assertThat(authority.forecasts.map { it.horizonMinutes }).containsExactly(5, 30, 60)
+        assertThat(accepted.snapshot.forecastCycleId).isEqualTo(snapshot.forecastCycleId)
+        assertThat(db.actionCommandDao().latest(1)).isEmpty()
+        assertThat(targetDispatches.get() + uamGatewayCalls.get() + server.requestCount).isEqualTo(0)
     }
 
     @Test
@@ -1314,6 +1398,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         beforePredict: suspend () -> Unit = {},
         predictForecasts: (suspend () -> List<Forecast>)? = null,
         predictionEngineOverride: PredictionEngine? = null,
+        productionSensitivity: Boolean = false,
         observeRuleContext: (RuleContext) -> Unit = {},
         onWidgetRefresh: suspend () -> Unit = { widgetRefreshes.incrementAndGet() }
     ): AutomationRepository {
@@ -1324,7 +1409,8 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
         val isfCr = IsfCrRepository(db, gson, audit, calibration)
         val acceptedLoader = AcceptedSensitivityTupleRoomLoader(db)
         val sensitivity = SensitivityRuntimeRepository(
-            loadedCandidates = {
+            loadedCandidates = if (productionSensitivity) io.aaps.copilot.service.AppContainer.RuntimeSensitivityInputs(
+                db, settingsStore, isfCr)::load else ({
                 val settings = settingsStore.settings.first()
                 val modelRevision = db.isfCrModelStateDao().active()?.updatedAt ?: 0L
                 val profileRevision = db.profileEstimateDao().active()?.timestamp ?: 0L
@@ -1358,7 +1444,7 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
                         candidate(11.0, modelRevision, profileRevision)
                     )
                 )
-            },
+            }),
             persistence = SensitivityRuntimePersistence(db.sensitivityRuntimeSnapshotDao()::upsert),
             settingsRevision = { settingsStore.settings.first().sensitivitySettingsRevision },
             acceptedSnapshotLoader = { revision, atTs ->
@@ -1411,7 +1497,9 @@ class AutomationRepositorySourceChangeRoomIntegrationTest {
             exportRepository = AapsExportRepository(context, db, settingsStore, audit),
             autoConnectRepository = AapsAutoConnectRepository(context, settingsStore, audit),
             rootDbRepository = RootDbExperimentalRepository(context, db, settingsStore, audit),
-            analyticsRepository = AnalyticsRepository(db, io.aaps.copilot.domain.predict.PatternAnalyzer(), gson, audit, isfCr, calibration),
+            analyticsRepository = AnalyticsRepository(db, io.aaps.copilot.domain.predict.PatternAnalyzer(), gson, audit, isfCr, calibration,
+                nativeProfileInputsEnabled = { settingsStore.settings.first().nativeInsulinInputEnabled(
+                    settingsStore.setupProgress.first().insulinSource) }),
             isfCrRepository = isfCr,
             sensitivityRuntimeRepository = sensitivity,
             glucoseCalibrationRepository = calibration,

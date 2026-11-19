@@ -1,3 +1,19 @@
+# Cold-start profile recovery from local AAPS loop inputs (2026-11-19)
+
+- A fresh local ISF/CR pair plus recent valid glucose can trigger the existing
+  profile and model rebuild even if the install already recorded the current
+  estimator revision before importing its first observations. This uses the
+  real estimators and revision publication, not placeholder model rows.
+- Feed only the current Room selections to the estimator as telemetry priors.
+  A historical scan alone cannot authorize a local factor. Recheck the
+  selected pair before writing; preserve units and keep the history-only
+  estimate independent of telemetry. No delivery, accuracy or physical
+  therapy evidence is implied by acceptance of a forecast generation.
+- Regression entry points: AutomationRepositorySourceChangeRoomIntegrationTest
+  checks cold Room state, setup scope, withdrawal, the normal calibration
+  initialization, production ISF/CR source selection and accepted 5/30/60
+  forecasts. No calibration maintenance added to read-only source changes.
+
 # Native loop IOB, COB and sensitivity inputs (2026-11-19)
 
 - Signed local loop_inputs_v1 reads only the first IOB point from a recent,

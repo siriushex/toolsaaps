@@ -922,8 +922,12 @@ class AppContainer(context: Context) {
 
     private val acceptedSensitivityTupleRoomLoader = AcceptedSensitivityTupleRoomLoader(db)
 
-    val sensitivityRuntimeRepository = SensitivityRuntimeRepository(
-        loadedCandidates = {
+    internal class RuntimeSensitivityInputs(
+        private val db: CopilotDatabase,
+        private val settingsStore: AppSettingsStore,
+        private val isfCrRepository: IsfCrRepository
+    ) {
+        suspend fun load(): SensitivityRuntimeLoadedCandidates {
             val settings = settingsStore.settings.first()
             val now = System.currentTimeMillis()
             val telemetry = db.telemetryDao().latestBySourceAndKeySinceForKeys(
@@ -1056,7 +1060,7 @@ class AppContainer(context: Context) {
                 modelRevision = currentInputGeneration.modelRevision,
                 profileRevision = currentInputGeneration.profileRevision
             )
-            SensitivityRuntimeLoadedCandidates(
+            return SensitivityRuntimeLoadedCandidates(
                 settingsRevision = settings.sensitivitySettingsRevision,
                 isfPreference = settings.isfSourcePreference,
                 crPreference = settings.crSourcePreference,
@@ -1071,7 +1075,11 @@ class AppContainer(context: Context) {
                     copilot = copilotCr
                 )
             )
-        },
+        }
+    }
+
+    val sensitivityRuntimeRepository = SensitivityRuntimeRepository(
+        loadedCandidates = RuntimeSensitivityInputs(db, settingsStore, isfCrRepository)::load,
         persistence = { entity: SensitivityRuntimeSnapshotEntity ->
             db.sensitivityRuntimeSnapshotDao().upsert(entity)
         },
@@ -1098,7 +1106,10 @@ class AppContainer(context: Context) {
         gson = gson,
         auditLogger = auditLogger,
         isfCrRepository = isfCrRepository,
-        glucoseCalibrationRepository = glucoseCalibrationRepository
+        glucoseCalibrationRepository = glucoseCalibrationRepository,
+        nativeProfileInputsEnabled = {
+            settingsStore.settings.first().nativeInsulinInputEnabled(settingsStore.setupProgress.first().insulinSource)
+        }
     )
 
     private val carbsSendThrottle = CarbsSendThrottle(
