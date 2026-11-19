@@ -239,6 +239,15 @@ internal class AapsV3TargetChannel(
 
     override suspend fun isConfigured() = journal.hasNativeState()
 
+    suspend fun checkLocalTargetRow(read: suspend (String, LocalTargetReceiptQuery) -> Long?): LocalTargetRowCheck? = try {
+        val query = journal.localReceiptQuery(clock())
+        if (query == null) null else {
+            val startedAt = read(query.first, query.second)
+            LocalTargetRowCheck(startedAt).takeIf { journal.localReceiptQuery(clock()) == query }
+        }
+    } catch (cancelled: CancellationException) { throw cancelled }
+    catch (_: Exception) { null }
+
     private fun updateUnpaired() {
         val subscribed = runtimeAllowed && storageAvailable()
         mutableState.update { AapsV3ConnectionState(settingsSubscribedAtCheck = subscribed, busy = it.busy, pairingIssue = it.pairingIssue) }

@@ -225,6 +225,11 @@ private fun NativeAapsInboundSection(inbound: AapsV3InboundSummary) {
         else -> R.string.native_aaps_inbound_cgm_unavailable
     }), Modifier.testTag("native_aaps_inbound_cgm"), style = style)
     Text(stringResource(observedProfileLabel(inbound.profile)), Modifier.testTag("native_aaps_inbound_profile"), style = style)
+    inbound.targetRow?.let { receipt ->
+        val text = receipt.recordedAt?.let { at -> stringResource(R.string.native_target_recorded,
+            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at))) } ?: stringResource(R.string.native_target_record_unverified)
+        Text(text, Modifier.testTag("native_aaps_target_record"), style = style)
+    }
     val insulin = when (inbound.insulin) {
         AapsV3ObservedInsulinStatus.OBSERVED -> stringResource(R.string.native_aaps_inbound_insulin, inbound.insulinRecordCount)
         AapsV3ObservedInsulinStatus.PARTIAL_CONTEXT -> stringResource(R.string.native_aaps_inbound_insulin_partial, inbound.insulinRecordCount)

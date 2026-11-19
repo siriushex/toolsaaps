@@ -9,6 +9,9 @@ import kotlinx.coroutines.CancellationException
 
 enum class AapsV3InboundGlucose { FRESH, STALE, NOT_OBSERVED, CONFLICTING, CLOCK, LIMIT_REACHED, UNAVAILABLE }
 
+/** Positive time is the stored start, not a claim that the target is still active. */
+data class LocalTargetRowCheck(val recordedAt: Long?)
+
 data class AapsV3InboundSummary(
     val checkedAtMs: Long,
     val glucose: AapsV3InboundGlucose,
@@ -16,7 +19,8 @@ data class AapsV3InboundSummary(
     val insulin: AapsV3ObservedInsulinStatus,
     val insulinRecordCount: Int,
     val samePhone: Boolean = false,
-    val comboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED
+    val comboHistory: AapsV3ComboHistoryStatus = AapsV3ComboHistoryStatus.UNCHECKED,
+    val targetRow: LocalTargetRowCheck? = null
 )
 
 /** Checks locally retained uploads, without starting a session or projecting clinical inputs. */

@@ -1,0 +1,222 @@
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 9c04b21d17..f239e9150a 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -150,2 +150,11 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+     private val dateUtil get() = metroGraphs.dateUtil
++    internal suspend fun localTargetReceipt(master: String, marker: String, issued: Long, observed: Long, mgdl: Double, minutes: Int, reason: String): android.os.Bundle {
++        check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
++        fun sameInstall() = preferences.get(app.aaps.core.keys.StringNonKey.NsClientControlOwnInstallId) == master
++        if (!sameInstall()) return android.os.Bundle()
++        val target = repository.recordedLocalTarget(marker, issued, observed, mgdl, minutes, reason)
++        return android.os.Bundle().apply {
++            if (target != null && sameInstall()) { putLong("rowId", target.id); putLong("startedAt", target.timestamp) }
++        }
++    }
+     internal suspend fun localSessionWitness(request: app.aaps.core.nssdk.localmodel.clientcontrol.SignedEnvelope,
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+index 7d24456003..b36a66b4b6 100644
+--- a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -11,2 +11,3 @@ import android.os.SystemClock
+ import app.aaps.MainApp
++import app.aaps.database.LocalTargetReceipt
+ import kotlinx.coroutines.Dispatchers
+@@ -19,2 +20,4 @@
+ class LocalObservationProvider : ContentProvider() {
++    private val readingTargetReceipt = AtomicBoolean(false)
++    private val lastTargetReceipt = AtomicLong(-2_000L)
+     private val readingMeal = AtomicBoolean(false)
+@@ -50,2 +53,3 @@ class LocalObservationProvider : ContentProvider() {
+         }
++        if (method == "target_receipt_v1") return targetReceipt(app, arg, extras)
+         if (method == "meal_receipt_v1" || method == "meal_receipt_v2")
+@@ -153,2 +157,30 @@ class LocalObservationProvider : ContentProvider() {
+
++    private fun targetReceipt(app: MainApp, marker: String?, extras: Bundle?): Bundle {
++        require(marker != null && LocalTargetReceipt.validMarker(marker))
++        require(extras != null && extras.keySet() == setOf("master", "issued", "ackAt", "mgdl", "minutes", "reason"))
++        val master = extras.getString("master")
++        require(master != null && master.matches(Regex("[a-zA-Z0-9_-]{1,128}")))
++        val now = System.currentTimeMillis()
++        val issued = extras.getLong("issued", -1)
++        val ackAt = extras.getLong("ackAt", -1)
++        val mgdl = extras.getDouble("mgdl", Double.NaN)
++        val minutes = extras.getInt("minutes", -1)
++        val reason = extras.getString("reason")
++        require(issued in (now - 86_400_000L)..now && mgdl.isFinite() && mgdl > 0 && mgdl <= 1000 && minutes in 1..1440)
++        require(ackAt in issued..minOf(now, issued + 13_000L))
++        require(reason != null && reason in setOf("AUTOMATION", "HYPOGLYCEMIA", "ACTIVITY", "EATING_SOON"))
++        if (!readingTargetReceipt.compareAndSet(false, true)) return Bundle()
++        try {
++            val elapsed = SystemClock.elapsedRealtime()
++            if (elapsed - lastTargetReceipt.get() < 2_000L) return Bundle()
++            lastTargetReceipt.set(elapsed)
++            val token = Binder.clearCallingIdentity()
++            try {
++                return runBlocking(Dispatchers.IO) { withTimeoutOrNull(2_500L) {
++                    app.localTargetReceipt(master, marker, issued, ackAt, mgdl, minutes, reason)
++                } } ?: Bundle()
++            } finally { Binder.restoreCallingIdentity(token) }
++        } finally { readingTargetReceipt.set(false) }
++    }
++
+     private fun mealReceipt(app: MainApp, key: String?, extras: Bundle?, windowed: Boolean): Bundle {
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+index eb79e3063f..6d9f719c8c 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/AppRepository.kt
+@@ -421,2 +421,7 @@ class AppRepository internal constructor(
+
++    suspend fun recordedLocalTarget(marker: String, issued: Long, observed: Long, mgdl: Double, minutes: Int, reason: String): TemporaryTarget? {
++        val expected = TemporaryTarget.Reason.entries.singleOrNull { it.name == reason } ?: return null
++        return database.temporaryTargetDao.recordedTarget(marker, issued, observed, mgdl, minutes, expected)
++    }
++
+     /*
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/LocalTargetReceipt.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/LocalTargetReceipt.kt
+new file mode 100644
+index 0000000000..f2755ddcb4
+--- /dev/null
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/LocalTargetReceipt.kt
+@@ -0,0 +1,16 @@
++package app.aaps.database
++
++/** Cross-reference for an NSClient target audit entry. Not proof of client authorization. */
++object LocalTargetReceipt {
++    private val markerPattern = Regex("copilot:(?:TargetManager\\.v1:[0-9a-f]{32}|manual:meal:[A-Za-z0-9_-]{1,80}:eating-soon)")
++    private const val PREFIX = "target-row:"
++
++    fun validMarker(marker: String) = markerPattern.matches(marker)
++    fun link(marker: String?, id: Long): String? =
++        if (id > 0 && marker != null && validMarker(marker)) PREFIX + id else null
++
++    internal fun linkedId(values: List<String>): Long? {
++        val value = values.singleOrNull { it.startsWith(PREFIX) } ?: return null
++        return value.removePrefix(PREFIX).toLongOrNull()?.takeIf { it > 0 && value == PREFIX + it }
++    }
++}
+diff --git a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/TemporaryTargetDao.kt b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/TemporaryTargetDao.kt
+index c3b669c6e4..029fbf05ee 100644
+--- a/database/impl/src/commonMain/kotlin/app/aaps/database/daos/TemporaryTargetDao.kt
++++ b/database/impl/src/commonMain/kotlin/app/aaps/database/daos/TemporaryTargetDao.kt
+@@ -4,2 +4,7 @@ import androidx.room.Dao
+ import androidx.room.Query
++import androidx.room.Transaction
++import app.aaps.database.LocalTargetReceipt
++import app.aaps.database.entities.TABLE_USER_ENTRY
++import app.aaps.database.entities.UserEntry
++import app.aaps.database.entities.ValueWithUnit
+ import app.aaps.database.entities.TABLE_TEMPORARY_TARGETS
+@@ -10,2 +15,18 @@ internal interface TemporaryTargetDao : TraceableDao<TemporaryTarget> {
+
++    @Query("SELECT * FROM $TABLE_USER_ENTRY WHERE timestamp BETWEEN :issued AND :auditThrough " +
++        "AND action = 'TT' AND source = 'NSClient' AND note = :marker LIMIT 2")
++    suspend fun receiptEntries(marker: String, issued: Long, auditThrough: Long): List<UserEntry>
++
++    @Transaction
++    suspend fun recordedTarget(marker: String, issued: Long, observed: Long, mgdl: Double, minutes: Int,
++                               reason: TemporaryTarget.Reason): TemporaryTarget? {
++        if (!LocalTargetReceipt.validMarker(marker) || issued <= 0 || issued > Long.MAX_VALUE - 13_000L ||
++            observed < issued || !mgdl.isFinite() || mgdl <= 0 || minutes !in 1..1440) return null
++        val audit = receiptEntries(marker, issued, minOf(observed, issued + 13_000L)).singleOrNull() ?: return null
++        val id = LocalTargetReceipt.linkedId(audit.values.filterIsInstance<ValueWithUnit.SimpleString>().map { it.value }) ?: return null
++        return findById(id)?.takeIf { it.isValid && it.referenceId == null && it.timestamp in issued until issued + 8_000L &&
++            it.timestamp <= audit.timestamp && it.reason == reason && it.lowTarget == mgdl && it.highTarget == mgdl &&
++            it.duration == minutes * 60_000L }
++    }
++
+     @Query("SELECT * FROM $TABLE_TEMPORARY_TARGETS WHERE id = :id")
+diff --git a/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalTargetReceiptTest.kt b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalTargetReceiptTest.kt
+new file mode 100644
+index 0000000000..f29ed0f4e7
+--- /dev/null
++++ b/database/impl/src/jvmTest/kotlin/app/aaps/database/LocalTargetReceiptTest.kt
+@@ -0,0 +1,75 @@
++package app.aaps.database
++
++import app.aaps.database.di.JvmAppDatabaseBuilder
++import app.aaps.database.entities.TemporaryTarget
++import app.aaps.database.entities.UserEntry
++import app.aaps.database.entities.ValueWithUnit
++import kotlinx.coroutines.test.runTest
++import kotlin.io.path.createTempDirectory
++import kotlin.test.AfterTest
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNull
++
++class LocalTargetReceiptTest {
++    private val dir = createTempDirectory("target-receipt")
++    private val db = JvmAppDatabaseBuilder().provideAppDatabase("$dir/test.db")
++    private val dao = db.temporaryTargetDao
++    private val issued = 100_000L
++    private val marker = "copilot:manual:meal:sample:eating-soon"
++    private val target = TemporaryTarget(timestamp = issued + 1, duration = 1_800_000, reason = TemporaryTarget.Reason.EATING_SOON,
++        highTarget = 100.0, lowTarget = 100.0)
++
++    @AfterTest fun close() { db.close(); dir.toFile().deleteRecursively() }
++    private suspend fun read(m: String = marker) = dao.recordedTarget(m, issued, issued + 9_000, 100.0, 30, target.reason)
++    private suspend fun audit(id: Long, m: String = marker, at: Long = issued + 2,
++                              source: UserEntry.Sources = UserEntry.Sources.NSClient, linked: Boolean = true) {
++        val values = if (linked) listOf(ValueWithUnit.SimpleString(checkNotNull(LocalTargetReceipt.link(m, id)))) else emptyList()
++        db.userEntryDao.insert(UserEntry(timestamp = at, action = UserEntry.Action.TT, source = source, note = m, values = values))
++    }
++
++    @Test fun identicalValuesAndTimesDoNotSubstituteForTheLinkedRow() = runTest {
++        val first = dao.insert(target.copy())
++        val other = dao.insert(target.copy())
++        assertNull(read())
++        audit(first)
++        assertEquals(first, read()?.id)
++        dao.update(target.copy(id = first, isValid = false))
++        assertNull(read())
++        assertEquals(other, dao.findById(other)?.id)
++    }
++
++    @Test fun legacyDuplicateAndWrongSourceCannotConfirm() = runTest {
++        val id = dao.insert(target.copy())
++        audit(id, source = UserEntry.Sources.Loop)
++        assertNull(read())
++        audit(id, linked = false)
++        assertNull(read())
++        audit(id)
++        assertNull(read())
++    }
++
++    @Test fun managedTargetMarkerAndExactCurrentFieldsAreRequired() = runTest {
++        val m = "copilot:TargetManager.v1:" + "a".repeat(32)
++        val id = dao.insert(target.copy())
++        audit(id, m)
++        assertEquals(id, read(m)?.id)
++        for (wrong in listOf(target.copy(highTarget = 99.0), target.copy(duration = 60_000),
++            target.copy(reason = TemporaryTarget.Reason.ACTIVITY), target.copy(timestamp = issued - 1))) {
++            dao.update(wrong.copy(id = id))
++            assertNull(read(m))
++        }
++        assertNull(LocalTargetReceipt.link("copilot:manual:meal:sample", id))
++        assertNull(LocalTargetReceipt.link(m, 0))
++    }
++
++    @Test fun lateInsertAndAuditBeforeTargetAreNotProof() = runTest {
++        val id = dao.insert(target.copy(timestamp = issued + 8_000))
++        audit(id, at = issued + 8_001)
++        assertNull(read())
++        val m = "copilot:manual:meal:other:eating-soon"
++        val early = dao.insert(target.copy())
++        audit(early, m, at = issued)
++        assertNull(read(m))
++    }
++}
+diff --git a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+index 6f27909346..15104ab5bb 100644
+--- a/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
++++ b/database/persistence/src/commonMain/kotlin/app/aaps/database/persistence/PersistenceLayerImpl.kt
+@@ -2033,3 +2033,6 @@ class PersistenceLayerImpl(
+                 transactionResult.inserted.add(it.fromDb())
+-                ueValues.add(UE(timestamp = dateUtil.now(), action = action, source = source, note = note ?: "", values = listValues))
++                val link = if (action == Action.TT && source == Sources.NSClient)
++                    app.aaps.database.LocalTargetReceipt.link(note, it.id) else null
++                ueValues.add(UE(timestamp = dateUtil.now(), action = action, source = source, note = note ?: "",
++                    values = if (link == null) listValues else listValues + ValueWithUnit.SimpleString(link)))
+             }

@@ -56,6 +56,9 @@ git apply --index "$meal_record"
 target_preview="$root/tools/aaps4_compat/final-eating-soon-receiver.patch"
 git apply --check "$target_preview"
 git apply --index "$target_preview"
+target_receipt="$root/tools/aaps4_compat/final-target-row-receipt.patch"
+git apply --check "$target_receipt"
+git apply --index "$target_receipt"
 # A JVM peer can pass even if Android cannot discover the provider or call it.
 "${PYTHON:-python3}" - <<'PY'
 import xml.etree.ElementTree as ET
@@ -90,6 +93,6 @@ export AAPS_INTEROP_CLASSPATH="$root/android-app/build/aaps4-loopback-interop/cl
     :plugins:sync:testAndroidHostTest --tests '*AuthorizedClientsRepositoryTest' --tests '*AuthorizedClientsViewModelTokensTest' \
     --tests '*RunningConfigurationPublisherTest' --tests '*NSClientV3PluginTest' \
     --tests '*ClientControlReceiverTest.manualMeal*' \
-    :database:impl:jvmTest --tests '*LocalMealRecordTest' \
+    :database:impl:jvmTest --tests '*LocalMealRecordTest' --tests '*LocalTargetReceiptTest' \
     :implementation:testAndroidHostTest --tests '*CommandQueueImplementationTest.markedImmediateMeal*' :app:compileFullReleaseKotlin
 test -s "$AAPS_INTEROP_CLASSPATH"
