@@ -406,6 +406,7 @@ internal class AapsV3TargetChannel(
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {
         stopHistory(clearAudit = false)
         val epoch = generation.get()
+        var commitAttempted = false
         try {
             check(command.type == "temp_target")
             val mmol = checkNotNull(command.params["targetMmol"]?.toDoubleOrNull())
@@ -439,6 +440,7 @@ internal class AapsV3TargetChannel(
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
                 publicationLease {
+                    commitAttempted = true
                     journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }
                 }
                 awaitPhase(command.idempotencyKey, emptySet())
@@ -449,7 +451,7 @@ internal class AapsV3TargetChannel(
             // A failed fingerprint check must not relabel an older applied request
             // as application of this payload. Missing private state is not absence.
             try {
-                if (journal.pairingSnapshot() != null && journal.status(command.idempotencyKey) == null)
+                if (!commitAttempted && journal.pairingSnapshot() != null && journal.status(command.idempotencyKey) == null)
                     NativeTargetOutcome.NOT_SENT else NativeTargetOutcome.UNKNOWN
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
@@ -473,9 +475,9 @@ internal class AapsV3TargetChannel(
         return result
     }
 
-    private fun outcome(phase: AapsV3TargetPhase?) = when (phase) {
+    internal fun outcome(phase: AapsV3TargetPhase?) = when (phase) {
         AapsV3TargetPhase.APPLIED -> NativeTargetOutcome.APPLIED
-        null, AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT -> NativeTargetOutcome.NOT_SENT
+        AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT -> NativeTargetOutcome.NOT_SENT
         else -> NativeTargetOutcome.UNKNOWN
     }
     private val terminal = setOf(AapsV3TargetPhase.APPLIED, AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT)

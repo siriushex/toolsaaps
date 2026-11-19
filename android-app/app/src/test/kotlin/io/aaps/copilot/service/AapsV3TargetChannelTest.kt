@@ -41,6 +41,10 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3TargetChannelTest {
+    @Test fun missingJournalPhaseIsNotProofOfNonDelivery() {
+        assertEquals(NativeTargetOutcome.UNKNOWN, channel.outcome(null))
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.outcome(AapsV3TargetPhase.REJECTED))
+    }
     private lateinit var db: CopilotDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client = "11111111-2222-4333-8444-555555555555"
