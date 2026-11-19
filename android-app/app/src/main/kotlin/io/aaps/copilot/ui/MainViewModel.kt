@@ -175,6 +175,9 @@ import io.aaps.copilot.scheduler.ClinicalInputInvalidationSource
 import io.aaps.copilot.service.LocalNightscoutServiceController
 import io.aaps.copilot.service.AapsLocalObservation
 import io.aaps.copilot.service.AapsObservedMetrics
+import io.aaps.copilot.service.AapsObservedCircadian
+import io.aaps.copilot.data.repository.toEntity
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import io.aaps.copilot.service.AapsObservedTarget
 import io.aaps.copilot.service.AapsV3ForecastPreview
 import io.aaps.copilot.service.ClinicalAiProviderCredentialState
@@ -202,6 +205,7 @@ import io.aaps.copilot.ui.foundation.screens.AuditUiState
 import io.aaps.copilot.ui.foundation.screens.BaseTargetBannerUiState
 import io.aaps.copilot.ui.foundation.screens.BaseTargetSchedulePresentation
 import io.aaps.copilot.ui.foundation.screens.CircadianPatternSectionUi
+import io.aaps.copilot.ui.foundation.screens.ScreenLoadState
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayBucketUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplayMetricUi
 import io.aaps.copilot.ui.foundation.screens.CircadianReplaySummaryUi
@@ -4483,16 +4487,48 @@ class MainViewModel(application: Application) :
             initialValue = null
         )
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val observedCircadianSections = combine(
+        container.settingsStore.settings,
+        uiState.map { it.circadianPatternSections.isEmpty() }.distinctUntilChanged()
+    ) { settings, needsHistory ->
+        settings.takeIf { needsHistory && it.localAapsV3Upload && it.localObservationEnabled &&
+            it.localNightscoutEnabled && !PowerSaveController.isActive(it) }
+    }.distinctUntilChangedBy { s -> s?.let { listOf(it.baseTargetMmol, it.circadianStableLookbackDays,
+        it.circadianRecencyLookbackDays, it.patternMinSamplesPerWindow, it.circadianUseWeekendSplit,
+        it.circadianUseReplayResidualBias) } }.flatMapLatest { settings ->
+        flow {
+            emit(emptyList<CircadianPatternSectionUi>())
+            if (settings == null) return@flow
+            while (currentCoroutineContext().isActive) {
+                val now = System.currentTimeMillis()
+                val sections = try {
+                    val points = AapsObservedCircadian.read(container.db, now)
+                    val fitted = container.analyticsRepository.fitCircadianPatterns(points, emptyList(), emptyList(), settings, now)
+                    CircadianPatternUiResolver.buildSections(fitted.slotStats.map { it.toEntity() },
+                        fitted.transitionStats.map { it.toEntity() }, fitted.snapshots.map { it.toEntity() }, emptyList(), now)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { emptyList() }
+                emit(sections)
+                delay(15 * 60_000L)
+            }
+        }
+    }.flowOn(Dispatchers.Default)
+
     val analyticsUiState: StateFlow<AnalyticsUiState> = combine(
         uiState,
         circadianReplaySummaryState,
-        probableMealWindowsState
-    ) { state, circadianReplaySummary, probableMealSnapshot ->
-        state.toAnalyticsUiState(
+        probableMealWindowsState,
+        observedCircadianSections
+    ) { state, circadianReplaySummary, probableMealSnapshot, observed ->
+        val analytics = state.toAnalyticsUiState(
             circadianReplaySummary = circadianReplaySummary,
             probableMealWindows = probableMealSnapshot?.stable?.windows.orEmpty(),
             recentProbableMealWindows = probableMealSnapshot?.recent?.windows.orEmpty()
         )
+        if (analytics.circadianSections.isNotEmpty() || observed.isEmpty()) analytics
+        else analytics.copy(circadianSections = observed, circadianFromObservedAaps = true,
+            loadState = if (analytics.loadState == ScreenLoadState.EMPTY) ScreenLoadState.READY else analytics.loadState)
     }
         .stateIn(
             scope = viewModelScope,

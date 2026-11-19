@@ -2228,4 +2228,5 @@
     <string name="native_aaps_pin_help">Откройте сопряжение Client Control в AAPS и введите текущий PIN.</string>
     <string name="native_aaps_permission_consent">Я понимаю, что AAPS выдаёт широкое разрешение, включая болюсы. Copilot использует только канал целей.</string>
     <string name="native_aaps_revoke_help">Copilot перестанет использовать сопряжение. Ожидающая команда не отменяется. Для отзыва разрешения со стороны AAPS удалите там этого клиента.</string>
+    <string name="analytics_circadian_aaps_observed">Суточный ритм по измерениям глюкозы AAPS. Еда и инсулин не учтены.</string>
 </resources>

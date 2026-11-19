@@ -31,7 +31,7 @@ internal class AapsV3ForecastPreview(
 
         suspend fun from(rows: List<LocalNightscoutV3DocumentEntity>, now: Long): AapsV3ForecastPreview? {
             if (now <= WINDOW_MS || rows.isEmpty() || rows.size > MAX_ROWS) return null
-            val points = rows.map { row -> decode(row, now) ?: return null }.sortedBy { it.ts }
+            val points = rows.map { row -> decodeOwnerGlucose(row, now - WINDOW_MS, now) ?: return null }.sortedBy { it.ts }
             if (points.map { it.ts }.distinct().size != points.size || points.map { it.source }.distinct().size != 1)
                 return null
             val latest = points.last()
@@ -53,7 +53,7 @@ internal class AapsV3ForecastPreview(
             return AapsV3ForecastPreview(points, forecast)
         }
 
-        private fun decode(row: LocalNightscoutV3DocumentEntity, now: Long): GlucosePoint? = runCatching {
+        internal fun decodeOwnerGlucose(row: LocalNightscoutV3DocumentEntity, from: Long, now: Long): GlucosePoint? = runCatching {
             require(row.collection == "entries" && row.source == "local-v3-owner" && !row.deleted)
             require(row.createdRevision in 1..row.modifiedRevision && row.modifiedRevision <= now)
             val body = HistoryJson.parse(HistoryJson.encodeUtf8(row.payloadJson), 4_096)
@@ -61,7 +61,7 @@ internal class AapsV3ForecastPreview(
             require(HistoryJson.string(body.getValue("type")) == "sgv")
             require(HistoryJson.string(body.getValue("units")) == "mg/dl")
             val ts = HistoryJson.long(body.getValue("date"))
-            require(ts == row.eventAtMs && ts in (now - WINDOW_MS)..now)
+            require(ts == row.eventAtMs && ts in from..now)
             val device = HistoryJson.string(body.getValue("device")).also { require(HistoryJson.code.matches(it)) }
             val value = UnitConverter.mgdlToMmol(HistoryJson.double(body.getValue("sgv")))
             require(value.isFinite() && value in 1.0..33.0)

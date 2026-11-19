@@ -4511,7 +4511,10 @@ private fun CircadianPatternsCard(
 ) {
     AnalyticsSectionCard {
         AnalyticsSectionLabel(text = stringResource(id = R.string.section_analytics_circadian_patterns))
-        state.circadianStateStatus?.let { status ->
+        if (state.circadianFromObservedAaps) {
+            Text(stringResource(R.string.analytics_circadian_aaps_observed), style = MaterialTheme.typography.bodySmall)
+        }
+        state.circadianStateStatus?.takeUnless { state.circadianFromObservedAaps }?.let { status ->
             CircadianStateStatusCard(status = status)
         }
         if (state.circadianSections.isEmpty()) {
@@ -4541,7 +4544,8 @@ private fun CircadianPatternsCard(
             state.circadianSections.forEach { section ->
                 CircadianPatternSectionCard(
                     section = section,
-                    selectedWindow = selectedWindow
+                    selectedWindow = selectedWindow,
+                    observedOnly = state.circadianFromObservedAaps
                 )
             }
         }
@@ -4666,10 +4670,11 @@ private fun CircadianStateMetricChip(
 @Composable
 private fun CircadianPatternSectionCard(
     section: CircadianPatternSectionUi,
-    selectedWindow: CircadianPatternWindowUi
+    selectedWindow: CircadianPatternWindowUi,
+    observedOnly: Boolean
 ) {
     val windowData = section.windows.firstOrNull { it.windowDays == selectedWindow.days }
-        ?: section.windows.maxByOrNull { it.windowDays }
+        ?: section.windows.maxByOrNull { it.windowDays }?.takeUnless { observedOnly }
     Surface(
         shape = AnalyticsInfoShape,
         color = if (LocalUiStyle.current == UiStyle.MIDNIGHT_GLASS) Color(0xAA101D38) else MaterialTheme.colorScheme.surfaceVariant,
@@ -4756,6 +4761,7 @@ private fun CircadianPatternSectionCard(
                     }
                 }
                 CircadianMedianBandChart(points = windowData.points)
+                if (observedOnly) return@Column
                 CircadianDeltaChart(points = windowData.deltaPoints)
                 AnalyticsSectionLabel(text = stringResource(id = R.string.analytics_circadian_top_risky_windows))
                 if (windowData.topRiskWindows.isEmpty()) {

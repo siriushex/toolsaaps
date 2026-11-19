@@ -1,3 +1,13 @@
+# Local AAPS daily glucose patterns (2026-11-19)
+
+- Analytics can fit a daily glucose distribution when accepted pattern history is
+  absent. The input is a bounded, validated local v3 window from the latest
+  continuous sensor source. Three adequately sampled local dates are required.
+- Only the descriptive glucose curve is displayed. In particular, no insulin,
+  food, personalized coefficients or target changes are inferred by this fallback.
+- Verify with AapsObservedCircadianTest (Room read, source switching, incomplete
+  coverage and historical day/night differences) and the Android quality gates.
+
 # Local AAPS forecast and command permission (2026-11-19)
 
 - The Forecast tab now uses the same display-only glucose trend for fresh

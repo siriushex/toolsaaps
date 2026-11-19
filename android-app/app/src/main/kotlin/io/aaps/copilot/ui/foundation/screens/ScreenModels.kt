@@ -589,6 +589,7 @@ data class AnalyticsUiState(
     val historyOverlayPoints: List<IsfCrOverlayPointUi> = emptyList(),
     val historyLastUpdatedTs: Long? = null,
     val circadianSections: List<CircadianPatternSectionUi> = emptyList(),
+    val circadianFromObservedAaps: Boolean = false,
     val deepLines: List<String> = emptyList(),
     val selectedInsulinProfileId: String = "NOVORAPID",
     val insulinProfileCurves: List<InsulinProfileCurveUi> = emptyList(),

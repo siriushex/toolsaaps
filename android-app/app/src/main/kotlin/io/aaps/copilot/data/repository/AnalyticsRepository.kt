@@ -1070,7 +1070,7 @@ class AnalyticsRepository(
     }
 }
 
-private fun CircadianSlotStat.toEntity(): CircadianSlotStatEntity =
+internal fun CircadianSlotStat.toEntity(): CircadianSlotStatEntity =
     CircadianSlotStatEntity(
         dayType = dayType.name,
         windowDays = windowDays,
@@ -1096,7 +1096,7 @@ private fun CircadianSlotStat.toEntity(): CircadianSlotStatEntity =
         updatedAt = updatedAt
     )
 
-private fun CircadianTransitionStat.toEntity(): CircadianTransitionStatEntity =
+internal fun CircadianTransitionStat.toEntity(): CircadianTransitionStatEntity =
     CircadianTransitionStatEntity(
         dayType = dayType.name,
         windowDays = windowDays,
@@ -1111,7 +1111,7 @@ private fun CircadianTransitionStat.toEntity(): CircadianTransitionStatEntity =
         updatedAt = updatedAt
     )
 
-private fun CircadianPatternSnapshot.toEntity(): CircadianPatternSnapshotEntity =
+internal fun CircadianPatternSnapshot.toEntity(): CircadianPatternSnapshotEntity =
     CircadianPatternSnapshotEntity(
         dayType = requestedDayType.name,
         segmentSource = segmentSource.name,

@@ -2220,4 +2220,5 @@
     <string name="native_aaps_pin_help">Open Client Control pairing in AAPS and enter its current PIN.</string>
     <string name="native_aaps_permission_consent">I understand that AAPS grants broad client control, including bolus commands. Copilot uses only a target-specific channel.</string>
     <string name="native_aaps_revoke_help">Copilot will stop using this pairing. Pending delivery is not cancelled. Also remove the client in AAPS to revoke its permission there.</string>
+    <string name="analytics_circadian_aaps_observed">Daily glucose pattern from AAPS measurements. Food and insulin are not included.</string>
 </resources>
