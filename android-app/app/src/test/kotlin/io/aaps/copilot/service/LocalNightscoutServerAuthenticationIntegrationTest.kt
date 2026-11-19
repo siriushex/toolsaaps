@@ -658,6 +658,24 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun settingsPongCannotRevalidateSessionAfterClockRollback() {
+        val clock = AtomicLong(1_000)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get)
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        clock.addAndGet(25_000)
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("2")
+        clock.decrementAndGet()
+        assertThat(postSocketCode(peer, port, sid, "3")).isEqualTo(400)
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
+        openStorage(peer, port)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+    }
+
+    @Test
     fun idleSettingsSubscriberIsUnavailableAtPongDeadlineWithoutAnotherRequest() {
         val clock = AtomicLong(1_000)
         val port = freePort()

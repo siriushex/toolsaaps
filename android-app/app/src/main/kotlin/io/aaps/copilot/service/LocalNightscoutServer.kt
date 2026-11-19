@@ -941,7 +941,7 @@ class LocalNightscoutServer internal constructor(
                 return false
             }
             val pingAt = session.awaitingPongSince
-            if (pingAt != null && socketNowMs() - pingAt >= SOCKET_PING_TIMEOUT_MS) {
+            if (pingAt != null && socketNowMs() - pingAt !in 0L until SOCKET_PING_TIMEOUT_MS) {
                 closeSocketSession(session)
                 return false
             }
