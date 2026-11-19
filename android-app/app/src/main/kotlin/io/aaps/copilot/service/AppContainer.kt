@@ -26,6 +26,8 @@ import io.aaps.copilot.data.repository.AapsCarbHistoryRequest
 import io.aaps.copilot.data.repository.AapsCarbHistoryResult
 import io.aaps.copilot.data.repository.AapsCarbHistorySyncResult
 import io.aaps.copilot.config.SetupProgress
+import io.aaps.copilot.config.SetupGlucoseSource
+import io.aaps.copilot.data.repository.LocalAapsCgmSync
 import io.aaps.copilot.config.SetupInsulinSource
 import kotlinx.coroutines.withContext
 import io.aaps.copilot.data.repository.AapsCarbHistorySource
@@ -533,6 +535,7 @@ class AppContainer(context: Context) {
     private var localNightscoutSettingsJob: Job? = null
     private var localAapsUploadJob: Job? = null
     private var localAapsCarbHistoryJob: Job? = null
+    private var localAapsCgmJob: Job? = null
     private var powerSaveSettingsJob: Job? = null
 
     val syncRepository = SyncRepository(
@@ -597,6 +600,17 @@ class AppContainer(context: Context) {
         settings.localAapsV3Upload && settings.localNightscoutEnabled && settings.localObservationEnabled &&
             settings.localBroadcastIngestEnabled && !PowerSaveController.isActive(settings) &&
             setup.insulinSource == SetupInsulinSource.AAPS
+
+    private fun localCgmEnabled(settings: AppSettings, setup: SetupProgress) =
+        settings.localAapsV3Upload && settings.localNightscoutEnabled && settings.localObservationRuntimeAllowed() &&
+            settings.localBroadcastIngestEnabled && !PowerSaveController.isActive(settings) &&
+            setup.glucoseSource == SetupGlucoseSource.SENSOR
+
+    private val localAapsCgm by lazy { LocalAapsCgmSync(
+        db, { from, through, nonce -> AapsLocalObservation.readCgmWindow(appContext, from, through, nonce) },
+        { localCgmEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+    ) }
 
     internal suspend fun syncConfiguredCarbHistory(): AapsCarbHistorySyncResult = withContext(Dispatchers.IO) {
         if (settingsStore.settings.first().localAapsV3Upload) syncNativeCarbHistory()
@@ -2071,6 +2085,24 @@ class AppContainer(context: Context) {
                     }
             }
         }
+        if (localAapsCgmJob == null) {
+            localAapsCgmJob = appScope.launch(Dispatchers.IO) {
+                combine(settingsStore.settings, settingsStore.setupProgress, ::localCgmEnabled)
+                    .distinctUntilChanged().collectLatest { enabled ->
+                        if (!enabled) return@collectLatest
+                        while (isActive) {
+                            try {
+                                localAapsCgm.sync()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                auditLogger.warn("aaps_local_cgm_sync_failed")
+                            }
+                            delay(5 * 60_000L)
+                        }
+                    }
+            }
+        }
         if (localAapsUploadJob == null) {
             localAapsUploadJob = appScope.launch(Dispatchers.IO) {
                 settingsStore.settings.map { it.localAapsV3Upload && it.localNightscoutEnabled }
@@ -2117,6 +2149,8 @@ class AppContainer(context: Context) {
         localAapsUploadJob = null
         localAapsCarbHistoryJob?.cancel()
         localAapsCarbHistoryJob = null
+        localAapsCgmJob?.cancel()
+        localAapsCgmJob = null
         stopLocalActivitySensors()
         if (healthConnectEnabled) {
             stopHealthConnectCollection()

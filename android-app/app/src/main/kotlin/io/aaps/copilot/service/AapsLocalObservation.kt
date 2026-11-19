@@ -17,7 +17,7 @@ import io.aaps.copilot.util.UnitConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
-/** A single observation. Never feeds the clinical database, targets or command transport. */
+/** Signature-verified read transport. Only dedicated history contracts are used for clinical imports. */
 internal object AapsLocalObservation {
     private const val AAPS = "info.nightscout.androidaps"
     private const val AUTHORITY = "$AAPS.localobservation"
@@ -67,6 +67,14 @@ internal object AapsLocalObservation {
         }
         val reply = callVerified(context, provider, "carb_history_page_v1", args) ?: return AapsCarbHistoryResult.Unavailable
         return decodeCarbReply(request, reply)
+    }
+
+    fun readCgmWindow(context: Context, from: Long, through: Long, nonce: String): ByteArray? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val args = Bundle().apply {
+            putString("nonce", nonce); putLong("from", from); putLong("through", through)
+        }
+        return callVerified(context, provider, "cgm_window_v1", args)?.getByteArray("snapshot")
     }
 
     internal fun decodeCarbReply(request: AapsCarbHistoryRequest, reply: Bundle): AapsCarbHistoryResult {

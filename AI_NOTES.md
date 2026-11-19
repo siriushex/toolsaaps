@@ -1,3 +1,21 @@
+# Clinical glucose input from local AAPS 4 (2026-11-19)
+
+- The signature-checked cgm_window_v1 method returns complete bounded windows
+  of current, valid sensor readings, in mg/dL with their acquisition timestamps.
+  It does not export virtual predictions as CGM. The display snapshot is not
+  an input or fallback for this contract. Both APKs need this contract.
+- In the configured sensor/local integration, sync the last three hours and
+  one preceding three-hour interval every five minutes, back to fourteen days;
+  persist the backward cursor across restarts. Failed reads do not erase rows.
+  Resolve corrections, conflicts and removals only in the native source.
+  Retain independent originals through duplicate maintenance; select one
+  measurement per timestamp for computation. Changed imports durably request
+  recalculation using the existing clinical coordinator.
+- Regression exercises exact synthetic producer bytes, native Room, acquisition
+  time, unit conversion, mixed sources, backfill, cancellation and the existing
+  enhanced prediction engine. This does not validate a personal forecast,
+  fill in missing insulin delivery, or enable native target publication.
+
 # Rescheduled local AAPS meals and transient SQLite journals (2026-11-19)
 
 - On a revised carb row, look for the previously linked source ID even outside

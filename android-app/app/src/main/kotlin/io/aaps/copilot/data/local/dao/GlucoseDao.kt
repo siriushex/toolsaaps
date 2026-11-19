@@ -129,7 +129,8 @@ interface GlucoseDao {
 
     @Query(
         "DELETE FROM glucose_samples " +
-            "WHERE (" +
+            "WHERE NOT EXISTS (SELECT 1 FROM glucose_samples AS owned " +
+            "WHERE owned.timestamp = glucose_samples.timestamp AND owned.source GLOB 'aaps_local_cgm:*') AND (" +
             "(NOT " + ROW_PREFERRED_SQL + " AND EXISTS (" +
             "SELECT 1 FROM glucose_samples AS candidate " +
             "WHERE candidate.timestamp = glucose_samples.timestamp " +
@@ -166,6 +167,7 @@ interface GlucoseDao {
         private const val CANDIDATE_SOURCE_PRIORITY_SQL =
             "(CASE " +
                 "WHEN lower(candidate.source) = 'aaps_broadcast' THEN 60 " +
+                "WHEN candidate.source GLOB 'aaps_local_cgm:*' THEN 61 " +
                 "WHEN lower(candidate.source) = 'nightscout' THEN 50 " +
                 "WHEN lower(candidate.source) = 'xdrip_broadcast' THEN 45 " +
                 "WHEN lower(candidate.source) = 'local_nightscout_entry' THEN 42 " +
@@ -177,6 +179,7 @@ interface GlucoseDao {
         private const val ROW_SOURCE_PRIORITY_SQL =
             "(CASE " +
                 "WHEN lower(glucose_samples.source) = 'aaps_broadcast' THEN 60 " +
+                "WHEN glucose_samples.source GLOB 'aaps_local_cgm:*' THEN 61 " +
                 "WHEN lower(glucose_samples.source) = 'nightscout' THEN 50 " +
                 "WHEN lower(glucose_samples.source) = 'xdrip_broadcast' THEN 45 " +
                 "WHEN lower(glucose_samples.source) = 'local_nightscout_entry' THEN 42 " +
