@@ -2113,6 +2113,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val name = "phone-socket-${java.util.UUID.randomUUID()}.db"
         importedDatabaseName = name
         db = Room.databaseBuilder(context, CopilotDatabase::class.java, name)
+            .addMigrations(*io.aaps.copilot.data.local.CopilotMigrations.ALL)
             .createFromFile(source).build()
         val expected = runBlocking {
             db.therapyDao().sinceDescLimit(0L, 1_200).map { it.id } to
