@@ -1,0 +1,99 @@
+diff --git a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/BolusPreview.kt b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/BolusPreview.kt
+index 3f64cb6606..a1f53d2f63 100644
+--- a/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/BolusPreview.kt
++++ b/core/nssdk/src/commonMain/kotlin/app/aaps/core/nssdk/localmodel/clientcontrol/BolusPreview.kt
+@@ -24,4 +24,9 @@ data class BolusPreview(
+     val wizardDetail: WizardDetailDto? = null,
++    val manualMeal: ManualMealPreviewDto? = null,
+ )
+
++/** Constraint-checked amounts for a single manual carb entry, not a receipt of persistence. */
++@Serializable
++data class ManualMealPreviewDto(val marker: String, val carbsGrams: Int, val insulinUnits: Double)
++
+ /** Wire mirror of [app.aaps.core.interfaces.rx.weardata.EventData.WizardDetail] (same module-boundary pattern as [ConfirmationLineDto]). */
+diff --git a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+index 683fed1f56..214079f39d 100644
+--- a/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
++++ b/plugins/sync/src/androidHostTest/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiverTest.kt
+@@ -1158,2 +1158,44 @@ internal class ClientControlReceiverTest {
+         assertThat(preview.lines.single().text).isEqualTo("1.5 U")
++        assertThat(preview.manualMeal).isNull()
++    }
++
++    private val scopedMeal = BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = 12, notes = "copilot:manual:meal:sample")
++    private fun mealPreview(grams: Int) = MasterActionExecutor.PrepareResult.Preview(
++        insulin = 0.0, carbs = grams, bolusId = 79L, lines = listOf(ConfirmationLine(ConfirmationRole.NORMAL, "sample")),
++        advisorApplies = false, advisorLines = emptyList()
++    )
++
++    @Test
++    fun manualMealPreviewIsSignedAndDoesNotCommit() = runTest {
++        val (id, key) = activeClient(ClientRole.MealAssistant)
++        val acks = captureAcks(id)
++        whenever(masterActionExecutor.prepareBatch(any(), anyOrNull())).thenReturn(mealPreview(12))
++        sendBatch(id, key, listOf(scopedMeal))
++        val ack = acks.last()
++        assertThat(ClientControlCrypto.verifyAck(key, ack)).isTrue()
++        val preview = Json.decodeFromString<BolusPreview>(checkNotNull(ack.payload))
++        assertThat(preview.manualMeal?.marker).isEqualTo(scopedMeal.notes)
++        assertThat(preview.manualMeal?.carbsGrams).isEqualTo(12)
++        assertThat(preview.manualMeal?.insulinUnits).isEqualTo(0.0)
++        verify(masterActionExecutor, never()).confirm(any(), any(), any(), any(), any(), anyOrNull(), any())
++    }
++
++    @Test
++    fun manualMealCappedByMasterIsDiscarded() = runTest {
++        val (id, key) = activeClient(ClientRole.MealAssistant)
++        val acks = captureAcks(id)
++        whenever(masterActionExecutor.prepareBatch(any(), anyOrNull())).thenReturn(mealPreview(8))
++        sendBatch(id, key, listOf(scopedMeal))
++        assertThat(acks.last().status.name).isEqualTo("Failed")
++        assertThat(acks.last().payload).isNull()
++        verify(masterActionExecutor).discard(79L)
++    }
++
++    @Test
++    fun manualMealMixedWithAnotherActionNeverParks() = runTest {
++        val (id, key) = activeClient(ClientRole.Admin)
++        val acks = captureAcks(id)
++        sendBatch(id, key, listOf(scopedMeal, tempTargetAction))
++        assertThat(acks.last().status.name).isEqualTo("Failed")
++        verify(masterActionExecutor, never()).prepareBatch(any(), anyOrNull())
+     }
+diff --git a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+index df076fe687..43693954a1 100644
+--- a/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
++++ b/plugins/sync/src/commonMain/kotlin/app/aaps/plugins/sync/nsclientV3/clientcontrol/ClientControlReceiver.kt
+@@ -43,2 +43,4 @@ import app.aaps.core.nssdk.localmodel.clientcontrol.AuthorizedClient
+ import app.aaps.core.nssdk.localmodel.clientcontrol.BolusPreview
++import app.aaps.core.nssdk.localmodel.clientcontrol.BatchActionDto
++import app.aaps.core.nssdk.localmodel.clientcontrol.ManualMealPreviewDto
+ import app.aaps.core.nssdk.localmodel.clientcontrol.ClientControlMessage
+@@ -857,2 +859,10 @@ class ClientControlReceiver(
+         val actions = message.actions.mapNotNull { it.toDomain() }
++        val meal = if (message.actions.any { it.notes.startsWith("copilot:manual:meal:") }) {
++            val one = message.actions.singleOrNull()
++            // Compare the whole DTO: no offsets, insulin, targets, extended carbs or record-only path.
++            if (one == null || !Regex("copilot:manual:meal:[A-Za-z0-9_-]{1,80}").matches(one.notes) ||
++                one.carbs !in 1..120 || one != BatchActionDto(type = BatchActionDto.TYPE_BOLUS, carbs = one.carbs, notes = one.notes))
++                return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
++            one
++        } else null
+         return when (val result = masterActionExecutor.prepareBatch(actions, entry.caller)) {
+@@ -869,2 +879,9 @@ class ClientControlReceiver(
+             is MasterActionExecutor.PrepareResult.Preview -> {
++                val checkedMeal = meal?.let {
++                    if (result.insulin != 0.0 || result.carbs != it.carbs || result.advisorApplies || result.advisorLines.isNotEmpty()) {
++                        masterActionExecutor.discard(result.bolusId)
++                        return AckOutcome(AckStatus.Failed, FailureReason.ExecutionFailed.name)
++                    }
++                    ManualMealPreviewDto(it.notes, result.carbs, result.insulin)
++                }
+                 val preview = BolusPreview(
+@@ -873,3 +890,4 @@ class ClientControlReceiver(
+                     advisorApplies = false,
+-                    advisorLines = emptyList()
++                    advisorLines = emptyList(),
++                    manualMeal = checkedMeal
+                 )

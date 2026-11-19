@@ -594,6 +594,13 @@
   not confirm. A late confirmation retains the original submission timestamp.
   Awaiting readback consumes the ordinary carb cooldown without asserting
   delivery. It never permits replay, nor proves consumption or insulin delivery.
+- A native manual meal preview describes one constraint-checked, immediate
+  carb entry in whole grams. Reject mixed actions, changed quantities, insulin,
+  advisor mode, mismatched signatures or expired replies. Localized confirmation
+  text is not a quantity. A preview is not persistence and cannot use the
+  target commit path. In the native carbs-only path AAPS timestamps the entry
+  at confirmation, not when Copilot prepared it; the v1 POST receipt invariant
+  above must not be relaxed or reused as proof of this different operation.
 - API v3 compatibility requires authentication, durable modification history,
   exact filters and stock-client verification, not merely matching route names.
 - Refresh uses the local raw identity secret, while v1 uses its SHA-1 header.
