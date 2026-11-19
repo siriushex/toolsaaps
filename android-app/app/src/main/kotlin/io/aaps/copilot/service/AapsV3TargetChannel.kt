@@ -432,7 +432,10 @@ internal class AapsV3TargetChannel(
             val duration = checkNotNull(command.params["durationMinutes"]?.toIntOrNull())
             check(mmol.isFinite())
             val reason = when {
-                EatingSoonPolicy.isRequestKey(command.idempotencyKey) -> "Eating Soon"
+                EatingSoonPolicy.isRequestKey(command.idempotencyKey) -> {
+                    check(EatingSoonPolicy.isCanonicalRequest(command.idempotencyKey, mmol, duration, "Eating Soon"))
+                    "Eating Soon"
+                }
                 command.params["targetIntent"] in setOf("HYPO_PROTECTION", "POST_HYPO_PROTECTION") -> "Hypo"
                 command.params["targetIntent"] in setOf("ACTIVITY_PROTECTION", "PLANNED_ACTIVITY_ADAPTATION") -> "Activity"
                 else -> "Automation"

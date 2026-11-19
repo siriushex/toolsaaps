@@ -387,6 +387,16 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
+    @Test fun mismatchedEatingSoonParametersNeverPublishPrepare() = runBlocking {
+        FinalMaster().completeEnrollment()
+        val original = command("manual:meal:test:eating-soon")
+        for ((value, minutes) in listOf(EatingSoonPolicy.TARGET_MMOL to 0, EatingSoonPolicy.TARGET_MMOL + 1 to 30)) {
+            val malformed = original.copy(params = mapOf("targetMmol" to value.toString(), "durationMinutes" to minutes.toString()))
+            assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(malformed) { null })
+            assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        }
+    }
+
     @Test fun finalEatingSoonFixturePublishesTargetOnlyAndWaitsForCommitAck() = runBlocking {
         FinalMaster().completeEnrollment()
         val eatingSoon = command("manual:meal:test:eating-soon").copy(params = mapOf(
