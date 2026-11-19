@@ -1,3 +1,16 @@
+# Local AAPS net insulin observation (2026-11-19)
+
+- The combined candidate reads the last AAPS result's signed net IOB through
+  the same-signature local provider. Both the AAPS result and the measurement
+  must be recent. Old AAPS builds still supply the version-one profile and COB.
+- Overview labels this single number separately from bolus-only residual IOB.
+  A missing or stale value is not zero. No value from this observation changes
+  delivery evidence, a temporary target, a meal recommendation or a UAM event.
+- Legacy reference: the 3.4.2.3 application also ran CopilotDataRelay,
+  CopilotCarbHistoryReceiver and CopilotClinicalSummaryReceiver. Glucose-only
+  display, paired clients and fresh net IOB do not establish equivalent clinical
+  ingestion, personal ISF/CR, or treatment-aware 5/30/60-minute forecasts.
+
 # Local AAPS daily glucose patterns (2026-11-19)
 
 - Analytics can fit a daily glucose distribution when accepted pattern history is

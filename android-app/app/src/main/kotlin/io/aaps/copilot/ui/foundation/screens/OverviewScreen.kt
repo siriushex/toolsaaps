@@ -371,6 +371,16 @@ fun OverviewScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Spacing.xs)
                 ) {
+                    if (state.aapsV3Observation) {
+                        val observed = state.aapsLocalMetrics
+                        Text(stringResource(R.string.overview_aaps_net_iob))
+                        Text(stringResource(R.string.overview_iob_net_value,
+                            observed?.netIobUnits?.let { UiFormatters.formatUnits(it, 1) } ?: unavailable))
+                        observed?.iobAt?.let {
+                            Text(stringResource(R.string.overview_iob_sample_timestamp_value, UiFormatters.formatTimestamp(it)))
+                        }
+                        return@Column
+                    }
                     Text(
                         stringResource(
                             R.string.overview_iob_current_value,
@@ -1240,14 +1250,14 @@ private fun OverviewClinicalMatrix(
     val observed = state.aapsLocalMetrics
     val metrics = listOf(
         OverviewClinicalMetric(
-            label = stringResource(id = R.string.metric_iob),
-            value = iob.value,
+            label = stringResource(if (observing) R.string.overview_aaps_net_iob else R.string.metric_iob),
+            value = if (observing) UiFormatters.formatUnits(observed?.netIobUnits, 1) else iob.value,
             unit = stringResource(id = R.string.unit_u),
             onClick = onIob,
-            contentDescription = stringResource(R.string.overview_iob_pair_description,
+            contentDescription = if (observing) null else stringResource(R.string.overview_iob_pair_description,
                 iob.current, iob.signedNet, stringResource(R.string.unit_u)),
             testTag = "overviewIobMetric",
-            iobPair = iob
+            iobPair = iob.takeUnless { observing }
         ),
         OverviewClinicalMetric(
             label = stringResource(if (observing) R.string.clarity_aaps_cob else R.string.metric_cob_copilot),

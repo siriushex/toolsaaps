@@ -6,6 +6,22 @@ import org.junit.Test
 class AapsObservedMetricsTest {
     private val now = 1_800_000_000_000L
 
+    @Test fun netIobNeedsVersionTwoAndFreshMeasurementAndDoesNotReplaceCobOrBolusIob() {
+        fun sample(extra: String, version: Long = 2L) = AapsObservedMetrics.decode(
+            """{"version":$version,"at":$now,"profileCr":10,$extra}""".encodeToByteArray(), now, version)
+        for (net in listOf(-0.4, 0.0, 2.2)) {
+            val result = checkNotNull(sample(""""netIobUnits":$net,"iobAt":$now"""))
+            assertThat(result.netIobUnits).isEqualTo(net)
+            assertThat(result.iobAt).isEqualTo(now)
+            assertThat(result.cobGrams).isNull()
+        }
+        assertThat(sample(""""netIobUnits":2""")).isNull()
+        assertThat(sample(""""netIobUnits":2,"iobAt":$now""", 1L)).isNull()
+        val stale = checkNotNull(sample(""""netIobUnits":2,"iobAt":${now - 300_001}"""))
+        assertThat(stale.netIobUnits).isNull()
+        assertThat(stale.profileCr).isEqualTo(10.0)
+    }
+
     @Test fun unitsAndActualZeroRemainDistinctFromMissing() {
         val observed = checkNotNull(decode(""","profileIsfMgdl":45,"profileCr":12,"cobGrams":0,"cobAt":$now"""))
         assertThat(observed.profileIsfMmol).isWithin(0.01).of(2.5)

@@ -40,6 +40,9 @@ internal object AapsLocalObservation {
 
     fun readMetrics(context: Context): AapsObservedMetrics? {
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        readVerifiedSnapshot(context, provider, "metrics_v2")?.let {
+            return AapsObservedMetrics.decode(it, System.currentTimeMillis(), version = 2L)
+        }
         val snapshot = readVerifiedSnapshot(context, provider, "metrics_v1") ?: return null
         return AapsObservedMetrics.decode(snapshot, System.currentTimeMillis())
     }
