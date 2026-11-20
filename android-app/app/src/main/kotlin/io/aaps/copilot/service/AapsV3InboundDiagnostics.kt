@@ -46,7 +46,10 @@ internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Stor
         )
     }
 
-    private suspend fun readGlucose(now: Long): AapsV3InboundGlucose {
+    suspend fun matchesGlucose(at: Long, mgdl: Double, now: Long): Boolean =
+        readGlucose(now, at to mgdl) == AapsV3InboundGlucose.FRESH
+
+    private suspend fun readGlucose(now: Long, expected: Pair<Long, Double>? = null): AapsV3InboundGlucose {
         if (now !in 1..LocalNightscoutV3Store.MAX_TIME) return AapsV3InboundGlucose.CLOCK
         return try {
             val page = store.latest(LocalV3Collection.ENTRIES, 128)
@@ -54,6 +57,7 @@ internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Stor
             // Results are sorted by event time. The final group may be cut off by the limit.
             var latest: Long? = null
             var countAtLatest = 0
+            var mgdl: Double? = null
             for (row in page.documents) {
                 if (latest != null && row.eventAtMs != latest) break
                 if (row.source != "local-v3-owner") continue
@@ -61,7 +65,7 @@ internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Stor
                 if (HistoryJson.string(body.getValue("type")) != "sgv") continue
                 val at = HistoryJson.long(body.getValue("date"))
                 require(at == row.eventAtMs && at in 1..LocalNightscoutV3Store.MAX_TIME)
-                require(HistoryJson.double(body.getValue("sgv")) in Double.MIN_VALUE..1000.0)
+                mgdl = HistoryJson.double(body.getValue("sgv")).also { require(it in Double.MIN_VALUE..1000.0) }
                 latest = at
                 countAtLatest++
             }
@@ -72,6 +76,7 @@ internal class AapsV3InboundDiagnostics(private val store: LocalNightscoutV3Stor
                 latest > now -> AapsV3InboundGlucose.CLOCK
                 // Multiple owner SGVs at the same acquisition time are not proof of a unique sample.
                 countAtLatest > 1 -> AapsV3InboundGlucose.CONFLICTING
+                expected != null && (latest != expected.first || mgdl != expected.second) -> AapsV3InboundGlucose.CONFLICTING
                 now - latest <= GLUCOSE_FRESH_MS -> AapsV3InboundGlucose.FRESH
                 else -> AapsV3InboundGlucose.STALE
             }

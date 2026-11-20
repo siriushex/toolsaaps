@@ -1169,6 +1169,8 @@ class AppContainer(context: Context) {
                 val now = System.currentTimeMillis()
                 val at = clinical?.snapshotAtMs
                 reply != null && at != null && clinical.profile != null &&
+                    clinical.glucoseMgdl != null && clinical.summary.samePhoneGlucoseAtMs != null &&
+                    nativeAapsInboundDiagnostics.matchesGlucose(clinical.summary.samePhoneGlucoseAtMs, clinical.glucoseMgdl, now) &&
                     clinical.insulin?.status == AapsV3ObservedInsulinStatus.OBSERVED &&
                     clinical.insulin.records.any { !it.invalidated } && now >= received && now - issued in 0..10_000L &&
                     targetProfileSource.readEvidence(maxOf(1L, at - 86_400_000L), at, now).let { retained ->

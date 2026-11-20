@@ -17,7 +17,7 @@ import io.aaps.copilot.util.UnitConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
-internal class LocalClinicalObservation(val summary: AapsV3InboundSummary, val snapshotAtMs: Long?,
+internal class LocalClinicalObservation(val summary: AapsV3InboundSummary, val snapshotAtMs: Long?, val glucoseMgdl: Double?,
     val profile: AapsV3EffectiveProfileObservation?, val insulin: AapsV3InsulinRead?) {
     override fun toString() = "LocalClinicalObservation(redacted)"
 }
@@ -195,14 +195,14 @@ internal object AapsLocalObservation {
             .map {
                 val sample = HistoryJson.obj(it)
                 HistoryJson.fields(sample, setOf("date", "sgv", "sensor"))
-                require(HistoryJson.double(sample.getValue("sgv")) in Double.MIN_VALUE..1000.0)
+                val mgdl = HistoryJson.double(sample.getValue("sgv")).also { require(it in Double.MIN_VALUE..1000.0) }
                 require(HistoryJson.code.matches(HistoryJson.string(sample.getValue("sensor"))))
-                HistoryJson.long(sample.getValue("date")).also { require(it in maxOf(1, at - 30 * 60_000L)..at) }
+                HistoryJson.long(sample.getValue("date")).also { require(it in maxOf(1, at - 30 * 60_000L)..at) } to mgdl
             }
-        val latest = samples.maxOrNull()
+        val latest = samples.maxOfOrNull { it.first }
         val glucose = when {
             latest == null -> AapsV3InboundGlucose.NOT_OBSERVED
-            samples.count { it == latest } > 1 -> AapsV3InboundGlucose.CONFLICTING
+            samples.count { it.first == latest } > 1 -> AapsV3InboundGlucose.CONFLICTING
             now - latest <= 5 * 60_000L -> AapsV3InboundGlucose.FRESH
             else -> AapsV3InboundGlucose.STALE
         }
@@ -230,9 +230,9 @@ internal object AapsLocalObservation {
         val count = insulin.records.count { !it.invalidated }
         LocalClinicalObservation(AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true,
             samePhoneGlucoseAtMs = latest?.takeIf { glucose == AapsV3InboundGlucose.FRESH }),
-            at, (projected as? AapsV3ProfileProjection.Observed)?.observation, insulin)
+            at, samples.singleOrNull { it.first == latest }?.second, (projected as? AapsV3ProfileProjection.Observed)?.observation, insulin)
     } catch (_: Exception) {
-        LocalClinicalObservation(unavailable(now), null, null, null)
+        LocalClinicalObservation(unavailable(now), null, null, null, null)
     }
 
     private fun observationRow(body: JsonObject, id: String, at: Long): LocalNightscoutV3DocumentEntity {

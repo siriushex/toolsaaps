@@ -186,6 +186,22 @@ class AapsV3EffectiveProfileSourceTest {
         assertFalse(insulin.matchesActiveRecords(after.insulin))
     }
 
+    @Test fun withdrawingLatestSgvRestoresActualAgeOfPreviousReading() = runBlocking {
+        val store = store()
+        suspend fun insert(time: Long) = store.create(LocalV3DocumentInput(LocalV3Collection.ENTRIES,
+            "sgv-$time", "local-v3-owner", time, """{"type":"sgv","date":$time,"sgv":110}""")).document
+        insert(at - 180_000)
+        val latest = insert(at)
+        val diagnostics = AapsV3InboundDiagnostics(store)
+        val now = at + 200_000
+        assertTrue(diagnostics.matchesGlucose(at, 110.0, now))
+        assertFalse(diagnostics.matchesGlucose(at - 1, 110.0, now))
+        assertFalse(diagnostics.matchesGlucose(at, 111.0, now))
+        assertEquals(AapsV3InboundGlucose.FRESH, diagnostics.check(now).glucose)
+        store.delete(LocalV3Collection.ENTRIES, latest.identifier, latest.modifiedRevision)
+        assertEquals(AapsV3InboundGlucose.STALE, diagnostics.check(now).glucose)
+    }
+
     @Test fun inboundCheckDoesNotRequirePairingOrProjectClinicalData() = runBlocking {
         val store = store()
         val check = AapsV3InboundDiagnostics(store)
