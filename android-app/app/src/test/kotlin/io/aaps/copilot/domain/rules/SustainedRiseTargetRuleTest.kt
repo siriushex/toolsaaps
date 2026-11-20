@@ -25,6 +25,15 @@ class SustainedRiseTargetRuleTest {
         assertEquals("SustainedRiseTarget.v1", proposal.sourceRuleId)
     }
 
+    @Test fun pastRiseCannotOverrideProtectiveRaiseWhenForecastFallsBelowBase() {
+        val initial = context()
+        val falling = initial.copy(activeTempTargetMmol = 4.1,
+            forecasts = initial.forecasts.map { it.copy(valueMmol = 5.0, ciLow = 4.4, ciHigh = 5.6) })
+        assertFalse(SustainedRiseTargetPolicy.qualifies(falling))
+        val result = AdaptiveTargetControllerRule().evaluate(falling)
+        assertTrue(requireNotNull(result.actionProposal).targetMmol > 4.1)
+    }
+
     @Test fun holdStillRequiresFreshProposalAndStoppedRiseRestoresCalculation() {
         val rule = AdaptiveTargetControllerRule()
         rule.evaluate(context())

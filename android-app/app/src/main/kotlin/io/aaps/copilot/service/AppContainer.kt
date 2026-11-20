@@ -605,7 +605,10 @@ class AppContainer(context: Context) {
     private val localAapsLoopInputs by lazy { LocalAapsLoopInputSync(
         db, { nonce -> AapsLocalObservation.readLoopInputs(appContext, nonce) },
         { nativeCarbHistoryEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
-        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) },
+        readComponents = { nonce -> nativeAapsTargetChannel.readLocalComponents { master ->
+            AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master, components = true)
+        } }
     ) }
 
     private fun localCgmEnabled(settings: AppSettings, setup: SetupProgress) =
@@ -1139,10 +1142,17 @@ class AppContainer(context: Context) {
     )
 
     private val retainedComboDatabase by lazy { io.aaps.copilot.data.local.ComboJournalDatabase.create(context) }
+    private val targetProfileSource by lazy {
+        AapsV3EffectiveProfileSource(io.aaps.copilot.data.repository.LocalNightscoutV3Store(db))
+    }
     internal val localEnrollmentOffers = LocalEnrollmentOffers(appScope, localNightscoutServer::openLocalSettingsTicket)
     private val nativeAapsTargetChannel = AapsV3TargetChannel(
         db = db,
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
+        requirePendingAction = true,
+        localTargetPreviewPeer = { master, request -> withContext(Dispatchers.IO) {
+            AapsLocalSessionPeer.previewTarget(appContext, master, request)
+        } },
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
         localOffers = localEnrollmentOffers,
         localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },
@@ -1154,6 +1164,35 @@ class AppContainer(context: Context) {
         // Wire documents are not clinical history. Keep publication closed until the
         // typed treatment/profile pipeline and master-handler admission are verified.
         baselineGuard = { "native_clinical_projection_unavailable" },
+        capturePairedBaseline = { master, commit ->
+            val nonce = UUID.randomUUID().toString()
+            val issued = System.currentTimeMillis()
+            val reply = withContext(Dispatchers.IO) {
+                val components = LocalAapsLoopInputSync.activeSamples(db, issued).any { it.key == "insulin_activity" }
+                AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master, components = components)
+            }
+            val received = System.currentTimeMillis()
+            val clinical = if (reply == null) null else withContext(Dispatchers.IO) {
+                AapsLocalObservation.readPairedObservation(appContext, UUID.randomUUID().toString(), master, commit)
+            }
+            val verify: suspend () -> Boolean = {
+                val now = System.currentTimeMillis()
+                val at = clinical?.snapshotAtMs
+                reply != null && at != null && clinical.profile != null &&
+                    clinical.glucoseMgdl != null && clinical.summary.samePhoneGlucoseAtMs != null &&
+                    nativeAapsInboundDiagnostics.matchesGlucose(clinical.summary.samePhoneGlucoseAtMs, clinical.glucoseMgdl, now) &&
+                    clinical.insulin?.status == AapsV3ObservedInsulinStatus.OBSERVED &&
+                    clinical.insulin.records.any { !it.invalidated } && now >= received && now - issued in 0..10_000L &&
+                    targetProfileSource.readEvidence(maxOf(1L, at - 86_400_000L), at, now).let { retained ->
+                        retained.profile.observation?.let(clinical.profile::matchesEffectiveProfile) == true &&
+                            clinical.insulin.matchesActiveRecords(retained.insulin)
+                    } &&
+                    LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received, System::currentTimeMillis) &&
+                    clinical.summary.hasFreshPairedGlucose(System.currentTimeMillis())
+            }
+            verify
+        },
+        reportTargetFailure = { stage -> auditLogger.warn("native_target_delivery_interrupted", mapOf("stage" to stage)) },
         historyStore = { AapsV3ComboJournalStore(retainedComboDatabase) },
         publicationLease = { publish ->
             io.aaps.copilot.security.TherapyActionTransportGate.withArmedLease(
@@ -1172,9 +1211,7 @@ class AppContainer(context: Context) {
             AapsLocalObservation.recordedTarget(appContext, master, query)
         })
         val local = AapsLocalObservation.readComboJournal(appContext) ?: return checked
-        return if (local == AapsV3ComboHistoryStatus.ADVERSE ||
-            inbound.comboHistory in setOf(AapsV3ComboHistoryStatus.UNCHECKED, AapsV3ComboHistoryStatus.NOT_OBSERVED))
-            checked.copy(comboHistory = local) else checked
+        return checked.copy(comboHistory = checked.comboHistory.withLocalJournal(local))
     }
     suspend fun pairNativeAaps(pin: CharArray, route: AapsV3PairingRoute) = nativeAapsTargetChannel.pair(pin, route)
     internal suspend fun acceptLocalEnrollmentPong(id: String, handle: String, bytes: ByteArray) =

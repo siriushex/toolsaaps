@@ -98,8 +98,37 @@ class AapsV3EffectiveProfileSourceTest {
             })
         }
         fun parse(value: JsonObject, time: Long = now) = AapsLocalObservation.decode(value.toString().encodeToByteArray(), time)
+        val paired = android.os.Bundle().apply {
+            putString("nonce", "test-request")
+            putByteArray("snapshot", JsonObject(packet + ("version" to JsonPrimitive(2))).toString().encodeToByteArray())
+        }
+        val evidence = checkNotNull(AapsLocalObservation.decodePairedEvidence(paired, "test-request", now, now))
+        assertEquals(AapsV3InboundGlucose.FRESH, evidence.summary.glucose)
+        assertEquals(at, evidence.profile?.eventAtMs)
+        val profile = checkNotNull(evidence.profile)
+        assertEquals(true, profile.matchesEffectiveProfile(profile.copy(identifier = "retained", createdRevision = 1, modifiedRevision = 2)))
+        assertEquals(false, profile.matchesEffectiveProfile(profile.copy(eventAtMs = at - 1)))
+        assertEquals(false, profile.matchesEffectiveProfile(profile.copy(insulin = profile.insulin.copy(peakTimeMs = profile.insulin.peakTimeMs + 1))))
+        assertEquals(1, evidence.insulin?.records?.size)
+        val inventory = checkNotNull(evidence.insulin)
+        val retainedRecord = inventory.records.single().copy(identifier = "retained", availableAtMs = now + 1, modifiedRevision = now + 1)
+        fun retained(vararg rows: AapsV3InsulinObservation) = AapsV3InsulinRead(inventory.status, now + 1, rows.toList())
+        assertEquals(now, evidence.snapshotAtMs)
+        assertEquals(true, inventory.matchesActiveRecords(retained(retainedRecord)))
+        assertEquals(false, inventory.matchesActiveRecords(retained(retainedRecord, retainedRecord)))
+        assertEquals(false, inventory.matchesActiveRecords(retained(retainedRecord.copy(eventAtMs = at - 1))))
+        assertEquals(false, inventory.matchesActiveRecords(retained(retainedRecord.copy(invalidated = true))))
+        assertEquals(false, evidence.insulin?.upstreamCompletenessVerified)
+        assertNull(AapsLocalObservation.decodePairedEvidence(paired, "other-request", now, now))
+        val stale = checkNotNull(AapsLocalObservation.decodePairedEvidence(paired, "test-request", now + 1, now + 2))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, stale.summary.glucose)
+        assertNull(stale.profile)
+        assertNull(stale.insulin)
         assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
-            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true), parse(packet))
+            AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true, samePhoneGlucoseAtMs = at), parse(packet))
+        assertEquals(true, parse(packet).hasFreshPairedGlucose(at + 300_000))
+        assertEquals(false, parse(packet).hasFreshPairedGlucose(at + 300_001))
+        assertEquals(false, parse(packet).hasFreshPairedGlucose(now - 1))
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(packet, now + 10_001L).glucose)
         assertEquals(AapsV3InboundGlucose.UNAVAILABLE, parse(JsonObject(packet + ("version" to JsonPrimitive(2)))).glucose)
         val original = packet.getValue("insulin").jsonArray.single().jsonObject
@@ -126,6 +155,51 @@ class AapsV3EffectiveProfileSourceTest {
             assertTrue(db.therapyDao().since(0).isEmpty())
             assertEquals(0, db.localNightscoutV3Dao().count())
         }
+    }
+
+    @Test fun pairedSnapshotMatchesRetainedRowsUntilOneDeliveryIsWithdrawn() = runBlocking {
+        val stored = store()
+        val profile = input("effective")
+        stored.create(profile)
+        val dose = buildJsonObject {
+            put("date", at); put("utcOffset", 0); put("eventType", "Temp Basal"); put("percent", -20)
+            put("durationInMilliseconds", 120_000); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "synthetic"); put("pumpId", 7)
+        }
+        val row = stored.create(profile.copy(identifier = "dose", payloadJson = dose.toString())).document
+        val now = at + 100_100L
+        val packet = buildJsonObject {
+            put("version", 2); put("at", now); put("profile", Json.parseToJsonElement(profile.payloadJson))
+            put("glucose", JsonArray(emptyList())); put("insulin", JsonArray(listOf(dose)))
+        }
+        val paired = checkNotNull(AapsLocalObservation.decodePairedEvidence(android.os.Bundle().apply {
+            putString("nonce", "test-request"); putByteArray("snapshot", packet.toString().encodeToByteArray())
+        }, "test-request", now, now))
+        val source = AapsV3EffectiveProfileSource(stored)
+        suspend fun read() = source.readEvidence(now - 86_400_000L, now, now)
+        val before = read()
+        assertTrue(checkNotNull(paired.profile).matchesEffectiveProfile(checkNotNull(before.profile.observation)))
+        val insulin = checkNotNull(paired.insulin)
+        assertTrue(insulin.matchesActiveRecords(before.insulin))
+        stored.delete(LocalV3Collection.TREATMENTS, "dose", row.modifiedRevision)
+        val after = read()
+        assertTrue(paired.profile.matchesEffectiveProfile(checkNotNull(after.profile.observation)))
+        assertFalse(insulin.matchesActiveRecords(after.insulin))
+    }
+
+    @Test fun withdrawingLatestSgvRestoresActualAgeOfPreviousReading() = runBlocking {
+        val store = store()
+        suspend fun insert(time: Long) = store.create(LocalV3DocumentInput(LocalV3Collection.ENTRIES,
+            "sgv-$time", "local-v3-owner", time, """{"type":"sgv","date":$time,"sgv":110}""")).document
+        insert(at - 180_000)
+        val latest = insert(at)
+        val diagnostics = AapsV3InboundDiagnostics(store)
+        val now = at + 200_000
+        assertTrue(diagnostics.matchesGlucose(at, 110.0, now))
+        assertFalse(diagnostics.matchesGlucose(at - 1, 110.0, now))
+        assertFalse(diagnostics.matchesGlucose(at, 111.0, now))
+        assertEquals(AapsV3InboundGlucose.FRESH, diagnostics.check(now).glucose)
+        store.delete(LocalV3Collection.ENTRIES, latest.identifier, latest.modifiedRevision)
+        assertEquals(AapsV3InboundGlucose.STALE, diagnostics.check(now).glucose)
     }
 
     @Test fun inboundCheckDoesNotRequirePairingOrProjectClinicalData() = runBlocking {

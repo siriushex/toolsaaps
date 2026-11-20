@@ -21,6 +21,15 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3ComboHistoryEvidenceTest {
+    @Test fun retainedHistoryDoesNotMaskInvalidLocalJournalOrEraseKnownHazards() {
+        val retained = AapsV3ComboHistoryStatus.RETAINED_UNVERIFIED
+        val invalid = AapsV3ComboHistoryStatus.INVALID
+        val adverse = AapsV3ComboHistoryStatus.ADVERSE
+        assertEquals(invalid, retained.withLocalJournal(invalid))
+        assertEquals(invalid, invalid.withLocalJournal(retained))
+        assertEquals(adverse, adverse.withLocalJournal(invalid))
+        assertEquals(adverse, invalid.withLocalJournal(adverse))
+    }
     @Test fun signedSamePhoneSummaryCannotClaimCompleteCoverage() {
         val now = 1_800_000_000_000L
         fun decode(at: Long, status: JsonObject) =

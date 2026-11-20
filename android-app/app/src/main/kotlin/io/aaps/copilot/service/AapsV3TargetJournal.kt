@@ -206,7 +206,7 @@ internal class AapsV3TargetJournal(
                               nowMs: Long = System.currentTimeMillis()): AapsV3PairingSnapshot = transaction {
         val pair = pairing()
         // A single-client local enrollment must not become active from an ambient settings document.
-        if (pair.localBinding != null) return@transaction pair.snapshot()
+        if (pair.localBinding != null && pair.phase != AapsV3PairingPhase.ACTIVE) return@transaction pair.snapshot()
         if (row.collection != "settings" || row.identifier != "aaps" || row.source != "local-v3-owner" ||
             row.modifiedRevision <= maxOf(pair.helloRevision, pair.rosterRevision)) return@transaction pair.snapshot()
         if (pair.requiresSignedRoster) {
@@ -275,13 +275,14 @@ internal class AapsV3TargetJournal(
         check(nowMs >= root.lastIssuedAt)
         val previous = read(PROBE)?.let { json.decodeFromJsonElement<Probe>(it) }
         val previousAt = previous?.request?.getValue("timestamp")?.jsonPrimitive?.long
-        if (previous?.request?.getValue("clientId") == JsonPrimitive(pair.clientId) &&
+        if (!(active && previous?.localInvitation == true) &&
+            previous?.request?.getValue("clientId") == JsonPrimitive(pair.clientId) &&
             previousAt != null && previousAt >= sessionStartedAt && nowMs - previousAt < 60_000) return@transaction null
         val secret = secretBytes(pair)
         try {
             val request = AapsV3SessionProtocol(secret).use { it.ping(root.clientId, next(root.counter), nowMs) }
             val publication = publish(AapsV3TargetRequest(request))
-            put(PROBE, json.encodeToString(Probe(request)))
+            put(PROBE, json.encodeToString(Probe(request, localInvitation = local != null)))
             put(ROOT, json.encodeToString(root.copy(counter = next(root.counter), lastIssuedAt = nowMs)))
             if (local != null) check(localOffers?.ready(local) == true)
             publication
@@ -331,7 +332,11 @@ internal class AapsV3TargetJournal(
         true
     }
 
-    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?): AapsLocalRoleReceipt? {
+    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?) =
+        checkLocalMembership(clock, ask) { false }
+
+    suspend fun checkLocalMembership(clock: () -> Long, ask: suspend (String, String, ByteArray) -> ByteArray?,
+                                     commandStorageLive: () -> Boolean): AapsLocalRoleReceipt? {
         val pair = transaction { pairingOrNull() } ?: return null
         if (pair.localBinding == null || !pair.secretRotated || pair.phase == AapsV3PairingPhase.REVOKED ||
             pair.verifiedSubject == null || pair.enrollmentRole == null) return null
@@ -349,7 +354,25 @@ internal class AapsV3TargetJournal(
             if (bytes.size !in 1..2048) return null
             val doc = HistoryJson.parse(bytes, 2048)
             transaction {
-                if (pairingOrNull() != pair) null else key.verifyLocalWitness(doc, pair.clientId, pair.masterInstallId, nonce, issued, clock())
+                if (pairingOrNull() != pair) return@transaction null
+                val now = clock()
+                val witness = key.verifyLocalWitness(doc, pair.clientId, pair.masterInstallId, nonce, issued, now)
+                    ?: return@transaction null
+                if (pair.phase == AapsV3PairingPhase.WAITING && commandStorageLive()) {
+                    val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps")
+                    if (row != null && !row.deleted && row.source == "local-v3-owner" &&
+                        row.modifiedRevision > maxOf(pair.helloRevision, pair.rosterRevision)) {
+                        val roster = key.verifyRoster(HistoryJson.parse(row.payloadJson.toByteArray(), 65_536),
+                            pair.clientId, now, maxOf(pair.enrolledAt, pair.rosterSignedAt + 1, now - 8_000L))
+                        if (roster != null && roster.confirmsLocalMembership(witness, issued, now) && commandStorageLive()) {
+                            // Require a new command-session pong; the invitation's pong is not reusable.
+                            put(PAIRING, json.encodeToString(pair.copy(phase = AapsV3PairingPhase.ACTIVE,
+                                controlEnabled = true, verifiedRole = roster.role, rosterSignedAt = roster.signedAt,
+                                rosterRevision = row.modifiedRevision, lastPongAt = 0L)))
+                        }
+                    }
+                }
+                witness
             }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { null } finally { bytes.fill(0) }
     }
@@ -380,7 +403,7 @@ internal class AapsV3TargetJournal(
 
     // Read-only assertion used by the guard inside prepare/commit; no state or receipt escapes.
     suspend fun requireLivePairing(nowMs: Long, sessionStartedAt: Long, minimumProbeCounter: Long = 0,
-                                   requireTargetRole: Boolean = false): Unit = try { db.withTransaction {
+                                   requireTargetRole: Boolean = false): String = try { db.withTransaction {
         val pair = pairing()
         check(!pair.requiresSignedRoster || pair.secretRotated)
         check(pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled && pair.lastPongAt >= sessionStartedAt)
@@ -391,6 +414,7 @@ internal class AapsV3TargetJournal(
         }
         val row = LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps")
         check(row != null && !row.deleted && row.source == "local-v3-owner" && row.modifiedRevision == pair.rosterRevision)
+        pair.masterInstallId
     } } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { throw AapsV3TargetJournalFailure() }
 
@@ -535,6 +559,7 @@ internal class AapsV3TargetJournal(
 
     suspend fun prepare(operationId: String, target: AapsV3TargetSpec, protocol: AapsV3TargetProtocol,
                         nowMs: Long, currentTime: () -> Long = { nowMs }, expectedActionId: String? = null,
+                        requirePendingAction: Boolean = false,
                         checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
         val root = root()
         val id = commandKey(operationId)
@@ -559,6 +584,7 @@ internal class AapsV3TargetJournal(
         candidate = protocol.prepare(root.clientId, next(root.counter), issuedAt, target.copy(notes = marker))
         val counter = candidate.json.getValue("counter").jsonPrimitive.long
         val receipt = expectedActionId?.let { id -> pendingTargetAction(operationId)?.takeIf { it.id == id } }
+        if (requirePendingAction) checkNotNull(receipt)
         val record = Record(fingerprint, AapsV3TargetPhase.PREPARED, counter, candidate.json, operationId = operationId,
             targetInput = receipt?.let(::actionFingerprint))
         val publication = publish(candidate)
@@ -568,7 +594,8 @@ internal class AapsV3TargetJournal(
     }
 
     suspend fun commit(operationId: String, protocol: AapsV3TargetProtocol, nowMs: Long,
-                       currentTime: () -> Long = { nowMs }, checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
+                       currentTime: () -> Long = { nowMs }, requirePendingAction: Boolean = false,
+                       checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
         val root = root(); val id = commandKey(operationId); val previous = record(id)
         check(previous.mealGrams == null)
         if (previous.phase in setOf(AapsV3TargetPhase.COMMITTED, AapsV3TargetPhase.UNKNOWN,
@@ -577,6 +604,10 @@ internal class AapsV3TargetJournal(
         }
         check(root.pending == id && previous.phase == AapsV3TargetPhase.PREVIEW && nowMs >= root.lastIssuedAt)
         checkGuard()
+        if (requirePendingAction) checkNotNull(previous.targetInput)
+        previous.targetInput?.let { expected ->
+            check(pendingTargetAction(operationId)?.let(::actionFingerprint) == expected)
+        }
         val issuedAt = currentTime().also { check(it >= maxOf(nowMs, root.lastIssuedAt)) }
         val request = protocol.commit(AapsV3TargetRequest(checkNotNull(previous.prepare)),
             checkNotNull(previous.preview), next(root.counter), issuedAt)
@@ -586,6 +617,20 @@ internal class AapsV3TargetJournal(
         put(id, json.encodeToString(committed))
         put(ROOT, json.encodeToString(root.copy(counter = counter, lastIssuedAt = issuedAt)))
         committed.snapshot(publication)
+    }
+
+    suspend fun localTargetPreviewRequest(key: String, now: Long): Pair<String, JsonObject>? = transaction {
+        val pair = pairingOrNull() ?: return@transaction null
+        if (pair.localBinding == null) return@transaction null
+        val root = root()
+        check(pair.phase == AapsV3PairingPhase.ACTIVE && pair.secretRotated && pair.clientId == root.clientId)
+        check(root.pending == commandKey(key))
+        val row = record(commandKey(key))
+        check(row.phase == AapsV3TargetPhase.PREPARED && row.operationId == key && row.commit == null &&
+            row.targetInput != null && pendingTargetAction(key)?.let(::actionFingerprint) == row.targetInput)
+        val request = checkNotNull(row.prepare)
+        check(now in request.getValue("timestamp").jsonPrimitive.long until request.getValue("validUntil").jsonPrimitive.long)
+        pair.masterInstallId to request
     }
 
     suspend fun acknowledge(operationId: String, protocol: AapsV3TargetProtocol, ack: JsonObject,
@@ -1003,7 +1048,7 @@ internal class AapsV3TargetJournal(
     @Serializable private data class PendingExchange(val publicPoint: String, val privateDer: String) {
         override fun toString() = "PendingExchange(redacted)"
     }
-    @Serializable private data class Probe(val request: JsonObject)
+    @Serializable private data class Probe(val request: JsonObject, val localInvitation: Boolean = false)
     @Serializable private data class ComboRead(val clientId: String, val masterInstallId: String,
         val requestId: String, val counter: Long, val issuedAt: Long, val spec: AapsV3ComboReadSpec,
         val publicationRevision: Long, val phase: AapsV3ComboReadPhase = AapsV3ComboReadPhase.ISSUED,

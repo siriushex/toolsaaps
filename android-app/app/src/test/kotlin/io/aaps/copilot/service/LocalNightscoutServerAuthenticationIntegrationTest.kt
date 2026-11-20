@@ -658,6 +658,24 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
     }
 
     @Test
+    fun settingsPongCannotRevalidateSessionAfterClockRollback() {
+        val clock = AtomicLong(1_000)
+        val port = freePort()
+        val listener = newServer(MutableLocalNightscoutRuntimeState(), socketNowMs = clock::get)
+        server = listener
+        assertThat(listener.update(true, port)).isEqualTo(port)
+        val peer = trustedClient(caCertificate)
+        val sid = openStorage(peer, port)
+        clock.addAndGet(25_000)
+        assertThat(getSocket(peer, port, sid).use { it.body!!.string() }).isEqualTo("2")
+        clock.decrementAndGet()
+        assertThat(postSocketCode(peer, port, sid, "3")).isEqualTo(400)
+        assertThat(listener.hasNativeStorageSubscription()).isFalse()
+        openStorage(peer, port)
+        assertThat(listener.hasNativeStorageSubscription()).isTrue()
+    }
+
+    @Test
     fun idleSettingsSubscriberIsUnavailableAtPongDeadlineWithoutAnotherRequest() {
         val clock = AtomicLong(1_000)
         val port = freePort()
@@ -1312,8 +1330,13 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher {
             SecretKeySpec(ByteArray(32) { (it + 1).toByte() }, "AES")
         })
+        val captures = mutableListOf<Pair<String, Boolean>>()
         val channel = AapsV3TargetChannel(db, journal, listener::hasNativeStorageSubscription,
-            { null }, { write -> write() }, now::get)
+            { null }, { write -> write() }, now::get, capturePairedBaseline = { master, commit ->
+                captures.add(master to commit)
+                val verify: suspend () -> Boolean = { true }
+                verify
+            })
         val trustFile = File.createTempFile("storage-stand-trust-", ".p12")
         val output = File.createTempFile("storage-stand-result-", ".txt")
         var child: Process? = null
@@ -1382,6 +1405,8 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
             assertThat(channel.send(commands.last()) { error("A settled command cannot be resent") })
                 .isEqualTo(NativeTargetOutcome.APPLIED)
             assertThat(db.localNightscoutV3Dao().head("settings")).isEqualTo(head)
+            val masterId = checkNotNull(journal.pairingSnapshot()).masterInstallId
+            assertThat(captures).isEqualTo(listOf(masterId to false, masterId to true, masterId to false, masterId to true))
             assertThat(db.therapyDao().since(0)).isEmpty()
             assertThat(db.glucoseDao().since(0)).isEmpty()
         } finally {
@@ -2088,6 +2113,7 @@ class LocalNightscoutServerAuthenticationIntegrationTest {
         val name = "phone-socket-${java.util.UUID.randomUUID()}.db"
         importedDatabaseName = name
         db = Room.databaseBuilder(context, CopilotDatabase::class.java, name)
+            .addMigrations(*io.aaps.copilot.data.local.CopilotMigrations.ALL)
             .createFromFile(source).build()
         val expected = runBlocking {
             db.therapyDao().sinceDescLimit(0L, 1_200).map { it.id } to

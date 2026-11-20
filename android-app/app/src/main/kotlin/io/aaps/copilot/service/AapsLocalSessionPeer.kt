@@ -41,6 +41,10 @@ internal object AapsLocalSessionPeer {
         call(context, "preview_meal_v1", Bundle().apply { putString("master", master); putByteArray("request", request) },
             "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL", "preview", 16_384)
 
+    fun previewTarget(context: Context, master: String, request: ByteArray): ByteArray? =
+        call(context, "preview_target_v1", Bundle().apply { putString("master", master); putByteArray("request", request) },
+            "$MASTER.localmealpreview", "$MASTER.permission.PREVIEW_LOCAL_MEAL", "preview", 16_384)
+
     private fun trustedProvider(context: Context, authority: String, permission: String): Boolean {
         val pm = context.packageManager
         val info = pm.resolveContentProvider(authority, 0) ?: return false

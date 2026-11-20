@@ -88,7 +88,10 @@ class TargetManager(
         val winner = evaluations
             .filter(CandidateEvaluation::eligible)
             .map(CandidateEvaluation::proposal)
-            .sortedWith(proposalComparator())
+            .sortedWith(proposalComparator(anchor, REQUIRED_DECREASE_HORIZONS.all { horizon ->
+                input.reliability[horizon]?.state == HorizonReliabilityState.RELIABLE &&
+                    predictsBelowBase(input, horizon)
+            }))
             .firstOrNull()
             ?: return blocked(
                 input = input,
@@ -331,6 +334,10 @@ class TargetManager(
             }
         }
 
+        if ((proposal.targetMmol < anchor || proposal.targetMmol == anchor && anchor < input.safety.baseTargetMmol - EPSILON) &&
+            PRIORITY_DECREASE_HORIZONS.any { predictsBelowBase(input, it) }) {
+            return CandidateEvaluation(proposal, false, "forecast_below_base_blocks_low_target")
+        }
         return CandidateEvaluation(proposal, true, null)
     }
 
@@ -651,7 +658,13 @@ class TargetManager(
             proposal.targetMmol.toRawBits() == freshTarget.toRawBits()
     }
 
-    private fun proposalComparator() = compareByDescending<TargetProposal> { it.intent.safetyRank() }
+    private fun predictsBelowBase(input: TargetManagerInput, horizon: Int) =
+        input.activitySafety.forecasts[horizon]?.let {
+            it.horizonMinutes == horizon && it.valueMmol.isFinite() && it.valueMmol < input.safety.baseTargetMmol - EPSILON
+        } == true
+
+    private fun proposalComparator(anchor: Double, preferRaise: Boolean) = compareByDescending<TargetProposal> { it.intent.safetyRank() }
+        .thenByDescending { preferRaise && it.intent == TargetIntent.NORMAL_CONTROL && it.targetMmol > anchor + EPSILON }
         .thenByDescending { it.priority }
         .thenByDescending { it.confidence }
         .thenBy { it.sourceRuleId }

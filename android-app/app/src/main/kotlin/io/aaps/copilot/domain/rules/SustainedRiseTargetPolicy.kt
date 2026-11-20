@@ -36,7 +36,8 @@ internal object SustainedRiseTargetPolicy {
         val forecasts = listOf(5, 30, 60).map { horizon ->
             context.forecasts.filter { it.horizonMinutes == horizon }.maxByOrNull { it.ts } ?: return false
         }
-        if (forecasts.any { !it.valueMmol.isFinite() || !it.ciLow.isFinite() || !it.ciHigh.isFinite() ||
+        if (!context.baseTargetMmol.isFinite() || forecasts.any { !it.valueMmol.isFinite() ||
+                it.valueMmol <= context.baseTargetMmol || !it.ciLow.isFinite() || !it.ciHigh.isFinite() ||
                 it.ciLow <= 4.0 || it.ciLow > it.valueMmol || it.valueMmol > it.ciHigh }) return false
         val issued = forecasts.map { it.ts - it.horizonMinutes * 60_000L }
         return issued.distinct().size == 1 && issued.all {

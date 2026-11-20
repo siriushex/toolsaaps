@@ -270,6 +270,52 @@ class AapsV3TargetJournalTest {
         }
     }
 
+    @Test fun strictCommitRejectsLegacyPreviewWithoutActionReceipt() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}
+            preview(owner, p)
+            assertTrue(runCatching { owner.commit("meal-1", p, at + 3, requirePendingAction = true) {} }.isFailure)
+            assertEquals(AapsV3TargetPhase.PREVIEW, owner.status("meal-1"))
+        }
+    }
+
+    @Test fun requiredPendingActionRejectsMissingAndMismatchedRowsBeforePublication() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val key = "meal-1"
+        val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("expected", at, "temp_target", "{}", "{}", key, "PENDING")
+        protocol.use { p ->
+            suspend fun prepare() = owner.prepare(key, target, p, at, expectedActionId = row.id, requirePendingAction = true) {}
+            assertTrue(runCatching { prepare() }.isFailure)
+            db.actionCommandDao().upsert(row.copy(id = "different"))
+            assertTrue(runCatching { prepare() }.isFailure)
+            assertNull(owner.status(key))
+        }
+    }
+
+    @Test fun withdrawnTargetCannotCommitAfterPreview() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("first", at, "temp_target", "{}", "{}", "meal-1", "PENDING")
+        db.actionCommandDao().upsert(row)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at, expectedActionId = row.id) {}
+            preview(owner, p)
+            val before = db.localNightscoutV3Dao().count()
+            suspend fun assertNotCommitted() {
+                assertTrue(runCatching { owner.commit("meal-1", p, at + 3) {} }.isFailure)
+                assertEquals(before, db.localNightscoutV3Dao().count())
+                assertEquals(AapsV3TargetPhase.PREVIEW, owner.pending()!!.phase)
+            }
+            db.actionCommandDao().upsert(row.copy(status = "BLOCKED"))
+            assertNotCommitted()
+            db.actionCommandDao().upsert(row.copy(safetyJson = """{"updated":true}"""))
+            assertNotCommitted()
+            db.actionCommandDao().upsert(row)
+            db.actionCommandDao().upsert(row.copy(id = "second"))
+            assertNotCommitted()
+        }
+    }
+
     @Test fun unknownCommitFailureIsNotProofOfAbsence() = runBlocking {
         val owner = journal(); owner.bind(client)
         val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("first", at, "temp_target", "{}", "{}", "meal-1", "PENDING")

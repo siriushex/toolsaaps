@@ -17,6 +17,11 @@ import io.aaps.copilot.util.UnitConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
+internal class LocalClinicalObservation(val summary: AapsV3InboundSummary, val snapshotAtMs: Long?, val glucoseMgdl: Double?,
+    val profile: AapsV3EffectiveProfileObservation?, val insulin: AapsV3InsulinRead?) {
+    override fun toString() = "LocalClinicalObservation(redacted)"
+}
+
 /** Signature-verified read transport. Only dedicated history contracts are used for clinical imports. */
 internal object AapsLocalObservation {
     private const val AAPS = "info.nightscout.androidaps"
@@ -39,6 +44,21 @@ internal object AapsLocalObservation {
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
         val snapshot = readVerifiedSnapshot(context, provider) ?: return null
         return decodeDisplayGlucose(snapshot, System.currentTimeMillis())
+    }
+
+    fun readPairedObservation(context: Context, nonce: String, master: String, commit: Boolean): LocalClinicalObservation? {
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val args = Bundle().apply { putString("nonce", nonce); putString("master", master) }
+        val issued = System.currentTimeMillis()
+        val method = if (commit) "paired_commit_snapshot_v1" else "paired_snapshot_v1"
+        val reply = callVerified(context, provider, method, args) ?: return null
+        return decodePairedEvidence(reply, nonce, issued, System.currentTimeMillis())
+    }
+
+    internal fun decodePairedEvidence(reply: Bundle, nonce: String, issued: Long, received: Long): LocalClinicalObservation? {
+        if (issued !in 1..HistoryJson.maxTime || received !in issued..minOf(HistoryJson.maxTime, issued + 10_000L)) return null
+        if (reply.keySet() != setOf("nonce", "snapshot") || reply.getString("nonce") != nonce) return null
+        return reply.getByteArray("snapshot")?.let { decodeEvidence(it, received, version = 2, issued = issued) }
     }
 
     fun recordedTarget(context: Context, master: String, query: LocalTargetReceiptQuery): Long? {
@@ -104,6 +124,13 @@ internal object AapsLocalObservation {
             ?.getByteArray("snapshot")
     }
 
+    fun readPairedLoopInputs(context: Context, nonce: String, master: String, components: Boolean = false): ByteArray? {
+        if (!master.matches(Regex("[a-zA-Z0-9_-]{1,128}"))) return null
+        val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
+        val args = Bundle().apply { putString("nonce", nonce); putString("master", master) }
+        return callVerified(context, provider, if (components) "loop_inputs_v3" else "loop_inputs_v2", args)?.getByteArray("snapshot")
+    }
+
     internal fun decodeCarbReply(request: AapsCarbHistoryRequest, reply: Bundle): AapsCarbHistoryResult {
         if (reply.isEmpty) return AapsCarbHistoryResult.Busy
         val fields = reply.keySet().associateWith { reply[it] }
@@ -155,33 +182,36 @@ internal object AapsLocalObservation {
         null
     }
 
-    fun decode(bytes: ByteArray, now: Long, version: Long = 1): AapsV3InboundSummary = try {
+    fun decode(bytes: ByteArray, now: Long, version: Long = 1, issued: Long = 1): AapsV3InboundSummary =
+        decodeEvidence(bytes, now, version, issued).summary
+
+    private fun decodeEvidence(bytes: ByteArray, now: Long, version: Long, issued: Long): LocalClinicalObservation = try {
         val body = HistoryJson.parse(bytes, 196_608)
         HistoryJson.fields(body, setOf("version", "at", "glucose", "insulin"), setOf("profile"))
         require(version in 1L..2L && HistoryJson.long(body.getValue("version")) == version)
         val at = HistoryJson.long(body.getValue("at"))
-        require(now in 1..HistoryJson.maxTime && at in maxOf(1, now - 10_000L)..now)
+        require(now in 1..HistoryJson.maxTime && at in maxOf(1, issued, now - 10_000L)..now)
         val samples = HistoryJson.array(body.getValue("glucose")).also { require(it.size <= 256) }
             .map {
                 val sample = HistoryJson.obj(it)
                 HistoryJson.fields(sample, setOf("date", "sgv", "sensor"))
-                require(HistoryJson.double(sample.getValue("sgv")) in Double.MIN_VALUE..1000.0)
+                val mgdl = HistoryJson.double(sample.getValue("sgv")).also { require(it in Double.MIN_VALUE..1000.0) }
                 require(HistoryJson.code.matches(HistoryJson.string(sample.getValue("sensor"))))
-                HistoryJson.long(sample.getValue("date")).also { require(it in maxOf(1, at - 30 * 60_000L)..at) }
+                HistoryJson.long(sample.getValue("date")).also { require(it in maxOf(1, at - 30 * 60_000L)..at) } to mgdl
             }
-        val latest = samples.maxOrNull()
+        val latest = samples.maxOfOrNull { it.first }
         val glucose = when {
             latest == null -> AapsV3InboundGlucose.NOT_OBSERVED
-            samples.count { it == latest } > 1 -> AapsV3InboundGlucose.CONFLICTING
+            samples.count { it.first == latest } > 1 -> AapsV3InboundGlucose.CONFLICTING
             now - latest <= 5 * 60_000L -> AapsV3InboundGlucose.FRESH
             else -> AapsV3InboundGlucose.STALE
         }
-        val profile = body["profile"]?.let { value ->
-            when (AapsV3EffectiveProfileProjector.project(observationRow(HistoryJson.obj(value), "profile", at))) {
-                is AapsV3ProfileProjection.Observed -> AapsV3ObservedProfileStatus.OBSERVED
-                else -> AapsV3ObservedProfileStatus.INVALID
-            }
-        } ?: AapsV3ObservedProfileStatus.NOT_OBSERVED
+        val projected = body["profile"]?.let { AapsV3EffectiveProfileProjector.project(observationRow(HistoryJson.obj(it), "profile", at)) }
+        val profile = when (projected) {
+            null -> AapsV3ObservedProfileStatus.NOT_OBSERVED
+            is AapsV3ProfileProjection.Observed -> AapsV3ObservedProfileStatus.OBSERVED
+            else -> AapsV3ObservedProfileStatus.INVALID
+        }
         val from = maxOf(1, at - DAY_MS)
         val records = HistoryJson.array(body.getValue("insulin")).also { require(it.size <= 512) }.mapIndexed { index, row ->
             val record = HistoryJson.obj(row)
@@ -198,9 +228,11 @@ internal object AapsLocalObservation {
         }
         val insulin = AapsV3InsulinInventoryTimeline(LocalV3RetainedSnapshot.Complete(at, records)).read(from, at, at)
         val count = insulin.records.count { !it.invalidated }
-        AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true)
+        LocalClinicalObservation(AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true,
+            samePhoneGlucoseAtMs = latest?.takeIf { glucose == AapsV3InboundGlucose.FRESH }),
+            at, samples.singleOrNull { it.first == latest }?.second, (projected as? AapsV3ProfileProjection.Observed)?.observation, insulin)
     } catch (_: Exception) {
-        unavailable(now)
+        LocalClinicalObservation(unavailable(now), null, null, null, null)
     }
 
     private fun observationRow(body: JsonObject, id: String, at: Long): LocalNightscoutV3DocumentEntity {

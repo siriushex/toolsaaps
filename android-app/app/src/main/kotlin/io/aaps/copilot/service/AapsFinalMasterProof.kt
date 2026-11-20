@@ -21,6 +21,11 @@ internal data class AapsFinalRosterProof(val signedAt: Long, val member: Boolean
                                        val role: AapsFinalClientRole, val controlEnabled: Boolean)
 internal data class AapsLocalRoleReceipt(val role: AapsFinalClientRole, val signedAt: Long)
 
+internal fun AapsFinalRosterProof.confirmsLocalMembership(witness: AapsLocalRoleReceipt, issued: Long, now: Long): Boolean =
+    issued in 1..HistoryJson.maxTime && now in issued until issued + 8_000L &&
+        witness.signedAt in issued..now && signedAt in maxOf(1L, now - 8_000L)..now &&
+        member && controlEnabled && role == witness.role
+
 /** Wire validation only. Does not enroll a device or grant command authority. */
 internal class AapsFinalMasterKey private constructor(private val key: PublicKey, val encodedPoint: String) {
     private fun signatureMatches(identifier: String, bytes: ByteArray, signature: ByteArray) =

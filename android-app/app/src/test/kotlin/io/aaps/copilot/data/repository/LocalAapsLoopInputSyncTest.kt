@@ -29,6 +29,52 @@ class LocalAapsLoopInputSyncTest {
     private var signals = 0
     private fun reader() = LocalAapsLoopInputSync(db, { body?.toByteArray() }, { enabled }, { signals++; accepted }, { now }, { nonce })
     @After fun close() = db.close()
+    @Test fun componentsRequireMatchedTotalAndOneSourceTimestamp() {
+        val packet = """{"v":3,"at":$now,"nonce":"$nonce","iobAt":$now,"netIobU":1.5,"bolusIobU":2,"basalIobU":-0.5,"insulinActivityUPerMin":0}"""
+        fun decode(s: String) = LocalAapsLoopInputSync.decodeSamples(s.toByteArray(), nonce, now, now, 3L)
+        val rows = decode(packet)
+        assertEquals(4, rows.size)
+        assertTrue(rows.all { it.timestamp == now })
+        assertEquals(-0.5, rows.single { it.key == "iob_basal_units" }.valueDouble!!, 0.0)
+        fun resolve(input: List<io.aaps.copilot.data.local.entity.TelemetrySampleEntity>) =
+            AutomationRepository.resolveFreshRuntimeInsulinTelemetryStatic(input, now, 300_000L).snapshot
+        assertEquals(InsulinRuntimeSource.AAPS_COMPONENTS, resolve(rows)?.source)
+        assertEquals(1.5, resolve(rows)!!.netIobUnits, 0.0)
+        val mixed = rows.map { if (it.key == "insulin_activity") it.copy(timestamp = now - 1) else it }
+        assertEquals(InsulinRuntimeSource.LEGACY_AAPS, resolve(mixed)?.source)
+        assertThrows(IllegalArgumentException::class.java) { decode(packet.replace("1.5", "1.6")) }
+        assertThrows(IllegalArgumentException::class.java) { decode(packet.replace(",\"bolusIobU\":2", "")) }
+    }
+    @Test fun pairedComparisonRequiresAllFourExactSelectedSamples() = runBlocking {
+        val complete = javaClass.getResource("/fixtures/local-loop-factors.json")!!.readText().trim()
+        body = complete
+        reader().sync()
+        suspend fun matches(input: String, checkedAt: Long = now) =
+            LocalAapsLoopInputSync.matchesPairedSamples(db, input.toByteArray(), nonce, now, now) { checkedAt }
+        assertTrue(matches(complete))
+        assertTrue(matches(complete, now + 10_000))
+        assertFalse(matches(complete, now + 10_001))
+        assertFalse(matches(complete, now - 1))
+        assertFalse(matches(complete.replace("12.5", "13.5")))
+        assertFalse(matches(fixture))
+        assertFalse(matches(complete.replace(",\"cobG\":12.5,\"cobAt\":1799999900000", "")))
+    }
+    @Test fun pairedComponentsRequireTheSameGenerationAndRejectLegacyDowngrade() = runBlocking {
+        val legacy = javaClass.getResource("/fixtures/local-loop-factors.json")!!.readText().trim()
+        val packet = legacy.replace("\"v\":1", "\"v\":3").removeSuffix("}") +
+            ""","bolusIobU":0.25,"basalIobU":-1,"insulinActivityUPerMin":0.01}"""
+        LocalAapsLoopInputSync(db, { error("unexpected legacy read") }, { true }, { true },
+            { now }, { nonce }, { packet.toByteArray() }).sync()
+        suspend fun matches(value: String) = LocalAapsLoopInputSync.matchesPairedSamples(
+            db, value.toByteArray(), nonce, now, now
+        ) { now }
+        assertEquals(7, LocalAapsLoopInputSync.activeSamples(db, now).size)
+        assertTrue(matches(packet))
+        assertFalse(matches(legacy))
+        assertFalse(matches(packet.replace("1799999950000", "1799999950001")))
+        assertFalse(matches(packet.replace("0.01}", "0.02}")))
+    }
+
     @Test fun forecastSelectionSeparatesMissingInputsFromZeroAndDisabledScope() = runBlocking {
         val empty = LocalLoopForecastSelection.capture(db, true, now)
         empty.requireCurrent(db, true, now)

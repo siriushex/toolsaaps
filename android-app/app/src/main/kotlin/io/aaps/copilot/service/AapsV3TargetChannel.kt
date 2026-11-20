@@ -50,17 +50,30 @@ internal class AapsV3TargetChannel(
     private val db: CopilotDatabase,
     private val journal: AapsV3TargetJournal,
     private val storageAvailable: () -> Boolean,
-    private val baselineGuard: suspend () -> String?,
+    private val baselineGuard: suspend (masterInstallId: String) -> String?,
     private val publicationLease: suspend (suspend () -> AapsV3TargetJournalSnapshot) -> AapsV3TargetJournalSnapshot,
     private val clock: () -> Long = System::currentTimeMillis,
     private val historyStore: (() -> AapsV3ComboJournalStore)? = null,
     private val localOffers: LocalEnrollmentOffers? = null,
     private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
-    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null
+    private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
+    private val reportTargetFailure: suspend (String) -> Unit = {},
+    private val capturePairedBaseline: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null,
+    private val requirePendingAction: Boolean = false,
+    private val localTargetPreviewPeer: (suspend (String, ByteArray) -> ByteArray?)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
+    suspend fun readLocalComponents(peer: (String) -> ByteArray?): ByteArray? {
+        val epoch = generation.get()
+        val pair = journal.pairingSnapshot()?.takeIf { it.localEnrollment && it.phase == AapsV3PairingPhase.ACTIVE } ?: return null
+        return peer(pair.masterInstallId)?.takeIf {
+            val after = journal.pairingSnapshot()
+            epoch == generation.get() && after?.masterInstallId == pair.masterInstallId &&
+                after.localEnrollment && after.phase == AapsV3PairingPhase.ACTIVE
+        }
+    }
     suspend fun submitManualMeal(id: String, recordPeer: ((String, ByteArray) -> Unit)?,
                                  peer: (String, ByteArray) -> ByteArray?): NativeMealSubmission = withContext(Dispatchers.IO) {
         val epoch = generation.get()
@@ -273,17 +286,23 @@ internal class AapsV3TargetChannel(
         store.get(LocalV3Collection.SETTINGS, "aaps")?.let { journal.observeRoster(it, clock()) }
         if (ack != null) journal.withTargetProtocol { journal.acknowledgePending(it, ack, clock()) }
         journal.expire(clock())
-        fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment)
+        fun probeRouteReady(pair: AapsV3PairingSnapshot) = if (pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING)
             localOffers?.current()?.let { it.clientId == pair.clientId && localOffers.ready(it) } == true
         else storageAvailable()
-        if (runtimeAllowed && probeRouteReady(pair) && generation.get() == epoch) {
+        suspend fun probeIfReady(pair: AapsV3PairingSnapshot) {
+            if (!runtimeAllowed || !probeRouteReady(pair) || generation.get() != epoch) return
             journal.probe(clock(), sessionStartedAt, localOffers)?.let { publication ->
                 val request = HistoryJson.obj(HistoryJson.parse(publication.document.payloadJson.toByteArray(), 65_536).getValue("envelope"))
                 synchronized(this) {
-                    if (runtimeAllowed && generation.get() == epoch) sessionProbeCounter = HistoryJson.long(request.getValue("counter"))
+                    if (runtimeAllowed && generation.get() == epoch) {
+                        // The invitation's one-shot subscription cannot authorize the command session.
+                        sessionProbeCounter = if (pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING) 0L
+                        else HistoryJson.long(request.getValue("counter"))
+                    }
                 }
             }
         }
+        probeIfReady(pair)
         val observedAt = clock()
         val evidence = if (runtimeAllowed && storageAvailable())
             profileSource.readEvidence(maxOf(1, observedAt - 86_400_000L), observedAt, clock()) else null
@@ -298,7 +317,9 @@ internal class AapsV3TargetChannel(
                 (checkSettings && previous.settings != null && now - previous.attempted in 0 until 5_000L))) previous.receipt
             else {
                 val storagePeer = localSettingsPeer.takeIf { checkSettings }
-                val overSettings = storagePeer?.let { journal.checkLocalMembership(clock, it) }
+                val overSettings = storagePeer?.let { peer -> journal.checkLocalMembership(clock, peer) {
+                    runtimeAllowed && generation.get() == epoch && storageAvailable()
+                } }
                 val result = overSettings ?: if (storagePeer != null && previous != null &&
                     previous.settings == null && now - previous.attempted in 0 until 5_000L) previous.receipt
                     else journal.checkLocalMembership(clock, witnessPeer)
@@ -306,10 +327,18 @@ internal class AapsV3TargetChannel(
                 result
             }
         } else { membershipCheck = null; null }
+        if (witness != null && pair.localEnrollment && pair.phase == AapsV3PairingPhase.WAITING) {
+            val refreshed = journal.pairingSnapshot() ?: return
+            if (refreshed.clientId != pair.clientId) return
+            pair = refreshed
+            if (pair.phase == AapsV3PairingPhase.ACTIVE) probeIfReady(pair)
+        }
         val status = when {
             pair.phase == AapsV3PairingPhase.REVOKED -> AapsV3ConnectionStatus.REVOKED
             !runtimeAllowed -> AapsV3ConnectionStatus.OFFLINE
-            witness != null -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
+            witness != null && !(pair.phase == AapsV3PairingPhase.ACTIVE && pair.controlEnabled &&
+                storageAvailable() && sessionProbeCounter > 0 && pair.pongCounter >= sessionProbeCounter &&
+                clock() - pair.lastPongAt in 0..90_000) -> AapsV3ConnectionStatus.LOCAL_PEER_VERIFIED
             !probeRouteReady(pair) -> AapsV3ConnectionStatus.OFFLINE
             pair.phase == AapsV3PairingPhase.WAITING -> AapsV3ConnectionStatus.WAITING
             !pair.controlEnabled -> AapsV3ConnectionStatus.CONTROL_DISABLED
@@ -406,41 +435,97 @@ internal class AapsV3TargetChannel(
     override suspend fun send(command: ActionCommand, deliveryGuard: suspend () -> String?): NativeTargetOutcome = commandMutex.withLock {
         stopHistory(clearAudit = false)
         val epoch = generation.get()
+        var commitAttempted = false
+        var stage = "request_validation"
         try {
             check(command.type == "temp_target")
             val mmol = checkNotNull(command.params["targetMmol"]?.toDoubleOrNull())
             val duration = checkNotNull(command.params["durationMinutes"]?.toIntOrNull())
             check(mmol.isFinite())
             val reason = when {
-                EatingSoonPolicy.isRequestKey(command.idempotencyKey) -> "Eating Soon"
+                EatingSoonPolicy.isRequestKey(command.idempotencyKey) -> {
+                    check(EatingSoonPolicy.isCanonicalRequest(command.idempotencyKey, mmol, duration, "Eating Soon"))
+                    "Eating Soon"
+                }
                 command.params["targetIntent"] in setOf("HYPO_PROTECTION", "POST_HYPO_PROTECTION") -> "Hypo"
                 command.params["targetIntent"] in setOf("ACTIVITY_PROTECTION", "PLANNED_ACTIVITY_ADAPTATION") -> "Activity"
                 else -> "Automation"
             }
             val mgdl = if (duration == 0) 0.0 else UnitConverter.mmolToMgdl(mmol).toDouble()
             val target = AapsV3TargetSpec(mgdl, mgdl, duration, reason)
+            stage = "session_refresh"
             refresh()
+            stage = "signed_protocol"
             journal.withTargetProtocol { protocol ->
+                var pairedCheck: (suspend () -> Boolean)? = null
+                var pairedMaster: String? = null
+                suspend fun capture(commit: Boolean) {
+                    val read = capturePairedBaseline ?: return
+                    stage = "paired_input_role"
+                    val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    pairedMaster = master
+                    stage = "paired_input_read"
+                    pairedCheck = read(master, commit)
+                }
                 suspend fun guard() {
                     currentCoroutineContext().ensureActive()
+                    stage = "runtime_storage_session"
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
-                    check(baselineGuard() == null && deliveryGuard() == null)
-                    journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    stage = "live_pairing"
+                    val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
+                    stage = "paired_input_match"
+                    if (capturePairedBaseline != null) check(pairedMaster == master && pairedCheck?.invoke() == true)
+                    stage = "clinical_baseline"
+                    val baselineFailure = baselineGuard(master)
+                    if (baselineFailure == "native_clinical_projection_unavailable") stage = baselineFailure
+                    check(baselineFailure == null)
+                    stage = "delivery_guard"
+                    check(deliveryGuard() == null)
+                    stage = "live_pairing"
+                    check(journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true) == master)
+                    if (capturePairedBaseline != null) {
+                        stage = "paired_input_match"
+                        check(pairedCheck?.invoke() == true)
+                    }
                     // Either guard can suspend while the runtime/storage owner is stopping.
                     currentCoroutineContext().ensureActive()
+                    stage = "runtime_recheck"
                     check(runtimeAllowed && generation.get() == epoch && storageAvailable() && sessionProbeCounter > 0)
+                    stage = "journal_publication"
+                }
+                stage = "prepare"
+                // prepare validates the stored payload fingerprint even for a settled command.
+                if (capturePairedBaseline != null && journal.status(command.idempotencyKey) == null) {
+                    stage = "paired_probe_ack"
+                    awaitOutstandingProbe(epoch)
+                    capture(commit = false)
                 }
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
-                        currentTime = clock, expectedActionId = command.id) { guard() }
+                        currentTime = clock, expectedActionId = command.id, requirePendingAction = requirePendingAction) { guard() }
                 }
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)
+                stage = "preview"
+                localTargetPreviewPeer?.let { peer ->
+                    journal.localTargetPreviewRequest(command.idempotencyKey, clock())?.let { (master, request) ->
+                        val wire = request.toString().encodeToByteArray()
+                        val reply = try { peer(master, wire) } finally { wire.fill(0) }
+                        if (reply != null) try {
+                            journal.acknowledge(command.idempotencyKey, protocol, HistoryJson.parse(reply, 16_384), clock())
+                        } finally { reply.fill(0) }
+                    }
+                }
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
+                stage = "commit"
+                capture(commit = true)
                 publicationLease {
-                    journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }
+                    commitAttempted = true
+                    journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock,
+                        requirePendingAction = requirePendingAction) { guard() }
                 }
+                stage = "acknowledgement"
                 awaitPhase(command.idempotencyKey, emptySet())
                 outcome(journal.status(command.idempotencyKey))
             }
@@ -449,7 +534,9 @@ internal class AapsV3TargetChannel(
             // A failed fingerprint check must not relabel an older applied request
             // as application of this payload. Missing private state is not absence.
             try {
-                if (journal.pairingSnapshot() != null && journal.status(command.idempotencyKey) == null)
+                try { reportTargetFailure(stage) } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Diagnostics must not alter delivery classification. */ }
+                if (!commitAttempted && journal.pairingSnapshot() != null && journal.status(command.idempotencyKey) == null)
                     NativeTargetOutcome.NOT_SENT else NativeTargetOutcome.UNKNOWN
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
@@ -462,6 +549,26 @@ internal class AapsV3TargetChannel(
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
 
+    private suspend fun awaitOutstandingProbe(epoch: Long) {
+        val expected = sessionProbeCounter
+        val pair = checkNotNull(journal.pairingSnapshot())
+        if (expected <= 0 || pair.pongCounter >= expected || pair.phase != AapsV3PairingPhase.ACTIVE || !pair.controlEnabled) return
+        // A preflight refresh can publish a new Ping. Observe its answer; never publish
+        // another Ping or command while waiting. The regular pairing guard still runs.
+        check(withTimeoutOrNull(8500) {
+            db.localNightscoutV3Dao().observeRevision().first {
+                check(runtimeAllowed && generation.get() == epoch && sessionProbeCounter == expected && storageAvailable())
+                val row = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
+                if (row != null && !row.deleted && row.source == "local-v3-owner") {
+                    val ack = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject
+                    if (ack != null) journal.acknowledgeProbe(ack, clock())
+                }
+                journal.pairingSnapshot()?.let { it.clientId == pair.clientId && it.pongCounter == expected } == true
+            }
+            true
+        } == true)
+    }
+
     private suspend fun awaitPhase(operationId: String, intermediate: Set<AapsV3TargetPhase>): AapsV3TargetPhase? {
         val result = withTimeoutOrNull(8500) {
             db.localNightscoutV3Dao().observeRevision().map {
@@ -473,9 +580,9 @@ internal class AapsV3TargetChannel(
         return result
     }
 
-    private fun outcome(phase: AapsV3TargetPhase?) = when (phase) {
+    internal fun outcome(phase: AapsV3TargetPhase?) = when (phase) {
         AapsV3TargetPhase.APPLIED -> NativeTargetOutcome.APPLIED
-        null, AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT -> NativeTargetOutcome.NOT_SENT
+        AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT -> NativeTargetOutcome.NOT_SENT
         else -> NativeTargetOutcome.UNKNOWN
     }
     private val terminal = setOf(AapsV3TargetPhase.APPLIED, AapsV3TargetPhase.REJECTED, AapsV3TargetPhase.EXPIRED, AapsV3TargetPhase.EXPIRED_NO_COMMIT)

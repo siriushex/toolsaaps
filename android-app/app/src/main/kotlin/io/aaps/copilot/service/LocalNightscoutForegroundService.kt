@@ -475,23 +475,9 @@ class LocalNightscoutForegroundService : Service() {
                         continue
                     }
 
-                    val now = System.currentTimeMillis()
+                    val now = android.os.SystemClock.elapsedRealtime()
                     val cycleBucket = now / PERIODIC_CYCLE_INTERVAL_MS
-                    if (
-                        lastPeriodicCycleBucket.get() != cycleBucket &&
-                        lastPeriodicCycleBucket.compareAndSet(cycleBucket - 1, cycleBucket)
-                    ) {
-                        runCatching {
-                            runCurrentRuntimeCycle(app)
-                        }.onFailure {
-                            app.container.auditLogger.warn(
-                                "minute_cycle_failed",
-                                mapOf("error" to (it.message ?: "unknown"))
-                            )
-                        }
-                    } else if (lastPeriodicCycleBucket.get() < cycleBucket) {
-                        // Recover CAS state if process resumed after long sleep.
-                        lastPeriodicCycleBucket.set(cycleBucket)
+                    if (lastPeriodicCycleBucket.getAndSet(cycleBucket) != cycleBucket) {
                         runCatching {
                             runCurrentRuntimeCycle(app)
                         }.onFailure {
@@ -503,7 +489,7 @@ class LocalNightscoutForegroundService : Service() {
                     }
 
                     val msUntilNextCycle =
-                        PERIODIC_CYCLE_INTERVAL_MS - (System.currentTimeMillis() % PERIODIC_CYCLE_INTERVAL_MS)
+                        PERIODIC_CYCLE_INTERVAL_MS - (android.os.SystemClock.elapsedRealtime() % PERIODIC_CYCLE_INTERVAL_MS)
                     val waitMs = msUntilNextCycle.coerceIn(5_000L, PERIODIC_CYCLE_INTERVAL_MS)
                     delay(waitMs)
                 }

@@ -1,0 +1,69 @@
+diff --git a/app/src/main/kotlin/app/aaps/MainApp.kt b/app/src/main/kotlin/app/aaps/MainApp.kt
+index 40d37a10b5..97f5c68321 100644
+--- a/app/src/main/kotlin/app/aaps/MainApp.kt
++++ b/app/src/main/kotlin/app/aaps/MainApp.kt
+@@ -189,6 +189,12 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner,
+         val window = if (includeCarryIn) repository.localInsulinWindow(now - 86_400_000L, now) else null
+         return app.aaps.localobservation.readLocalObservation(persistenceLayer, dateUtil, now, window)
+     }
++    internal suspend fun readPairedObservation(now: Long, master: String): ByteArray? {
++        fun matches() = AndroidStorage.failure == null && config.initProgressFlow.value.done &&
++            preferences.get(app.aaps.core.keys.StringNonKey.NsClientControlOwnInstallId) == master
++        if (!matches()) return null
++        return readLocalObservation(now, includeCarryIn = true).takeIf { matches() }
++    }
+     internal suspend fun readLocalCarbPage(request: app.aaps.localobservation.LocalCarbRequest): android.os.Bundle {
+         check(AndroidStorage.failure == null && config.initProgressFlow.value.done)
+         val page = repository.localCarbHistoryPage(request.from, request.through, request.ts, request.id, request.limit + 1)
+diff --git a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+index fc7b22a992..9a34815756 100644
+--- a/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
++++ b/app/src/main/kotlin/app/aaps/localobservation/LocalObservationProvider.kt
+@@ -27,6 +27,8 @@ class LocalObservationProvider : ContentProvider() {
+     private val lastMeal = AtomicLong(-2_000L)
+     private val reading = AtomicBoolean(false)
+     private val lastRead = AtomicLong(-5_000L)
++    private val lastPrepareRead = AtomicLong(-5_000L)
++    private val lastCommitRead = AtomicLong(-5_000L)
+     private val readingTarget = AtomicBoolean(false)
+     private val lastTargetRead = AtomicLong(-5_000L)
+     private val readingMetrics = AtomicBoolean(false)
+@@ -98,9 +100,17 @@ class LocalObservationProvider : ContentProvider() {
+                 readingCarbHistory.set(false)
+             }
+         }
+-        require(arg == null && extras == null)
++        val pairedSnapshot = method == "paired_snapshot_v1" || method == "paired_commit_snapshot_v1"
++        require(arg == null)
++        val master = if (pairedSnapshot) {
++            require(extras != null && extras.keySet() == setOf("nonce", "master") &&
++                localInputNonce.matches(extras.getString("nonce").orEmpty()))
++            requireNotNull(extras.getString("master")).also { require(it.matches(Regex("[a-zA-Z0-9_-]{1,128}"))) }
++        } else { require(extras == null); null }
+         val (busy, last) = when (method) {
+             "snapshot_v1", "snapshot_v2" -> reading to lastRead
++            "paired_snapshot_v1" -> reading to lastPrepareRead
++            "paired_commit_snapshot_v1" -> reading to lastCommitRead
+             "target_v1" -> readingTarget to lastTargetRead
+             "metrics_v1", "metrics_v2" -> readingMetrics to lastMetricsRead
+             "journal_v1" -> readingJournal to lastJournalRead
+@@ -117,6 +127,7 @@ class LocalObservationProvider : ContentProvider() {
+                     withTimeoutOrNull(2_500L) {
+                         val now = System.currentTimeMillis()
+                         when (method) {
++                            "paired_snapshot_v1", "paired_commit_snapshot_v1" -> app.readPairedObservation(now, requireNotNull(master))
+                             "target_v1" -> app.readLocalTarget(now)
+                             "metrics_v1" -> app.readLocalMetrics(now)
+                             "metrics_v2" -> app.readLocalMetrics(now, includeLoopIob = true)
+@@ -125,7 +136,10 @@ class LocalObservationProvider : ContentProvider() {
+                         }
+                     }
+                 } ?: return Bundle()
+-                return Bundle().apply { putByteArray("snapshot", snapshot) }
++                return Bundle().apply {
++                    putByteArray("snapshot", snapshot)
++                    if (pairedSnapshot) putString("nonce", extras?.getString("nonce"))
++                }
+             } catch (_: Exception) {
+                 return Bundle()
+             } finally {

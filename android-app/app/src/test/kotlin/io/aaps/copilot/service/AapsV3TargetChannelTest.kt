@@ -41,6 +41,10 @@ import org.robolectric.annotation.SQLiteMode
 @Config(manifest = Config.NONE, sdk = [35])
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
 class AapsV3TargetChannelTest {
+    @Test fun missingJournalPhaseIsNotProofOfNonDelivery() {
+        assertEquals(NativeTargetOutcome.UNKNOWN, channel.outcome(null))
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.outcome(AapsV3TargetPhase.REJECTED))
+    }
     private lateinit var db: CopilotDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client = "11111111-2222-4333-8444-555555555555"
@@ -52,7 +56,7 @@ class AapsV3TargetChannelTest {
     private val journal get() = AapsV3TargetJournal(db, cipher)
     private var storage = true
     private var storageProbe: () -> Boolean = { storage }
-    private var baseline: suspend () -> String? = { null }
+    private var baseline: suspend (String) -> String? = { null }
     private lateinit var channel: AapsV3TargetChannel
     private var privateDb: ComboJournalDatabase? = null
     private var historyFactory: (() -> AapsV3ComboJournalStore)? = null
@@ -62,7 +66,22 @@ class AapsV3TargetChannelTest {
         channel = newChannel()
     }
     @After fun teardown() = runBlocking { channel.stop(); scope.coroutineContext.job.cancelAndJoin(); privateDb?.close(); db.close() }
-    private fun newChannel() = AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline() }, { it() }, now::get, historyFactory)
+    private var reportFailure: suspend (String) -> Unit = {}
+    private fun newChannel(capture: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null) =
+        AapsV3TargetChannel(db, journal, { storageProbe() }, { baseline(it) }, { it() }, now::get, historyFactory,
+            reportTargetFailure = { reportFailure(it) }, capturePairedBaseline = capture)
+
+    @Test fun pairedRosterMustAgreeWithTheFreshWitness() {
+        val proof = AapsFinalRosterProof(at, true, AapsFinalClientRole.CAREGIVER, true)
+        val receipt = AapsLocalRoleReceipt(proof.role, at)
+        assertTrue(proof.confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(role = AapsFinalClientRole.ADMIN).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(member = false).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(controlEnabled = false).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(signedAt = at - 8001).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.copy(signedAt = at + 1).confirmsLocalMembership(receipt, at, at))
+        assertFalse(proof.confirmsLocalMembership(receipt, at, at + 8000))
+    }
 
     private fun localWrapped(): ByteArray {
         val expiry = at + 120_000
@@ -79,7 +98,7 @@ class AapsV3TargetChannelTest {
         val invites = LocalEnrollmentOffers(scope, { id ->
             grants.issue(id, 17580, byteArrayOf(1), byteArrayOf(2), { subscribed }) {}
         }, now::get)
-        channel = AapsV3TargetChannel(db, journal, { true }, { baseline() }, { it() }, now::get, localOffers = invites)
+        channel = AapsV3TargetChannel(db, journal, { true }, { baseline(it) }, { it() }, now::get, localOffers = invites)
         channel.start(scope)
         val wrapped = localWrapped()
         val receipt = checkNotNull(invites.publish(wrapped))
@@ -292,8 +311,13 @@ class AapsV3TargetChannelTest {
     @Test fun finalPinUsesSignedRosterAndKeepsTheProductionClinicalFence() = runBlocking {
         val master = FinalMaster()
         master.completeEnrollment()
-        baseline = { "native_clinical_projection_unavailable" }
+        val checkedMasters = mutableListOf<String>()
+        baseline = { checkedMasters.add(it); "native_clinical_projection_unavailable" }
+        val stages = mutableListOf<String>()
+        reportFailure = { stages.add(it); error("audit unavailable") }
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
+        assertEquals(listOf("native_clinical_projection_unavailable"), stages)
+        assertEquals(listOf("fixture-master"), checkedMasters)
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
@@ -361,6 +385,16 @@ class AapsV3TargetChannelTest {
         FinalMaster().completeEnrollment("MealAssistant")
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { null })
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+    }
+
+    @Test fun mismatchedEatingSoonParametersNeverPublishPrepare() = runBlocking {
+        FinalMaster().completeEnrollment()
+        val original = command("manual:meal:test:eating-soon")
+        for ((value, minutes) in listOf(EatingSoonPolicy.TARGET_MMOL to 0, EatingSoonPolicy.TARGET_MMOL + 1 to 30)) {
+            val malformed = original.copy(params = mapOf("targetMmol" to value.toString(), "durationMinutes" to minutes.toString()))
+            assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(malformed) { null })
+            assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        }
     }
 
     @Test fun finalEatingSoonFixturePublishesTargetOnlyAndWaitsForCommitAck() = runBlocking {
@@ -580,6 +614,35 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
+    @Test fun pairedInputsInvalidatedDuringDeliveryGuardCannotPublish() = runBlocking {
+        var current = true
+        channel = newChannel { _, _ ->
+            val verify: suspend () -> Boolean = { current }
+            verify
+        }
+        connected()
+        assertEquals(NativeTargetOutcome.NOT_SENT, channel.send(command()) { current = false; null })
+        assertFalse(current)
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+    }
+
+    @Test fun refreshedProbeMustBeAnsweredBeforeTheFirstPrepare() = runBlocking {
+        channel = newChannel { _, _ -> val verify: suspend () -> Boolean = { true }; verify }
+        connected()
+        val oldCounter = request("ping").getValue("counter").jsonPrimitive.long
+        now.addAndGet(61_000L)
+        val sending = async(Dispatchers.IO) { channel.send(command()) { null } }
+        val fresh = withTimeout(4000) {
+            db.localNightscoutV3Dao().observeRevision().map { request("ping") }
+                .first { it.getValue("counter").jsonPrimitive.long > oldCounter }
+        }
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        acknowledge(fresh)
+        preview()
+        acknowledge(request("bolus_commit"))
+        assertEquals(NativeTargetOutcome.APPLIED, sending.await())
+    }
+
     @Test fun changedSafetyGuardAfterPreviewCannotCommit() = runBlocking {
         connected()
         var checks = 0
@@ -590,6 +653,23 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_bolus_commit_$client"))
         now.addAndGet(9000)
         assertEquals(NativeTargetOutcome.NOT_SENT, channel.reconcile(command().idempotencyKey))
+    }
+
+    @Test fun changedPairedInputsAfterPreviewCannotCommit() = runBlocking {
+        var reads = 0
+        channel = newChannel { _, commit ->
+            assertEquals(reads != 0, commit)
+            val matches = ++reads == 1
+            val verify: suspend () -> Boolean = { matches }
+            verify
+        }
+        connected()
+        val master = launch(Dispatchers.IO) { preview() }
+        assertEquals(NativeTargetOutcome.UNKNOWN, channel.send(command()) { null })
+        master.join()
+        assertEquals(2, reads)
+        assertEquals(AapsV3TargetPhase.PREVIEW, journal.pending()!!.phase)
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_bolus_commit_$client"))
     }
 
     @Test fun runtimeRestartRequiresANewSignedProbeAndNeverReplaysAPrepare() = runBlocking {
