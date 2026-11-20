@@ -13,6 +13,28 @@ class TargetManagerTest {
 
     private val manager = TargetManager()
 
+    @Test fun concordantBelowBaseForecastPrefersEligibleRaiseToOrdinaryHold() {
+        val context = input(activeTarget = activeTarget(5.8), baseTarget = 5.8,
+            currentGlucoseMmol = 6.0, minimumPredictedOrCiMmol = 4.8, safetyIobUnits = 2.0,
+            proposals = listOf(proposal(source = "hold", target = 5.8, priority = 150),
+                proposal(source = "raise", target = 6.1, priority = 100)))
+        val forecasts = listOf(5, 30, 60).associateWith { activityForecast(it, 5.2) }
+        val result = manager.decide(context.copy(activitySafety = ActivityTargetSafetyContext(forecasts = forecasts)))
+        assertThat(result.command?.targetMmol).isEqualTo(6.1)
+    }
+
+    @Test fun belowBasePredictionBlocksFurtherLoweringEvenAboveHypoThreshold() {
+        val context = input(activeTarget = activeTarget(6.0), baseTarget = 5.8,
+            currentGlucoseMmol = 6.4, minimumPredictedOrCiMmol = 4.8, safetyIobUnits = 2.0,
+            proposals = listOf(proposal(target = 5.1)))
+        val forecast = ActivityTargetSafetyContext(forecasts = listOf(5, 30, 60).associateWith {
+            activityForecast(it, if (it == 30) 5.2 else 6.1)
+        })
+        val result = manager.decide(context.copy(activitySafety = forecast))
+        assertThat(result.command).isNull()
+        assertThat(result.reasonCodes).contains("forecast_below_base_blocks_low_target")
+    }
+
     @Test fun raisedTargetCanDecreaseButLowBoundsAndUnreliabilityStillBlockIt() {
         val safe = input(activeTarget = activeTarget(7.4), baseTarget = 5.8,
             currentGlucoseMmol = 5.6, minimumPredictedOrCiMmol = 5.1, safetyIobUnits = 2.0,

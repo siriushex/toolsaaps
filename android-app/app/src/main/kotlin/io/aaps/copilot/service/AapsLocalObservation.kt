@@ -124,11 +124,11 @@ internal object AapsLocalObservation {
             ?.getByteArray("snapshot")
     }
 
-    fun readPairedLoopInputs(context: Context, nonce: String, master: String): ByteArray? {
+    fun readPairedLoopInputs(context: Context, nonce: String, master: String, components: Boolean = false): ByteArray? {
         if (!master.matches(Regex("[a-zA-Z0-9_-]{1,128}"))) return null
         val provider = context.packageManager.resolveContentProvider(AUTHORITY, 0) ?: return null
         val args = Bundle().apply { putString("nonce", nonce); putString("master", master) }
-        return callVerified(context, provider, "loop_inputs_v2", args)?.getByteArray("snapshot")
+        return callVerified(context, provider, if (components) "loop_inputs_v3" else "loop_inputs_v2", args)?.getByteArray("snapshot")
     }
 
     internal fun decodeCarbReply(request: AapsCarbHistoryRequest, reply: Bundle): AapsCarbHistoryResult {

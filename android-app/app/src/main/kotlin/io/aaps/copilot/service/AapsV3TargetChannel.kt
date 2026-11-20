@@ -65,6 +65,15 @@ internal class AapsV3TargetChannel(
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
     private val refreshMutex = Mutex()
+    suspend fun readLocalComponents(peer: (String) -> ByteArray?): ByteArray? {
+        val epoch = generation.get()
+        val pair = journal.pairingSnapshot()?.takeIf { it.localEnrollment && it.phase == AapsV3PairingPhase.ACTIVE } ?: return null
+        return peer(pair.masterInstallId)?.takeIf {
+            val after = journal.pairingSnapshot()
+            epoch == generation.get() && after?.masterInstallId == pair.masterInstallId &&
+                after.localEnrollment && after.phase == AapsV3PairingPhase.ACTIVE
+        }
+    }
     suspend fun submitManualMeal(id: String, recordPeer: ((String, ByteArray) -> Unit)?,
                                  peer: (String, ByteArray) -> ByteArray?): NativeMealSubmission = withContext(Dispatchers.IO) {
         val epoch = generation.get()
@@ -452,9 +461,10 @@ internal class AapsV3TargetChannel(
                 var pairedMaster: String? = null
                 suspend fun capture(commit: Boolean) {
                     val read = capturePairedBaseline ?: return
-                    stage = "paired_input_read"
+                    stage = "paired_input_role"
                     val master = journal.requireLivePairing(clock(), sessionStartedAt, sessionProbeCounter, requireTargetRole = true)
                     pairedMaster = master
+                    stage = "paired_input_read"
                     pairedCheck = read(master, commit)
                 }
                 suspend fun guard() {
@@ -485,7 +495,11 @@ internal class AapsV3TargetChannel(
                 }
                 stage = "prepare"
                 // prepare validates the stored payload fingerprint even for a settled command.
-                if (capturePairedBaseline != null && journal.status(command.idempotencyKey) == null) capture(commit = false)
+                if (capturePairedBaseline != null && journal.status(command.idempotencyKey) == null) {
+                    stage = "paired_probe_ack"
+                    awaitOutstandingProbe(epoch)
+                    capture(commit = false)
+                }
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
                         currentTime = clock, expectedActionId = command.id, requirePendingAction = requirePendingAction) { guard() }
@@ -534,6 +548,26 @@ internal class AapsV3TargetChannel(
         journal.status(operationId)?.let(::outcome) ?: NativeTargetOutcome.UNKNOWN
     } catch (cancelled: CancellationException) { throw cancelled }
     catch (_: Exception) { NativeTargetOutcome.UNKNOWN }
+
+    private suspend fun awaitOutstandingProbe(epoch: Long) {
+        val expected = sessionProbeCounter
+        val pair = checkNotNull(journal.pairingSnapshot())
+        if (expected <= 0 || pair.pongCounter >= expected || pair.phase != AapsV3PairingPhase.ACTIVE || !pair.controlEnabled) return
+        // A preflight refresh can publish a new Ping. Observe its answer; never publish
+        // another Ping or command while waiting. The regular pairing guard still runs.
+        check(withTimeoutOrNull(8500) {
+            db.localNightscoutV3Dao().observeRevision().first {
+                check(runtimeAllowed && generation.get() == epoch && sessionProbeCounter == expected && storageAvailable())
+                val row = store.get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_ack_${pair.clientId}")
+                if (row != null && !row.deleted && row.source == "local-v3-owner") {
+                    val ack = HistoryJson.parse(row.payloadJson.toByteArray(), 65_536)["ack"] as? JsonObject
+                    if (ack != null) journal.acknowledgeProbe(ack, clock())
+                }
+                journal.pairingSnapshot()?.let { it.clientId == pair.clientId && it.pongCounter == expected } == true
+            }
+            true
+        } == true)
+    }
 
     private suspend fun awaitPhase(operationId: String, intermediate: Set<AapsV3TargetPhase>): AapsV3TargetPhase? {
         val result = withTimeoutOrNull(8500) {

@@ -605,7 +605,10 @@ class AppContainer(context: Context) {
     private val localAapsLoopInputs by lazy { LocalAapsLoopInputSync(
         db, { nonce -> AapsLocalObservation.readLoopInputs(appContext, nonce) },
         { nativeCarbHistoryEnabled(settingsStore.settings.first(), settingsStore.setupProgress.first()) },
-        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) }
+        { clinicalInputInvalidationCoordinator.invalidatePersistedInput(ClinicalInputInvalidationSource.LOCAL_NIGHTSCOUT) },
+        readComponents = { nonce -> nativeAapsTargetChannel.readLocalComponents { master ->
+            AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master, components = true)
+        } }
     ) }
 
     private fun localCgmEnabled(settings: AppSettings, setup: SetupProgress) =
@@ -1164,7 +1167,10 @@ class AppContainer(context: Context) {
         capturePairedBaseline = { master, commit ->
             val nonce = UUID.randomUUID().toString()
             val issued = System.currentTimeMillis()
-            val reply = withContext(Dispatchers.IO) { AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master) }
+            val reply = withContext(Dispatchers.IO) {
+                val components = LocalAapsLoopInputSync.activeSamples(db, issued).any { it.key == "insulin_activity" }
+                AapsLocalObservation.readPairedLoopInputs(appContext, nonce, master, components = components)
+            }
             val received = System.currentTimeMillis()
             val clinical = if (reply == null) null else withContext(Dispatchers.IO) {
                 AapsLocalObservation.readPairedObservation(appContext, UUID.randomUUID().toString(), master, commit)

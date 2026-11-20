@@ -626,6 +626,23 @@ class AapsV3TargetChannelTest {
         assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
     }
 
+    @Test fun refreshedProbeMustBeAnsweredBeforeTheFirstPrepare() = runBlocking {
+        channel = newChannel { _, _ -> val verify: suspend () -> Boolean = { true }; verify }
+        connected()
+        val oldCounter = request("ping").getValue("counter").jsonPrimitive.long
+        now.addAndGet(61_000L)
+        val sending = async(Dispatchers.IO) { channel.send(command()) { null } }
+        val fresh = withTimeout(4000) {
+            db.localNightscoutV3Dao().observeRevision().map { request("ping") }
+                .first { it.getValue("counter").jsonPrimitive.long > oldCounter }
+        }
+        assertNull(LocalNightscoutV3Store(db).get(LocalV3Collection.SETTINGS, "aaps_clientcontrol_cmd_batch_prepare_$client"))
+        acknowledge(fresh)
+        preview()
+        acknowledge(request("bolus_commit"))
+        assertEquals(NativeTargetOutcome.APPLIED, sending.await())
+    }
+
     @Test fun changedSafetyGuardAfterPreviewCannotCommit() = runBlocking {
         connected()
         var checks = 0

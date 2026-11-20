@@ -23,7 +23,7 @@ class ForecastTestActivationWiringTest {
     @Test fun ordinaryFiveMinuteLoopAndTestMinuteLoopHaveSeparateOwners() {
         val service = source("service/LocalNightscoutForegroundService.kt")
         assertThat(service).contains("PERIODIC_CYCLE_INTERVAL_MS = 5L * 60_000L")
-        assertThat(service).contains("PERIODIC_CYCLE_INTERVAL_MS - (System.currentTimeMillis() % PERIODIC_CYCLE_INTERVAL_MS)")
+        assertThat(service).contains("PERIODIC_CYCLE_INTERVAL_MS - (android.os.SystemClock.elapsedRealtime() % PERIODIC_CYCLE_INTERVAL_MS)")
         assertThat(service).contains("val waitMs = msUntilNextCycle.coerceIn(5_000L, PERIODIC_CYCLE_INTERVAL_MS)")
         assertThat(service).contains("delay(waitMs)")
         assertThat(service).contains("private fun ensureForecastTestCycle(app: CopilotApp)")

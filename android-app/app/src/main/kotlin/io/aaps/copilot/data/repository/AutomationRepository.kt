@@ -12432,6 +12432,16 @@ class AutomationRepository(
                 it.valueDouble?.let { value -> value in -30.0..30.0 } == true
             }.maxByOrNull { it.timestamp }?.let { TimedInsulinValue(checkNotNull(it.valueDouble), it.timestamp) }
             val legacy = listOfNotNull(broadcastLegacy, nativeNet).maxByOrNull { it.timestamp }
+            if (nativeNet != null && nativeNet.timestamp >= (broadcastLegacy?.timestamp ?: 0L) &&
+                nativeNet.timestamp >= (components?.netIob?.timestamp ?: 0L)) {
+                val group = rows.filter { it.source == LocalAapsLoopInputSync.SOURCE && it.timestamp == nativeNet.timestamp }
+                fun part(key: String) = group.singleOrNull { it.key == key }?.valueDouble
+                    ?.takeIf(Double::isFinite)?.let { TimedInsulinValue(it, nativeNet.timestamp) }
+                val local = InsulinComponentTelemetry(part("iob_net_units"), part("iob_bolus_units"),
+                    part("iob_basal_units"), part("insulin_activity"))
+                val resolution = InsulinRuntimeSnapshotResolver.resolve(nowTimestamp = nowTs, components = local)
+                if (resolution.snapshot?.source == InsulinRuntimeSource.AAPS_COMPONENTS) return resolution
+            }
             val packetExternal = newestPackets.values.asSequence()
                 .filterNotNull()
                 .filter {
