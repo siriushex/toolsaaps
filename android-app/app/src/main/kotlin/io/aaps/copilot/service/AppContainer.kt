@@ -1147,6 +1147,9 @@ class AppContainer(context: Context) {
         db = db,
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
         requirePendingAction = true,
+        localTargetPreviewPeer = { master, request -> withContext(Dispatchers.IO) {
+            AapsLocalSessionPeer.previewTarget(appContext, master, request)
+        } },
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
         localOffers = localEnrollmentOffers,
         localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },

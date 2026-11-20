@@ -619,6 +619,20 @@ internal class AapsV3TargetJournal(
         committed.snapshot(publication)
     }
 
+    suspend fun localTargetPreviewRequest(key: String, now: Long): Pair<String, JsonObject>? = transaction {
+        val pair = pairingOrNull() ?: return@transaction null
+        if (pair.localBinding == null) return@transaction null
+        val root = root()
+        check(pair.phase == AapsV3PairingPhase.ACTIVE && pair.secretRotated && pair.clientId == root.clientId)
+        check(root.pending == commandKey(key))
+        val row = record(commandKey(key))
+        check(row.phase == AapsV3TargetPhase.PREPARED && row.operationId == key && row.commit == null &&
+            row.targetInput != null && pendingTargetAction(key)?.let(::actionFingerprint) == row.targetInput)
+        val request = checkNotNull(row.prepare)
+        check(now in request.getValue("timestamp").jsonPrimitive.long until request.getValue("validUntil").jsonPrimitive.long)
+        pair.masterInstallId to request
+    }
+
     suspend fun acknowledge(operationId: String, protocol: AapsV3TargetProtocol, ack: JsonObject,
                             nowMs: Long): AapsV3TargetJournalSnapshot = transaction {
         acknowledgeInTransaction(operationId, protocol, ack, nowMs)

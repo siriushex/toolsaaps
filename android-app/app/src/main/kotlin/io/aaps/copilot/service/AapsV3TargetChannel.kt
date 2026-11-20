@@ -59,7 +59,8 @@ internal class AapsV3TargetChannel(
     private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val reportTargetFailure: suspend (String) -> Unit = {},
     private val capturePairedBaseline: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null,
-    private val requirePendingAction: Boolean = false
+    private val requirePendingAction: Boolean = false,
+    private val localTargetPreviewPeer: (suspend (String, ByteArray) -> ByteArray?)? = null
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -492,6 +493,15 @@ internal class AapsV3TargetChannel(
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)
                 stage = "preview"
+                localTargetPreviewPeer?.let { peer ->
+                    journal.localTargetPreviewRequest(command.idempotencyKey, clock())?.let { (master, request) ->
+                        val wire = request.toString().encodeToByteArray()
+                        val reply = try { peer(master, wire) } finally { wire.fill(0) }
+                        if (reply != null) try {
+                            journal.acknowledge(command.idempotencyKey, protocol, HistoryJson.parse(reply, 16_384), clock())
+                        } finally { reply.fill(0) }
+                    }
+                }
                 val preview = awaitPhase(command.idempotencyKey, setOf(AapsV3TargetPhase.PREVIEW))
                 if (preview != AapsV3TargetPhase.PREVIEW) return@withTargetProtocol outcome(journal.status(command.idempotencyKey))
                 stage = "commit"
