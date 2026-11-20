@@ -270,6 +270,16 @@ class AapsV3TargetJournalTest {
         }
     }
 
+    @Test fun strictCommitRejectsLegacyPreviewWithoutActionReceipt() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        protocol.use { p ->
+            owner.prepare("meal-1", target, p, at) {}
+            preview(owner, p)
+            assertTrue(runCatching { owner.commit("meal-1", p, at + 3, requirePendingAction = true) {} }.isFailure)
+            assertEquals(AapsV3TargetPhase.PREVIEW, owner.status("meal-1"))
+        }
+    }
+
     @Test fun requiredPendingActionRejectsMissingAndMismatchedRowsBeforePublication() = runBlocking {
         val owner = journal(); owner.bind(client)
         val key = "meal-1"

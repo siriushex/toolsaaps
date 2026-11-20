@@ -594,7 +594,8 @@ internal class AapsV3TargetJournal(
     }
 
     suspend fun commit(operationId: String, protocol: AapsV3TargetProtocol, nowMs: Long,
-                       currentTime: () -> Long = { nowMs }, checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
+                       currentTime: () -> Long = { nowMs }, requirePendingAction: Boolean = false,
+                       checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
         val root = root(); val id = commandKey(operationId); val previous = record(id)
         check(previous.mealGrams == null)
         if (previous.phase in setOf(AapsV3TargetPhase.COMMITTED, AapsV3TargetPhase.UNKNOWN,
@@ -603,6 +604,7 @@ internal class AapsV3TargetJournal(
         }
         check(root.pending == id && previous.phase == AapsV3TargetPhase.PREVIEW && nowMs >= root.lastIssuedAt)
         checkGuard()
+        if (requirePendingAction) checkNotNull(previous.targetInput)
         previous.targetInput?.let { expected ->
             check(pendingTargetAction(operationId)?.let(::actionFingerprint) == expected)
         }

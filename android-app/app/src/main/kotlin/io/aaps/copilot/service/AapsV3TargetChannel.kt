@@ -498,7 +498,8 @@ internal class AapsV3TargetChannel(
                 capture(commit = true)
                 publicationLease {
                     commitAttempted = true
-                    journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock) { guard() }
+                    journal.commit(command.idempotencyKey, protocol, clock(), currentTime = clock,
+                        requirePendingAction = requirePendingAction) { guard() }
                 }
                 stage = "acknowledgement"
                 awaitPhase(command.idempotencyKey, emptySet())
