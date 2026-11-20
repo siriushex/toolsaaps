@@ -1164,12 +1164,11 @@ class AppContainer(context: Context) {
             }
             val verify: suspend () -> Boolean = {
                 val now = System.currentTimeMillis()
-                reply != null && clinical?.glucose == AapsV3InboundGlucose.FRESH &&
-                    clinical.profile == AapsV3ObservedProfileStatus.OBSERVED &&
-                    clinical.insulin == AapsV3ObservedInsulinStatus.OBSERVED &&
-                    clinical.insulinRecordCount > 0 && now >= received && now - issued in 0..10_000L &&
+                reply != null && clinical?.profile != null &&
+                    clinical.insulin?.status == AapsV3ObservedInsulinStatus.OBSERVED &&
+                    clinical.insulin.records.any { !it.invalidated } && now >= received && now - issued in 0..10_000L &&
                     LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received, System::currentTimeMillis) &&
-                    clinical.hasFreshPairedGlucose(System.currentTimeMillis())
+                    clinical.summary.hasFreshPairedGlucose(System.currentTimeMillis())
             }
             verify
         },

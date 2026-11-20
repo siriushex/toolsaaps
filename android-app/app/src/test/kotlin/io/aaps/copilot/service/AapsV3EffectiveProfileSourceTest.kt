@@ -102,10 +102,16 @@ class AapsV3EffectiveProfileSourceTest {
             putString("nonce", "test-request")
             putByteArray("snapshot", JsonObject(packet + ("version" to JsonPrimitive(2))).toString().encodeToByteArray())
         }
-        assertEquals(AapsV3InboundGlucose.FRESH, AapsLocalObservation.decodePairedObservation(paired, "test-request", now, now)?.glucose)
-        assertNull(AapsLocalObservation.decodePairedObservation(paired, "other-request", now, now))
-        assertEquals(AapsV3InboundGlucose.UNAVAILABLE,
-            AapsLocalObservation.decodePairedObservation(paired, "test-request", now + 1, now + 2)?.glucose)
+        val evidence = checkNotNull(AapsLocalObservation.decodePairedEvidence(paired, "test-request", now, now))
+        assertEquals(AapsV3InboundGlucose.FRESH, evidence.summary.glucose)
+        assertEquals(at, evidence.profile?.eventAtMs)
+        assertEquals(1, evidence.insulin?.records?.size)
+        assertEquals(false, evidence.insulin?.upstreamCompletenessVerified)
+        assertNull(AapsLocalObservation.decodePairedEvidence(paired, "other-request", now, now))
+        val stale = checkNotNull(AapsLocalObservation.decodePairedEvidence(paired, "test-request", now + 1, now + 2))
+        assertEquals(AapsV3InboundGlucose.UNAVAILABLE, stale.summary.glucose)
+        assertNull(stale.profile)
+        assertNull(stale.insulin)
         assertEquals(AapsV3InboundSummary(now, AapsV3InboundGlucose.FRESH, AapsV3ObservedProfileStatus.OBSERVED,
             AapsV3ObservedInsulinStatus.OBSERVED, 1, samePhone = true, samePhoneGlucoseAtMs = at), parse(packet))
         assertEquals(true, parse(packet).hasFreshPairedGlucose(at + 300_000))
