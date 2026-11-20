@@ -157,6 +157,35 @@ class AapsV3EffectiveProfileSourceTest {
         }
     }
 
+    @Test fun pairedSnapshotMatchesRetainedRowsUntilOneDeliveryIsWithdrawn() = runBlocking {
+        val stored = store()
+        val profile = input("effective")
+        stored.create(profile)
+        val dose = buildJsonObject {
+            put("date", at); put("utcOffset", 0); put("eventType", "Temp Basal"); put("percent", -20)
+            put("durationInMilliseconds", 120_000); put("pumpType", "ACCU_CHEK_COMBO"); put("pumpSerial", "synthetic"); put("pumpId", 7)
+        }
+        val row = stored.create(profile.copy(identifier = "dose", payloadJson = dose.toString())).document
+        val now = at + 100_100L
+        val packet = buildJsonObject {
+            put("version", 2); put("at", now); put("profile", Json.parseToJsonElement(profile.payloadJson))
+            put("glucose", JsonArray(emptyList())); put("insulin", JsonArray(listOf(dose)))
+        }
+        val paired = checkNotNull(AapsLocalObservation.decodePairedEvidence(android.os.Bundle().apply {
+            putString("nonce", "test-request"); putByteArray("snapshot", packet.toString().encodeToByteArray())
+        }, "test-request", now, now))
+        val source = AapsV3EffectiveProfileSource(stored)
+        suspend fun read() = source.readEvidence(now - 86_400_000L, now, now)
+        val before = read()
+        assertTrue(checkNotNull(paired.profile).matchesEffectiveProfile(checkNotNull(before.profile.observation)))
+        val insulin = checkNotNull(paired.insulin)
+        assertTrue(insulin.matchesActiveRecords(before.insulin))
+        stored.delete(LocalV3Collection.TREATMENTS, "dose", row.modifiedRevision)
+        val after = read()
+        assertTrue(paired.profile.matchesEffectiveProfile(checkNotNull(after.profile.observation)))
+        assertFalse(insulin.matchesActiveRecords(after.insulin))
+    }
+
     @Test fun inboundCheckDoesNotRequirePairingOrProjectClinicalData() = runBlocking {
         val store = store()
         val check = AapsV3InboundDiagnostics(store)
