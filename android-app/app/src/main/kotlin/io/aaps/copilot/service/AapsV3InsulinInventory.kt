@@ -43,6 +43,14 @@ internal class AapsV3InsulinRead(val status: AapsV3ObservedInsulinStatus, val re
     records: List<AapsV3InsulinObservation> = emptyList()) {
     val records: List<AapsV3InsulinObservation> = Collections.unmodifiableList(records.toList())
     val upstreamCompletenessVerified: Boolean get() = false
+    fun matchesActiveRecords(other: AapsV3InsulinRead): Boolean {
+        if (status != AapsV3ObservedInsulinStatus.OBSERVED || other.status != status) return false
+        fun counts(read: AapsV3InsulinRead) = read.records.asSequence().filterNot { it.invalidated }
+            .map { it.copy(identifier = "", availableAtMs = 0, createdRevision = 0, modifiedRevision = 0) }
+            .groupingBy { it }.eachCount()
+        val expected = counts(this)
+        return expected.isNotEmpty() && expected == counts(other)
+    }
     override fun toString() = "AapsV3InsulinRead(status=$status, redacted)"
 }
 

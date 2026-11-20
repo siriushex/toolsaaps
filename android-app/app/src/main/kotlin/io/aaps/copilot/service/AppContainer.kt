@@ -1139,6 +1139,9 @@ class AppContainer(context: Context) {
     )
 
     private val retainedComboDatabase by lazy { io.aaps.copilot.data.local.ComboJournalDatabase.create(context) }
+    private val targetProfileSource by lazy {
+        AapsV3EffectiveProfileSource(io.aaps.copilot.data.repository.LocalNightscoutV3Store(db))
+    }
     internal val localEnrollmentOffers = LocalEnrollmentOffers(appScope, localNightscoutServer::openLocalSettingsTicket)
     private val nativeAapsTargetChannel = AapsV3TargetChannel(
         db = db,
@@ -1164,9 +1167,14 @@ class AppContainer(context: Context) {
             }
             val verify: suspend () -> Boolean = {
                 val now = System.currentTimeMillis()
-                reply != null && clinical?.profile != null &&
+                val at = clinical?.snapshotAtMs
+                reply != null && at != null && clinical.profile != null &&
                     clinical.insulin?.status == AapsV3ObservedInsulinStatus.OBSERVED &&
                     clinical.insulin.records.any { !it.invalidated } && now >= received && now - issued in 0..10_000L &&
+                    targetProfileSource.readEvidence(maxOf(1L, at - 86_400_000L), at, now).let { retained ->
+                        retained.profile.observation?.let(clinical.profile::matchesEffectiveProfile) == true &&
+                            clinical.insulin.matchesActiveRecords(retained.insulin)
+                    } &&
                     LocalAapsLoopInputSync.matchesPairedSamples(db, reply, nonce, issued, received, System::currentTimeMillis) &&
                     clinical.summary.hasFreshPairedGlucose(System.currentTimeMillis())
             }

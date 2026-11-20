@@ -17,7 +17,7 @@ import io.aaps.copilot.util.UnitConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 
-internal class LocalClinicalObservation(val summary: AapsV3InboundSummary,
+internal class LocalClinicalObservation(val summary: AapsV3InboundSummary, val snapshotAtMs: Long?,
     val profile: AapsV3EffectiveProfileObservation?, val insulin: AapsV3InsulinRead?) {
     override fun toString() = "LocalClinicalObservation(redacted)"
 }
@@ -230,9 +230,9 @@ internal object AapsLocalObservation {
         val count = insulin.records.count { !it.invalidated }
         LocalClinicalObservation(AapsV3InboundSummary(now, glucose, profile, insulin.status, count, samePhone = true,
             samePhoneGlucoseAtMs = latest?.takeIf { glucose == AapsV3InboundGlucose.FRESH }),
-            (projected as? AapsV3ProfileProjection.Observed)?.observation, insulin)
+            at, (projected as? AapsV3ProfileProjection.Observed)?.observation, insulin)
     } catch (_: Exception) {
-        LocalClinicalObservation(unavailable(now), null, null)
+        LocalClinicalObservation(unavailable(now), null, null, null)
     }
 
     private fun observationRow(body: JsonObject, id: String, at: Long): LocalNightscoutV3DocumentEntity {

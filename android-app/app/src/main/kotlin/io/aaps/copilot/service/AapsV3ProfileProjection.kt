@@ -99,6 +99,10 @@ internal data class AapsV3EffectiveProfileObservation(
     val profile: AapsV3ProfileSnapshot,
     val insulin: AapsV3InsulinConfiguration
 ) {
+    /** The paired snapshot and retained upload assign independent local row IDs and revisions. */
+    fun matchesEffectiveProfile(other: AapsV3EffectiveProfileObservation): Boolean =
+        this == other.copy(identifier = identifier, createdRevision = createdRevision, modifiedRevision = modifiedRevision)
+
     override fun toString() = "AapsV3EffectiveProfileObservation(redacted)"
 }
 
