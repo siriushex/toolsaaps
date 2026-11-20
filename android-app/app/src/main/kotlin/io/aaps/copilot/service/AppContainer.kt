@@ -1146,6 +1146,7 @@ class AppContainer(context: Context) {
     private val nativeAapsTargetChannel = AapsV3TargetChannel(
         db = db,
         journal = AapsV3TargetJournal(db, KeystoreAapsV3JournalCipher()),
+        requirePendingAction = true,
         storageAvailable = localNightscoutServer::hasNativeStorageSubscription,
         localOffers = localEnrollmentOffers,
         localWitnessPeer = { master, nonce, request -> AapsLocalSessionPeer.check(appContext, master, nonce, request) },

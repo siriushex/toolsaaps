@@ -270,6 +270,19 @@ class AapsV3TargetJournalTest {
         }
     }
 
+    @Test fun requiredPendingActionRejectsMissingAndMismatchedRowsBeforePublication() = runBlocking {
+        val owner = journal(); owner.bind(client)
+        val key = "meal-1"
+        val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("expected", at, "temp_target", "{}", "{}", key, "PENDING")
+        protocol.use { p ->
+            suspend fun prepare() = owner.prepare(key, target, p, at, expectedActionId = row.id, requirePendingAction = true) {}
+            assertTrue(runCatching { prepare() }.isFailure)
+            db.actionCommandDao().upsert(row.copy(id = "different"))
+            assertTrue(runCatching { prepare() }.isFailure)
+            assertNull(owner.status(key))
+        }
+    }
+
     @Test fun withdrawnTargetCannotCommitAfterPreview() = runBlocking {
         val owner = journal(); owner.bind(client)
         val row = io.aaps.copilot.data.local.entity.ActionCommandEntity("first", at, "temp_target", "{}", "{}", "meal-1", "PENDING")

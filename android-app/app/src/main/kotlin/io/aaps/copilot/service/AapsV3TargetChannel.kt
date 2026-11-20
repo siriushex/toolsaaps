@@ -58,7 +58,8 @@ internal class AapsV3TargetChannel(
     private val localWitnessPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val localSettingsPeer: (suspend (String, String, ByteArray) -> ByteArray?)? = null,
     private val reportTargetFailure: suspend (String) -> Unit = {},
-    private val capturePairedBaseline: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null
+    private val capturePairedBaseline: (suspend (String, Boolean) -> (suspend () -> Boolean))? = null,
+    private val requirePendingAction: Boolean = false
 ) : NativeTargetTransport {
     private val store = LocalNightscoutV3Store(db)
     private val profileSource = AapsV3EffectiveProfileSource(store)
@@ -486,7 +487,7 @@ internal class AapsV3TargetChannel(
                 if (capturePairedBaseline != null && journal.status(command.idempotencyKey) == null) capture(commit = false)
                 val prepared = publicationLease {
                     journal.prepare(command.idempotencyKey, target, protocol, clock(),
-                        currentTime = clock, expectedActionId = command.id) { guard() }
+                        currentTime = clock, expectedActionId = command.id, requirePendingAction = requirePendingAction) { guard() }
                 }
                 // Only the caller that atomically published this prepare may decide to commit it.
                 if (prepared.publication == null) return@withTargetProtocol outcome(prepared.phase)

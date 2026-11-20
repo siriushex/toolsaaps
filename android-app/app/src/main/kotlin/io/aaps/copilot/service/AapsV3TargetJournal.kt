@@ -559,6 +559,7 @@ internal class AapsV3TargetJournal(
 
     suspend fun prepare(operationId: String, target: AapsV3TargetSpec, protocol: AapsV3TargetProtocol,
                         nowMs: Long, currentTime: () -> Long = { nowMs }, expectedActionId: String? = null,
+                        requirePendingAction: Boolean = false,
                         checkGuard: suspend () -> Unit): AapsV3TargetJournalSnapshot = transaction {
         val root = root()
         val id = commandKey(operationId)
@@ -583,6 +584,7 @@ internal class AapsV3TargetJournal(
         candidate = protocol.prepare(root.clientId, next(root.counter), issuedAt, target.copy(notes = marker))
         val counter = candidate.json.getValue("counter").jsonPrimitive.long
         val receipt = expectedActionId?.let { id -> pendingTargetAction(operationId)?.takeIf { it.id == id } }
+        if (requirePendingAction) checkNotNull(receipt)
         val record = Record(fingerprint, AapsV3TargetPhase.PREPARED, counter, candidate.json, operationId = operationId,
             targetInput = receipt?.let(::actionFingerprint))
         val publication = publish(candidate)
